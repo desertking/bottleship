@@ -15,6 +15,7 @@ type Node =
     | { t: 'set'; i: number; v: Node[] }
     | { t: 'typed'; i: number; k: string; b: number }
     | { t: 'obj'; i: number; c: string; v: Record<string, Node> }
+    | { t: 'ext'; n: string }
     | null | boolean | string | number;
 
 export interface EncodedGraph { root: Node; blobs: Uint8Array[] }
@@ -28,6 +29,8 @@ export interface EncodeOptions {
     dropFunction?: (path: string, owner: object, key: string) => boolean;
     /** Return true to skip a field entirely (host handles, GPU objects, caches). */
     skipField?: (path: string, owner: object, key: string, value: unknown) => boolean;
+    /** Objects that live outside the snapshot (engine singletons), encoded by name. */
+    externals?: Map<object, string>;
 }
 
 const TYPED: Record<string, new (b: ArrayBuffer) => ArrayBufferView> = {
@@ -49,6 +52,8 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
         if (typeof v !== 'object') throw new Error(`unsupported ${typeof v} at ${path}`);
         const seen = ids.get(v);
         if (seen !== undefined) return { t: 'ref', i: seen };
+        const ext = opts.externals?.get(v);
+        if (ext !== undefined) return { t: 'ext', n: ext };
         const i = next++;
         ids.set(v, i);
         if (ArrayBuffer.isView(v)) {
@@ -75,7 +80,7 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
 /** Resolve a constructor name to its prototype in this build; null = plain object. */
 export type PrototypeLookup = (ctorName: string) => object | null | undefined;
 
-export function decodeGraph(graph: EncodedGraph, lookup: PrototypeLookup = () => null): unknown {
+export function decodeGraph(graph: EncodedGraph, lookup: PrototypeLookup = () => null, externals: Map<string, unknown> = new Map()): unknown {
     const made = new Map<number, unknown>();
     const dec = (n: Node): unknown => {
         if (n === null || typeof n !== 'object') return n;
@@ -87,6 +92,10 @@ export function decodeGraph(graph: EncodedGraph, lookup: PrototypeLookup = () =>
             case 'num': return Number(n.v);
             case 'big': return BigInt(n.v);
             case 'undef': return undefined;
+            case 'ext': {
+                if (!externals.has(n.n)) throw new Error(`unknown external ${n.n}`);
+                return externals.get(n.n);
+            }
             case 'typed': {
                 const Ctor = TYPED[n.k];
                 if (!Ctor) throw new Error(`typed array ${n.k}`);

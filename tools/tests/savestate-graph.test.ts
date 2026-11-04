@@ -42,3 +42,14 @@ describe("savestate object graph codec", () => {
         expect(() => decodeGraph(encodeGraph({ s: new Surface(1) }), () => undefined)).toThrow(/unknown class/);
     });
 });
+
+describe("externals", () => {
+    test("engine singletons are encoded by name and resolved to the live instance", () => {
+        const engine = { big: new Array(1000).fill(1) };
+        const g = encodeGraph({ owner: engine, n: 1 }, { externals: new Map([[engine, 'engine']]) });
+        expect(JSON.stringify(g.root).length).toBeLessThan(200);
+        const live = { other: true };
+        const back: any = decodeGraph(g, () => null, new Map([['engine', live]]));
+        expect(back.owner).toBe(live);
+    });
+});

@@ -4,6 +4,7 @@ import { isRenderSurface } from '../modules/ddraw/com-objects';
 import type { DirectDrawSurfaceState } from '../modules/ddraw/com-objects';
 import { decodeGraph, encodeGraph, type EncodedGraph } from './graph';
 import { MEM_THUNK_CODE_BASE, MEM_THUNK_CODE_SIZE } from '../core/cpu/emulator-config';
+import { captureParticipants, probeParticipants, restoreParticipants } from './participants';
 
 declare const __BUILD_SHA__: string;
 
@@ -13,7 +14,7 @@ export interface SavestateMeta {
     format: string;
     engine: string;
     gameId: string;
-    scope: 'cpu+ram';
+    scope: 'cpu+ram+js';
     createdAt: number;
     rawBytes: number;
 }
@@ -71,7 +72,7 @@ function captureCpuAndRam(): ArrayBuffer {
     const full = cpu.get_state();
     const picked: Record<number, unknown> = {};
     for (const i of CPU_SLOTS) picked[i] = full[i];
-    return packGraph(encodeGraph(picked));
+    return packGraph(encodeGraph({ cpu: picked, js: captureParticipants() }));
 }
 
 /** Same bit layout as v86's Bitmap, which unpack_memory reads through get(). */
@@ -105,7 +106,8 @@ interface V86CpuFields {
 function restoreCpuAndRam(buf: ArrayBuffer): void {
     const cpu = v86Cpu() as unknown as V86CpuFields | undefined;
     if (!cpu) throw new Error('no-emulator');
-    const st = decodeGraph(unpackGraph(buf)) as Record<number, any>;
+    const whole = decodeGraph(unpackGraph(buf)) as { cpu: Record<number, any>; js: Parameters<typeof restoreParticipants>[0] };
+    const st = whole.cpu;
     if (st[0] !== cpu.memory_size[0]) throw new Error('memory-size');
     const one = (field: { [k: number]: number }, v: number) => { field[0] = v; };
     if (st[1].length === 16) { cpu.segment_is_null.set(st[1].subarray(0, 8)); cpu.segment_access_bytes.set(st[1].subarray(8, 16)); }
@@ -141,6 +143,7 @@ function restoreCpuAndRam(buf: ArrayBuffer): void {
     cpu.update_state_flags();
     cpu.full_clear_tlb();
     cpu.jit_clear_cache();
+    restoreParticipants(whole.js);
 }
 
 export function savestateIdentity(): { gameId: string; engine: string } {
@@ -185,7 +188,7 @@ export async function captureSavestate(host: SavestateHost): Promise<{ meta: Sav
     try {
         const state = captureCpuAndRam();
         return {
-            meta: { format: SAVESTATE_FORMAT, engine: engineBuild(), gameId: currentGameId(), scope: 'cpu+ram', createdAt: Date.now(), rawBytes: state.byteLength },
+            meta: { format: SAVESTATE_FORMAT, engine: engineBuild(), gameId: currentGameId(), scope: 'cpu+ram+js', createdAt: Date.now(), rawBytes: state.byteLength },
             state,
         };
     } finally {
@@ -216,7 +219,9 @@ export async function restoreSavestate(host: SavestateHost, meta: SavestateMeta,
     }
 }
 
+
 (globalThis as Record<string, unknown>).__bsSavestateDebug = {
+    participants: () => JSON.stringify(probeParticipants()),
     probe(): string {
         const cpu = v86Cpu();
         if (!cpu) return 'no cpu';
