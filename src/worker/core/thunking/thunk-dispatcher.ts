@@ -434,6 +434,269 @@ export class ThunkDispatcher {
     // V8 loves fixed size arrays with integers
     private reusableArgs: number[] = new Array(32).fill(0);
 
+    optMask = 0;
+    private optSyncNames: Set<string> = new Set(['kernel32:GetCurrentThread', 'ntdll:NtQueryInformationThread', 'ntdll:ZwQueryInformationThread', 'kernel32:TlsSetValue']);
+    private optSyncFlag: Uint8Array = new Uint8Array(MAX_THUNK_ID);
+    optStats = { calls: 0, fallbacks: 0, diffChecked: 0, diffMismatch: 0, diffLast: '', lean: 0, leanFallbacks: 0, leanChecked: 0, leanMismatch: 0, leanLast: '' };
+    optLeanNames: Map<string, number> | null = null;
+    private optLeanDiffId = 0;
+    private optLeanDiffArgc = 0;
+    private optLeanDiffEsp = 0;
+    private optLeanDiffRegs: number[] = new Array(10).fill(0);
+    private optLeanDiffArgs: number[] = new Array(32).fill(0);
+    private optDiffId = 0;
+    private optDiffRes = 0;
+    private optDiffErr = 0;
+    private optDiffCleanup = 0;
+    private optDiffEsp = 0;
+    private optDiffOut = 0;
+    private optDiffOutLen = 0;
+    private optDiffBytes: Uint8Array = new Uint8Array(32);
+    private optDiffRetLen = 0;
+    private optDiffRetLenVal = 0;
+    private optDiffTls = -1;
+    private optDiffTlsVal = -1;
+
+    setOptMask(mask: number): number {
+        this.optMask = mask >>> 0;
+        this.optSyncFlag.fill(0);
+        let n = 0;
+        for (let id = 1; id < MAX_THUNK_ID; id++) {
+            const name = this.namesTable[id];
+            if (name && this.optSyncNames.has(name) && this.dispatchTable[id]) { this.optSyncFlag[id] = 1; n++; }
+        }
+        return n;
+    }
+
+    private optSyncCall(functionId: number): boolean {
+        const impl = this.dispatchTable[functionId];
+        if (!impl) return false;
+        if (!this.isDataViewValid()) this.updateMemoryCache();
+        const cpu = this.cachedCpu;
+        if (!cpu || !this.cachedMem8 || !this.cachedDataView) return false;
+        if (System.getInstance().isExiting || this.isWaitingForEipDump || debugSession.isEnabled() || harnessApiBreaks.active) return false;
+        const eip = (this.cachedIpRaw ? this.cachedIpRaw[0] : (cpu.instruction_pointer?.[0] ?? 0)) >>> 0;
+        if (eip < 11 || eip >= this.memLength) return false;
+        const dv = this.cachedDataView;
+        const stubStart = eip - 11;
+        if (dv.getUint8(stubStart) !== 0xB8 || dv.getUint8(stubStart + 5) !== 0xBA || dv.getUint8(stubStart + 10) !== 0xEF
+            || (dv.getUint32(stubStart + 1, true) | 0) !== functionId) return false;
+        const reg32 = this.cachedReg32Raw ?? cpu.reg32;
+        const espAtEntry = reg32[4];
+        const argCount = this.argCountsTable[functionId];
+        if (argCount < 0) return false;
+        const allowStubPoolRet = this.wndProcThunkFlags[functionId] !== 0 || this.isDirectCallEntry(functionId, espAtEntry);
+        if (!this.validateReturnAddrFast(espAtEntry, allowStubPoolRet)) return false;
+        const thunkName = this.namesTable[functionId] || "unknown";
+        if (this.optMask & 4) {
+            this.optDiffPrepare(functionId, impl, espAtEntry, argCount);
+            return false;
+        }
+        this.callSchedulerOnThunkEnter(cpu);
+        this.fillStackArgs(espAtEntry, argCount);
+        this.lastThunkId = functionId;
+        this.lastThunkName = thunkName;
+        this.thunkCount++;
+        this.optStats.calls++;
+        let result: any;
+        try {
+            result = impl(this.reusableContext, this.cachedMem8, this.reusableArgs);
+        } catch (e) {
+            this._slowPathHandleThunkError(functionId, thunkName, e, cpu);
+            this.completeFailedSyncCall(functionId, thunkName, cpu, espAtEntry, argCount);
+            return true;
+        }
+        this._handleSyncResult(result, functionId, thunkName, cpu, this.reusableContext, argCount, espAtEntry);
+        if ((this.optMask & 2) === 0) {
+            const ts = this.cachedTimeService || (this.cachedTimeService = TimeService.getInstance());
+            const deficit = performance.now() - ts.nowMs();
+            if (deficit > 0.5) {
+                ts.advanceVirtualTime(Math.min(deficit, 16));
+            }
+            hypercallDataManager.refreshTimeAfterThunk(cpu);
+        }
+        this.notifySchedulerBoundary(cpu);
+        return true;
+    }
+
+    private optDiffPrepare(functionId: number, impl: ThunkImplementation, espAtEntry: number, argCount: number): void {
+        const sched = System.getInstance().scheduler;
+        const errBefore = sched.getLastError();
+        const name = this.namesTable[functionId] || '';
+        const args = new Array(argCount);
+        const dv = this.cachedDataView!;
+        for (let i = 0; i < argCount; i++) args[i] = dv.getUint32(espAtEntry + 4 + (i << 2), true);
+        this.optDiffOut = 0;
+        this.optDiffRetLen = 0;
+        if (name.endsWith('QueryInformationThread')) {
+            const out = args[2] >>> 0, len = args[3] >>> 0, rl = args[4] >>> 0;
+            if (out && len <= 32 && out + len <= this.memLength) { this.optDiffOut = out; this.optDiffOutLen = len; }
+            if (rl && rl + 4 <= this.memLength) this.optDiffRetLen = rl;
+        }
+        const mem8 = this.cachedMem8!;
+        const preOut = this.optDiffOut ? mem8.slice(this.optDiffOut, this.optDiffOut + this.optDiffOutLen) : null;
+        const preRetLen = this.optDiffRetLen ? dv.getUint32(this.optDiffRetLen, true) : 0;
+        const tls = name === 'kernel32:TlsSetValue';
+        const tlsIndex = tls ? (args[0] >>> 0) : 0;
+        const tlsBefore = tls && sched.tlsIsAllocated(tlsIndex) ? sched.tlsGetValue(tlsIndex) : null;
+        let res: any;
+        try { res = impl(this.reusableContext, mem8, args); } catch { res = undefined; }
+        this.optDiffId = functionId;
+        this.optDiffEsp = espAtEntry;
+        this.optDiffRes = typeof res === 'number' ? (res >>> 0) : -1;
+        this.optDiffErr = sched.getLastError() >>> 0;
+        this.optDiffCleanup = this.resolveThunkCleanup(functionId, argCount, 'opt-diff');
+        this.optDiffTls = tls ? tlsIndex : -1;
+        this.optDiffTlsVal = tls && sched.tlsIsAllocated(tlsIndex) ? (sched.tlsGetValue(tlsIndex) >>> 0) : -1;
+        if (this.optDiffOut) { this.optDiffBytes.set(mem8.subarray(this.optDiffOut, this.optDiffOut + this.optDiffOutLen)); mem8.set(preOut!, this.optDiffOut); }
+        if (this.optDiffRetLen) { this.optDiffRetLenVal = dv.getUint32(this.optDiffRetLen, true); dv.setUint32(this.optDiffRetLen, preRetLen, true); }
+        if (tlsBefore !== null) sched.tlsSetValue(tlsIndex, tlsBefore);
+        sched.setLastError(errBefore);
+    }
+
+    private optLeanCall(functionId: number): boolean {
+        const impl = this.dispatchTable[functionId];
+        if (!impl) return false;
+        if (!this.isDataViewValid()) this.updateMemoryCache();
+        const cpu = this.cachedCpu;
+        if (!cpu || !this.cachedMem8 || !this.cachedDataView) return false;
+        if (System.getInstance().isExiting || this.isWaitingForEipDump || debugSession.isEnabled() || harnessApiBreaks.active
+            || this.checkCalleeSaved || this.traceEspInCallback || PROXY_BASELINE.on || profiler.isEnabled() || frameProfiler.isEnabled()
+            || this.isSchedulerThreadExitId(functionId)) return false;
+        const eip = (this.cachedIpRaw ? this.cachedIpRaw[0] : (cpu.instruction_pointer?.[0] ?? 0)) >>> 0;
+        if (eip < 11 || eip >= this.memLength) return false;
+        const dv = this.cachedDataView;
+        const stubStart = eip - 11;
+        if (dv.getUint8(stubStart) !== 0xB8 || dv.getUint8(stubStart + 5) !== 0xBA || dv.getUint8(stubStart + 10) !== 0xEF
+            || (dv.getUint32(stubStart + 1, true) | 0) !== functionId) return false;
+        const reg32Raw = this.cachedReg32Raw ?? cpu.reg32;
+        const espAtEntry = reg32Raw[4];
+        const argCount = this.argCountsTable[functionId];
+        if (argCount < 0) return false;
+        const thunkName = this.namesTable[functionId] || "unknown";
+        const allowStubPoolRet = this.wndProcThunkFlags[functionId] !== 0
+            || isDefaultWindowProcThunk(thunkName) || this.isDirectCallEntry(functionId, espAtEntry);
+        if (!this.validateReturnAddrFast(espAtEntry, allowStubPoolRet)) return false;
+        if (this.optMask & 4) {
+            this.optLeanPrepare(functionId, cpu, espAtEntry, argCount);
+            return false;
+        }
+        this.callSchedulerOnThunkEnter(cpu);
+        if ((this.thunkCount & 0x3F) === 0) {
+            const sched = this.ensureScheduler();
+            const isTimePoll = thunkName === 'winmm:timeGetTime' || thunkName === 'kernel32:GetTickCount' || thunkName === 'kernel32:QueryPerformanceCounter';
+            if (isTimePoll) {
+                const current = sched.getCurrentThread();
+                this.thunkCallCounts[functionId]++;
+                if (current && (this.thunkCallCounts[functionId] % 4) === 0) {
+                    if (sched.insnQuantumFraction(current, 0.5) && sched.hasOtherRunnableThreads(current.id)) {
+                        sched.requestSwitch();
+                    }
+                }
+            }
+            if (this.busyWaitDetector.check(thunkName, readRetiredInsns(cpu))) {
+                sched.requestSwitch();
+            }
+        }
+        this.fillStackArgs(espAtEntry, argCount);
+        this.lastThunkId = functionId;
+        this.lastThunkName = thunkName;
+        this.thunkCount++;
+        this.optStats.lean++;
+        if (this.optLeanNames) this.optLeanNames.set(thunkName, (this.optLeanNames.get(thunkName) ?? 0) + 1);
+        const thunkStart = frameProfiler.startTimer();
+        let result: any;
+        try {
+            const regsRaw = this.cachedReg32Raw || this.cachedReg32 || cpu.reg32;
+            const ctx = this.reusableContext;
+            ctx.eax = regsRaw[0]; ctx.ecx = regsRaw[1]; ctx.edx = regsRaw[2]; ctx.ebx = regsRaw[3];
+            ctx.esp = regsRaw[4]; ctx.ebp = regsRaw[5]; ctx.esi = regsRaw[6]; ctx.edi = regsRaw[7];
+            ctx.eip = (this.cachedIpRaw || this.cachedInstructionPointer || cpu.instruction_pointer)[0];
+            ctx.eflags = (cpu as any)["get_eflags"] ? (cpu as any)["get_eflags"]() : (this.cachedFlagsRaw || this.cachedFlags || cpu.flags)[0];
+            result = impl(ctx, this.cachedMem8, this.reusableArgs);
+        } catch (e) {
+            this._slowPathHandleThunkError(functionId, thunkName, e, cpu);
+            this.completeFailedSyncCall(functionId, thunkName, cpu, espAtEntry, argCount);
+            return true;
+        }
+        const isAsync = result instanceof Promise;
+        if (isAsync) {
+            if (this.crossingLedger) this.crossingLedger.async[functionId]!++;
+            this._handleAsyncResult(result, functionId, thunkName, cpu, espAtEntry, argCount, thunkStart);
+        } else {
+            this._handleSyncResult(result, functionId, thunkName, cpu, this.reusableContext, argCount, espAtEntry);
+            const ts = this.cachedTimeService || (this.cachedTimeService = TimeService.getInstance());
+            const deficit = performance.now() - ts.nowMs();
+            if (deficit > 0.5) {
+                ts.advanceVirtualTime(Math.min(deficit, 16));
+            }
+            hypercallDataManager.refreshTimeAfterThunk(cpu);
+        }
+        if (isAsync || (typeof result === 'object' && result !== null && result.suspendedForCallback)) {
+            this.reusableContext = { ...this.reusableContext };
+            this.reusableArgs = this.reusableArgs.slice();
+        }
+        this.notifySchedulerBoundary(cpu);
+        return true;
+    }
+
+    private optLeanPrepare(functionId: number, cpu: any, espAtEntry: number, argCount: number): void {
+        const regsRaw = this.cachedReg32Raw || this.cachedReg32 || cpu.reg32;
+        const r = this.optLeanDiffRegs;
+        for (let i = 0; i < 8; i++) r[i] = regsRaw[i];
+        r[8] = (this.cachedIpRaw || this.cachedInstructionPointer || cpu.instruction_pointer)[0];
+        r[9] = (cpu as any)["get_eflags"] ? (cpu as any)["get_eflags"]() : (this.cachedFlagsRaw || this.cachedFlags || cpu.flags)[0];
+        const dv = this.cachedDataView!;
+        for (let i = 0; i < argCount; i++) this.optLeanDiffArgs[i] = (espAtEntry + 8 + (i << 2) <= this.memLength) ? dv.getUint32(espAtEntry + 4 + (i << 2), true) : 0;
+        this.optLeanDiffArgc = argCount;
+        this.optLeanDiffEsp = espAtEntry;
+        this.optLeanDiffId = functionId;
+    }
+
+    private optLeanDiffCheck(functionId: number, ctx: X86Context, argCount: number, espAtEntry: number): void {
+        this.optLeanDiffId = 0;
+        const r = this.optLeanDiffRegs;
+        let bad = '';
+        if (espAtEntry !== this.optLeanDiffEsp) bad += 'esp ';
+        if (argCount !== this.optLeanDiffArgc) bad += 'argc ';
+        if ((ctx.eax | 0) !== (r[0] | 0) || (ctx.ecx | 0) !== (r[1] | 0) || (ctx.edx | 0) !== (r[2] | 0) || (ctx.ebx | 0) !== (r[3] | 0)
+            || (ctx.esp | 0) !== (r[4] | 0) || (ctx.ebp | 0) !== (r[5] | 0) || (ctx.esi | 0) !== (r[6] | 0) || (ctx.edi | 0) !== (r[7] | 0)) bad += 'regs ';
+        if ((ctx.eip | 0) !== (r[8] | 0)) bad += 'eip ';
+        if ((ctx.eflags | 0) !== (r[9] | 0)) bad += 'eflags ';
+        const a = this.reusableArgs;
+        for (let i = 0; i < argCount; i++) if ((a[i] >>> 0) !== (this.optLeanDiffArgs[i] >>> 0)) { bad += 'args '; break; }
+        this.optStats.leanChecked++;
+        if (this.optLeanNames) {
+            const name = this.namesTable[functionId] || 'unknown';
+            this.optLeanNames.set(name, (this.optLeanNames.get(name) ?? 0) + 1);
+        }
+        if (bad) {
+            this.optStats.leanMismatch++;
+            this.optStats.leanLast = `${this.namesTable[functionId]}: ${bad}`;
+        }
+    }
+
+    private optDiffCheck(functionId: number, espAtEntry: number): void {
+        this.optDiffId = 0;
+        const reg32 = this.cachedReg32Raw ?? this.cachedCpu?.reg32;
+        const sched = System.getInstance().scheduler;
+        let bad = '';
+        if (espAtEntry !== this.optDiffEsp) bad += 'esp ';
+        if (!reg32 || (reg32[0] >>> 0) !== this.optDiffRes) bad += 'eax ';
+        if ((sched.getLastError() >>> 0) !== this.optDiffErr) bad += 'lasterror ';
+        if (this.boundaryCleanup !== this.optDiffCleanup) bad += 'cleanup ';
+        if (this.optDiffOut && this.cachedMem8) {
+            for (let i = 0; i < this.optDiffOutLen; i++) if (this.cachedMem8[this.optDiffOut + i] !== this.optDiffBytes[i]) { bad += 'out '; break; }
+        }
+        if (this.optDiffRetLen && this.cachedDataView && this.cachedDataView.getUint32(this.optDiffRetLen, true) !== this.optDiffRetLenVal) bad += 'retlen ';
+        if (this.optDiffTls >= 0 && (sched.tlsIsAllocated(this.optDiffTls) ? (sched.tlsGetValue(this.optDiffTls) >>> 0) : -1) !== this.optDiffTlsVal) bad += 'tls ';
+        this.optStats.diffChecked++;
+        if (bad) {
+            this.optStats.diffMismatch++;
+            this.optStats.diffLast = `${this.namesTable[functionId]}: ${bad}`;
+        }
+    }
+
     // Cached Memory Views
     private cachedMem8: Uint8Array | null = null;
     private cachedDataView: DataView | null = null;
@@ -2219,6 +2482,16 @@ export class ThunkDispatcher {
             }
         }
 
+        if (this.optMask !== 0 && functionId > 0 && functionId < MAX_THUNK_ID) {
+            if (this.optSyncFlag[functionId] !== 0) {
+                if (this.optSyncCall(functionId)) return;
+                this.optStats.fallbacks++;
+            } else if ((this.optMask & 8) !== 0 && this.fastPathTable[functionId] === null) {
+                if (this.optLeanCall(functionId)) return;
+                this.optStats.leanFallbacks++;
+            }
+        }
+
         // ULTRA-FAST PATH: Check fast table BEFORE any other work.
         // Normal thunk IDs are small positive numbers (< MAX_THUNK_ID).
         // Magic markers have high bits set (0xDEADxxxx, 0x80xxxxxx, 0xFFFFFFFF).
@@ -2726,6 +2999,7 @@ export class ThunkDispatcher {
             // (perfThunks `noBorrowMs`) rather than re-discovered by hand.
             memBorrowsBefore = guestMemoryBorrowCount();
             if (this.checkCalleeSaved) this.snapshotCalleeSaved(cpu);
+            if (this.optLeanDiffId === functionId) this.optLeanDiffCheck(functionId, ctx, argCount, espAtEntry);
             result = impl(ctx, this.cachedMem8, this.reusableArgs);
         } catch (e) {
             this._slowPathHandleThunkError(functionId, thunkName, e, cpu);
@@ -2761,6 +3035,7 @@ export class ThunkDispatcher {
                 apiCensus.recordFailure(thunkName, result, this.lastCensusCaller);
             }
             this._handleSyncResult(result, functionId, thunkName, cpu, this.reusableContext, argCount, espAtEntry);
+            if (this.optDiffId === functionId) this.optDiffCheck(functionId, espAtEntry);
             if (this.checkCalleeSaved) this.reportCalleeSavedDrift(cpu, thunkName);
 
             // Sync virtual time with wall-clock after each sync thunk.
