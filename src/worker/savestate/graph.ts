@@ -70,10 +70,10 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
         const i = next++;
         ids.set(v, i);
         const typedName = typedArrayName(v);
-        if (typedName && ((v as ArrayLike<number>).length ?? 0) > MAX_VIEW_ELEMENTS) return { t: 'host' };
+        if (typedName && !ArrayBuffer.isView(v) && ((v as ArrayLike<number>).length ?? 0) > MAX_VIEW_ELEMENTS) return { t: 'host' };
         if (typedName) {
             // Copy element-wise: engine views may be Proxies over WASM memory.
-            const copy = new TYPED[typedName]!(Array.from(v as ArrayLike<number>) as unknown as ArrayBuffer) as unknown as ArrayBufferView;
+            const copy = (ArrayBuffer.isView(v) ? v : new TYPED[typedName]!(Array.from(v as ArrayLike<number>) as unknown as ArrayBuffer)) as ArrayBufferView;
             blobs.push(new Uint8Array(copy.buffer, copy.byteOffset, copy.byteLength).slice());
             return { t: 'typed', i, k: typedName, b: blobs.length - 1 };
         }
