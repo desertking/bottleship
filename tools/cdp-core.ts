@@ -402,8 +402,17 @@ export async function captureTrace(
          *  cap; "recordContinuously" is a bounded RING that overwrites the oldest events and
          *  therefore never grows. Use the ring for long windows where only the tail matters. */
         recordMode?: "recordAsMuchAsPossible" | "recordContinuously" | "recordUntilFull";
+        /** Deadline for Tracing.end acknowledgement AND tracingComplete; a timeout is not a trace. */
+        completionTimeoutMs?: number;
     } = {},
-): Promise<{ file: string; events: number; bytes: number; maxPercentFull: number; bufferFull: boolean }> {
+): Promise<{
+    file: string; events: number; bytes: number; maxPercentFull: number; bufferFull: boolean;
+    completed: true; requestedDurationMs: number; recordingElapsedMs: number; completionWaitMs: number;
+}> {
+    const completionTimeoutMs = opts.completionTimeoutMs ?? 120_000;
+    if (!Number.isFinite(completionTimeoutMs) || completionTimeoutMs <= 0) {
+        throw new Error("captureTrace: completionTimeoutMs must be positive and finite");
+    }
     const port = opts.port ?? DEFAULT_CDP_PORT;
     const version = await fetchJson(port, "/json/version");
     const session = await CdpSession.connect(version.webSocketDebuggerUrl);
@@ -421,8 +430,11 @@ export async function captureTrace(
     // Not `push(...batch)`: the spread passes every element as an ARGUMENT, and Chrome sends
     // batches well past the engine's argument limit on a busy trace — a RangeError thrown
     // inside the event callback, losing the recording.
-    session.on("Tracing.dataCollected", (p) => { if (p?.value) for (const e of p.value) events.push(e); });
-    const complete = new Promise<void>((resolve) => session.on("Tracing.tracingComplete", () => resolve()));
+    const onData = (p: any) => { if (p?.value) for (const e of p.value) events.push(e); };
+    let resolveComplete!: () => void;
+    const complete = new Promise<void>((resolve) => { resolveComplete = resolve; });
+    const onComplete = () => resolveComplete();
+    let completionTimer: ReturnType<typeof setTimeout> | undefined;
 
     // Buffer telemetry. Chrome's trace buffer is FINITE, and when it fills the recording keeps
     // running while silently dropping events — the artifact then looks complete and every
@@ -430,37 +442,59 @@ export async function captureTrace(
     // is always on and always reported.
     let maxPercentFull = 0;
     let lastEventCount = 0;
-    session.on("Tracing.bufferUsage", (p) => {
+    const onBufferUsage = (p: any) => {
         if (typeof p?.percentFull === "number") maxPercentFull = Math.max(maxPercentFull, p.percentFull);
         if (typeof p?.value === "number") maxPercentFull = Math.max(maxPercentFull, p.value);
         if (typeof p?.eventCount === "number") lastEventCount = p.eventCount;
-    });
-
-    await session.send("Tracing.start", {
-        traceConfig: { includedCategories: categories, recordMode: opts.recordMode ?? "recordAsMuchAsPossible" },
-        transferMode: "ReportEvents",
-        bufferUsageReportingInterval: 1000,
-    });
-    // `during` runs INSIDE the recording window (a third of the way in, so its own sampling
-    // interval finishes comfortably before Tracing.end). This is how the bottleship.hotblocks
-    // mark gets into the trace — blink.user_timing is already recorded, so a mark emitted here
-    // lands in the artifact and analyze-trace can resolve wasm frames to module:rva. Without
-    // it a trace looks complete and analyses shallow.
-    const totalMs = seconds * 1000;
-    const t0 = Date.now();
-    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-    if (opts.onStarted) {
-        try { await opts.onStarted(); } catch (e) { console.warn(`[captureTrace] onStarted hook failed: ${e}`); }
+    };
+    let recordingElapsedMs = 0;
+    let completionWaitMs = 0;
+    try {
+        session.on("Tracing.dataCollected", onData);
+        session.on("Tracing.tracingComplete", onComplete);
+        session.on("Tracing.bufferUsage", onBufferUsage);
+        await session.send("Tracing.start", {
+            traceConfig: { includedCategories: categories, recordMode: opts.recordMode ?? "recordAsMuchAsPossible" },
+            transferMode: "ReportEvents",
+            bufferUsageReportingInterval: 1000,
+        });
+        // `during` runs INSIDE the recording window (a third of the way in, so its own sampling
+        // interval finishes comfortably before Tracing.end). This is how the bottleship.hotblocks
+        // mark gets into the trace — blink.user_timing is already recorded, so a mark emitted here
+        // lands in the artifact and analyze-trace can resolve wasm frames to module:rva. Without
+        // it a trace looks complete and analyses shallow.
+        const totalMs = seconds * 1000;
+        const t0 = performance.now();
+        const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+        if (opts.onStarted) {
+            try { await opts.onStarted(); } catch (e) { console.warn(`[captureTrace] onStarted hook failed: ${e}`); }
+        }
+        if (opts.during) {
+            await sleep(Math.min(Math.max(500, totalMs / 3), Math.max(0, totalMs - 500)));
+            try { await opts.during(performance.now() - t0); } catch (e) { console.warn(`[captureTrace] during-window hook failed: ${e}`); }
+        }
+        const remaining = totalMs - (performance.now() - t0);
+        if (remaining > 0) await sleep(remaining);
+        // Host-monotonic bounds, not GPU/guest CPU time. A slow `during` hook may
+        // extend the requested window; preserve that fact instead of reporting its request.
+        const endRequestedAt = performance.now();
+        recordingElapsedMs = endRequestedAt - t0;
+        const deadline = new Promise<never>((_, reject) => {
+            completionTimer = setTimeout(() => reject(new Error(
+                `captureTrace: Tracing.end/tracingComplete did not finish within ${completionTimeoutMs}ms; incomplete trace not written`,
+            )), completionTimeoutMs);
+        });
+        // The event may precede the Tracing.end acknowledgement. Require BOTH,
+        // and bound both with one deadline (including a lost acknowledgement).
+        await Promise.race([session.send("Tracing.end").then(() => complete), deadline]);
+        completionWaitMs = performance.now() - endRequestedAt;
+    } finally {
+        if (completionTimer !== undefined) clearTimeout(completionTimer);
+        session.off("Tracing.dataCollected", onData);
+        session.off("Tracing.tracingComplete", onComplete);
+        session.off("Tracing.bufferUsage", onBufferUsage);
+        session.close();
     }
-    if (opts.during) {
-        await sleep(Math.min(Math.max(500, totalMs / 3), Math.max(0, totalMs - 500)));
-        try { await opts.during(Date.now() - t0); } catch (e) { console.warn(`[captureTrace] during-window hook failed: ${e}`); }
-    }
-    const remaining = totalMs - (Date.now() - t0);
-    if (remaining > 0) await sleep(remaining);
-    await session.send("Tracing.end");
-    await Promise.race([complete, new Promise((r) => setTimeout(r, 120_000))]);
-    session.close();
 
     // Serialized one event at a time straight into the gzip stream. A whole-document
     // JSON.stringify + Buffer.from + gzipSync holds the event array, a multi-hundred-MB string
@@ -479,6 +513,10 @@ export async function captureTrace(
         file: outFile,
         events: events.length,
         bytes: statSync(outFile).size,
+        completed: true,
+        requestedDurationMs: seconds * 1000,
+        recordingElapsedMs,
+        completionWaitMs,
         maxPercentFull,
         // Chrome reports percentFull as a 0..1 fraction; anything at the cap means the
         // recording dropped events and the artifact is a SAMPLE, not the window.
