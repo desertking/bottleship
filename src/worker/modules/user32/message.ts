@@ -1403,6 +1403,8 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
             const WM_NCDESTROY = 0x0082;
 
             const window = getWindowByHandle(hwnd);
+            const rawInput = message === 0x00ff ? System.getInstance().inputManager.rawInput : null;
+            const rawInputThread = rawInput ? System.getInstance().scheduler.getCurrentThreadId() : 0;
             // The BUTTON class proc's WM_PAINT: a BS_OWNERDRAW button is drawn by ONE
             // WM_DRAWITEM to its parent (Wine button.c OB_Paint), which is a guest
             // callback — so this is where an InvalidateRect/UpdateWindow on such a button
@@ -1442,12 +1444,14 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                     repaintDialogAfterContentChange(window.parent ?? hwnd);
                 }
                 if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                 return { value: result >>> 0, stackCleanup: 4 };
             }
             if (window && window.wndProc) {
                 // Sentinel WndProc: system control, handle in JS — do NOT call into x86
                 if (isSentinelWndProc(window.wndProc)) {
                     if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                    rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                     return { value: 0, stackCleanup: 4 };
                 }
 
@@ -1462,16 +1466,23 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                         // Finalize a deferred-destroy window only after its wndProc has
                         // processed WM_NCDESTROY (MFC OnNcDestroy → detach).
                         if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                        // RIM_INPUTSINK has no application DefWindowProc obligation.
+                        // Keep the packet alive throughout the suspended guest proc.
+                        rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                         return wndRet >>> 0;
                     },
                 );
-                if (dispatchResult) return dispatchResult;
+                if (dispatchResult) {
+                    if (!dispatchResult.suspendedForCallback) rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
+                    return dispatchResult;
+                }
             }
 
             // Window has no wndProc (or was already gone) — no guest delivery happens, so
             // finalize a deferred-destroy window here instead of waiting for a wndProc that
             // will never run.
             if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+            rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
         }
 
         maybeLogTimerDiag();
