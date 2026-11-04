@@ -1,5 +1,5 @@
 import { System } from '../core/system';
-import { collectPrototypes, decodeGraph, encodeGraph, GraphFunctionError, type EncodedGraph } from './graph';
+import { collectPrototypes, decodeGraph, encodeGraph, GraphFunctionError, HOST_VIEW, type EncodedGraph } from './graph';
 
 /**
  * JS-side state that a savestate carries next to guest RAM and CPU. Each participant names
@@ -102,10 +102,11 @@ function mergeInto(live: Record<string, unknown>, decoded: Record<string, unknow
     seen.add(live);
     for (const key of Object.keys(decoded)) {
         const lv = live[key], dv = decoded[key];
-        if (typeof lv === 'function') continue;
+        if (typeof lv === 'function' || dv === HOST_VIEW) continue;
         if (Array.isArray(lv) && Array.isArray(dv)) {
             for (let i = 0; i < dv.length; i++) {
                 const a = lv[i], b = dv[i];
+                if (b === HOST_VIEW) continue;
                 if (isPlainMergeable(a) && isPlainMergeable(b) && Object.getPrototypeOf(a) === Object.getPrototypeOf(b)) mergeInto(a, b, seen);
                 else lv[i] = b;
             }

@@ -16,9 +16,14 @@ type Node =
     | { t: 'typed'; i: number; k: string; b: number }
     | { t: 'obj'; i: number; c: string; v: Record<string, Node> }
     | { t: 'ext'; n: string }
+    | { t: 'host' }
     | null | boolean | string | number;
 
 export interface EncodedGraph { root: Node; blobs: Uint8Array[] }
+
+/** Decoded stand-in for a view over engine memory; the live field is kept on restore. */
+export const HOST_VIEW = Symbol('host-view');
+const MAX_VIEW_ELEMENTS = 1 << 24;
 
 export class GraphFunctionError extends Error {
     constructor(readonly path: string) { super(`function at ${path}`); }
@@ -65,6 +70,7 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
         const i = next++;
         ids.set(v, i);
         const typedName = typedArrayName(v);
+        if (typedName && ((v as ArrayLike<number>).length ?? 0) > MAX_VIEW_ELEMENTS) return { t: 'host' };
         if (typedName) {
             // Copy element-wise: engine views may be Proxies over WASM memory.
             const copy = new TYPED[typedName]!(Array.from(v as ArrayLike<number>) as unknown as ArrayBuffer) as unknown as ArrayBufferView;
@@ -102,6 +108,7 @@ export function decodeGraph(graph: EncodedGraph, lookup: PrototypeLookup = () =>
             case 'num': return Number(n.v);
             case 'big': return BigInt(n.v);
             case 'undef': return undefined;
+            case 'host': return HOST_VIEW;
             case 'ext': {
                 if (!externals.has(n.n)) throw new Error(`unknown external ${n.n}`);
                 return externals.get(n.n);
