@@ -183,6 +183,7 @@ export interface WgbManifest {
         fpuStrict?: boolean;
         /** See EmulatorConfig.ddrawHoldPresentsUntilFlip. */
         ddrawHoldPresentsUntilFlip?: boolean;
+        maxPresentFps?: number;
         /**
          * Per-game graphics quality overrides (anisotropy, brightness/contrast/saturation,
          * aspect/integer scaling, post-FX, MSAA/internal-res…). Layered on top of the global
