@@ -45,6 +45,7 @@ export class DDrawPresenter implements RenderActive {
     private pendingOptions: { throttle?: boolean } | null = null;
     private pendingResolvers: Array<{ resolve: () => void, reject: (reason?: unknown) => void }> = [];
     private pumpRunning = false;
+    private pumpQueued = false;
 
     // Phase-blend present mode (C). When enabled, guest Flips only SNAPSHOT into the interpolator;
     // a per-rAF callback (blendFrameUnreg) re-presents mix(prev,new,phase) at full refresh so a
@@ -246,6 +247,22 @@ export class DDrawPresenter implements RenderActive {
             this.pendingSurface = surface;
             this.pendingOptions = options;
             this.pendingResolvers.push({ resolve, reject });
+            this.schedulePump();
+        });
+    }
+
+    /**
+     * A guest composes one image in several steps that each present the primary (a Blt of
+     * the scene, then Locks that draw sprites and text on top). Drawing at the first of
+     * them hands the compositor a half-finished image for a whole refresh. The pump starts
+     * once the current guest slice has returned to the host, so the steps of that slice
+     * collapse into one present of their final state.
+     */
+    private schedulePump(): void {
+        if (this.pumpQueued) return;
+        this.pumpQueued = true;
+        queueMicrotask(() => {
+            this.pumpQueued = false;
             void this.pumpLoop();
         });
     }
