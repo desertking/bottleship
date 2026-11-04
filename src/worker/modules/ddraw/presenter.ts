@@ -263,8 +263,8 @@ export class DDrawPresenter implements RenderActive {
      * compositor a half-finished image for a whole refresh. A present that the guest marks
      * as a frame end (Flip, explicit present: throttle off) is drawn at the end of the
      * current slice; an implicit one (Unlock/Blt of the primary) waits until the primary
-     * has been quiet for PRIMARY_SETTLE_MS, but never longer than PRIMARY_MAX_HOLD_MS, so
-     * continuous writers keep updating.
+     * has been quiet and unlocked for PRIMARY_SETTLE_MS, but never longer than
+     * PRIMARY_MAX_HOLD_MS, so continuous writers keep updating.
      */
     private schedulePump(implicit: boolean): void {
         if (!implicit) {
@@ -282,10 +282,19 @@ export class DDrawPresenter implements RenderActive {
         if (this.settleTimer === null) this.firstSettlingAt = now;
         else clearTimeout(this.settleTimer);
         const wait = Math.max(0, Math.min(PRIMARY_SETTLE_MS, this.firstSettlingAt + PRIMARY_MAX_HOLD_MS - now));
-        this.settleTimer = setTimeout(() => {
-            this.settleTimer = null;
-            void this.pumpLoop();
-        }, wait);
+        this.settleTimer = setTimeout(() => this.onSettled(), wait);
+    }
+
+    /** A primary still Locked is mid-composition: keep waiting while the hold allows. */
+    private onSettled(): void {
+        this.settleTimer = null;
+        const pending = this.pendingSurface;
+        const locked = pending !== null && (pending as { activeLeaseId?: number }).activeLeaseId !== undefined;
+        if (locked && performance.now() - this.firstSettlingAt < PRIMARY_MAX_HOLD_MS) {
+            this.settleTimer = setTimeout(() => this.onSettled(), 1);
+            return;
+        }
+        void this.pumpLoop();
     }
 
     private async pumpLoop(): Promise<void> {
