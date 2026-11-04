@@ -53,3 +53,11 @@ describe("externals", () => {
         expect(back.owner).toBe(live);
     });
 });
+
+test("typed arrays behind a Proxy are captured as typed arrays", () => {
+    const real = new Int32Array([3, 4]);
+    const proxied = new Proxy(real, { get: (t, k) => { const v = Reflect.get(t, k, t); return typeof v === 'function' ? v.bind(t) : v; } });
+    const back: any = decodeGraph(encodeGraph({ p: proxied }), () => undefined);
+    expect(back.p).toBeInstanceOf(Int32Array);
+    expect(Array.from(back.p)).toEqual([3, 4]);
+});

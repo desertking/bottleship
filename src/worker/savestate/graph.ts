@@ -39,6 +39,11 @@ const TYPED: Record<string, new (b: ArrayBuffer) => ArrayBufferView> = {
     BigUint64Array: BigUint64Array as unknown as new (b: ArrayBuffer) => ArrayBufferView,
 };
 
+function typedArrayName(v: object): string | null {
+    for (const name of Object.keys(TYPED)) if (v instanceof TYPED[name]!) return name;
+    return null;
+}
+
 export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGraph {
     const ids = new Map<object, number>();
     const blobs: Uint8Array[] = [];
@@ -56,10 +61,12 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
         if (ext !== undefined) return { t: 'ext', n: ext };
         const i = next++;
         ids.set(v, i);
-        if (ArrayBuffer.isView(v)) {
-            const view = v as ArrayBufferView;
-            blobs.push(new Uint8Array(view.buffer.slice(view.byteOffset, view.byteOffset + view.byteLength) as ArrayBuffer));
-            return { t: 'typed', i, k: v.constructor.name, b: blobs.length - 1 };
+        const typedName = typedArrayName(v);
+        if (typedName) {
+            // Copy element-wise: engine views may be Proxies over WASM memory.
+            const copy = new TYPED[typedName]!(v as unknown as ArrayBuffer) as unknown as ArrayBufferView;
+            blobs.push(new Uint8Array(copy.buffer, copy.byteOffset, copy.byteLength).slice());
+            return { t: 'typed', i, k: typedName, b: blobs.length - 1 };
         }
         if (Array.isArray(v)) return { t: 'arr', i, v: v.map((x, k) => enc(x, `${path}[${k}]`)) };
         if (v instanceof Map) return { t: 'map', i, v: [...v].map(([k, x], n) => [enc(k, `${path}<k${n}>`), enc(x, `${path}<${String(k)}>`)]) };
