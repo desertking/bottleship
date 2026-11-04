@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
-import { PrimaryScanoutTracker } from '../../src/worker/modules/ddraw/primary-scanout';
-import type { DirectDrawSurfaceState } from '../../src/worker/modules/ddraw/com-objects';
+import { PrimaryScanoutTracker, primaryAutoPresentDue } from '../../src/worker/modules/ddraw/primary-scanout';
+import type { DirectDrawSurfaceState, RenderSurface } from '../../src/worker/modules/ddraw/com-objects';
 
 test('scanout observes writes between calls and emits no duplicate for unchanged pixels', () => {
     const tracker = new PrimaryScanoutTracker(), mem = new Uint8Array(128);
@@ -26,4 +26,35 @@ test('scanout owns its snapshot across memory growth, surface replacement and un
     expect(tracker.changed(grown, state)).toBe(false);
     expect(tracker.changed(grown, { ...state } as DirectDrawSurfaceState)).toBe(true);
     expect(tracker.changed(grown, { ...state, surfacePtr: 120 } as DirectDrawSurfaceState)).toBe(false);
+});
+
+test('frame-paced scanout never shows a flip-chain primary; Flip owns that image', () => {
+    const DDSCAPS_PRIMARYSURFACE = 0x200, DDSCAPS_FLIP = 0x10, DDSCAPS_COMPLEX = 0x8;
+    const base = { caps: DDSCAPS_PRIMARYSURFACE, format: { bpp: 8 }, everLocked: true, mode: 'CPU', version: 3, gpuWrittenVersion: 2 };
+    const surface = (over: Record<string, unknown>) => ({ ...base, ...over }) as unknown as RenderSurface;
+    expect(primaryAutoPresentDue(surface({}))).toBe(true);
+    expect(primaryAutoPresentDue(surface({ activeLeaseId: 1, mode: 'GPU', version: 2 }))).toBe(true);
+    expect(primaryAutoPresentDue(surface({ version: 2 }))).toBe(false);
+    expect(primaryAutoPresentDue(surface({ format: { bpp: 16 } }))).toBe(false);
+    const chain = DDSCAPS_PRIMARYSURFACE | DDSCAPS_FLIP | DDSCAPS_COMPLEX;
+    expect(primaryAutoPresentDue(surface({ caps: chain }))).toBe(false);
+    expect(primaryAutoPresentDue(surface({ caps: chain, activeLeaseId: 1 }))).toBe(false);
+});
+
+test('a primary Lock is scanned out only once it has stayed open across a frame tick', () => {
+    const tracker = new PrimaryScanoutTracker();
+    const state = { activeLeaseId: undefined } as unknown as DirectDrawSurfaceState;
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
+    state.activeLeaseId = 7;
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(true);
+    state.activeLeaseId = undefined;
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
+    state.activeLeaseId = 8;
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
+    state.activeLeaseId = 9;
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(true);
+    tracker.reset();
+    expect(tracker.lockHeldAcrossFrame(state)).toBe(false);
 });
