@@ -160,7 +160,7 @@ export function decodeGraph(graph: EncodedGraph, lookup: PrototypeLookup = () =>
 export function collectPrototypes(roots: unknown[], limit = 200000): Map<string, object> {
     const protos = new Map<string, object>();
     const seen = new WeakSet<object>();
-    const stack: unknown[] = [...roots];
+    const stack: unknown[] = [...roots].reverse();
     let visited = 0;
     while (stack.length && visited++ < limit) {
         const v = stack.pop();

@@ -77,7 +77,8 @@ export function captureParticipants(): Record<string, EncodedGraph> {
 
 export function restoreParticipants(graphs: Record<string, EncodedGraph>): void {
     const roots = participants().map(p => p.get()).filter(Boolean) as object[];
-    const protos = collectPrototypes([System.getInstance(), ...roots]);
+    const protos = collectPrototypes(roots, 2000000);
+    for (const [n, proto] of collectPrototypes([System.getInstance()], 400000)) if (!protos.has(n)) protos.set(n, proto);
     for (const p of participants()) {
         const graph = graphs[p.name];
         const live = p.get() as Record<string, unknown> | undefined;
