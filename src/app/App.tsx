@@ -70,6 +70,7 @@ import {
 } from "../input/pointer-kind";
 import { setHapticsEnabled } from "../input/haptics";
 import { TouchFirstRunHint } from "./TouchFirstRunHint";
+import { SavestateBar } from "./SavestateBar";
 import type { HostAction } from "../input/bindings";
 
 async function writeOpfsFile(dir: FileSystemDirectoryHandle, name: string, blob: Blob): Promise<void> {
@@ -3410,6 +3411,7 @@ export default function App() {
           <span className={s["emu-info-desc"]}>
             {!hasImportedBundle && displayGame!.id !== "dev" ? displayGame!.description : ""}
           </span>
+          <SavestateBar worker={globalWorker} />
           <span className={s["emu-info-hints"]}>F11 · Fullscreen</span>
         </div>
       )}

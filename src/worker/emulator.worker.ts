@@ -1,4 +1,5 @@
 import "./savestate/census";
+import { captureSavestate, restoreSavestate, savestateIdentity, type SavestateHost } from "./savestate/snapshot";
 import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship/formats/wgb/io-profile";
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
@@ -3391,7 +3392,37 @@ function postQualityState(q: QualityConfig): void {
 
 onQualityBackendChanged(() => postQualityState(EmulatorConfig.getInstance().quality));
 
+const savestateHost: SavestateHost = {
+  pause: () => pauseEmulator(),
+  resume: () => resumeEmulator(),
+  waitStopped: async () => { if (pendingStop) await pendingStop; },
+  isPaused: () => isPaused,
+};
+
+const handleSavestateMessage = (data: { type: string; id?: number; meta?: any; state?: ArrayBuffer }): boolean => {
+  if (data?.type === 'savestate_identity') {
+    postToParent({ type: 'savestate_result', id: data.id, ok: true, identity: savestateIdentity() });
+    return true;
+  }
+  if (data?.type === 'savestate_capture') {
+    captureSavestate(savestateHost).then(
+      ({ meta, state: buf }) => postToParent({ type: 'savestate_result', id: data.id, ok: true, meta, state: buf }, [buf]),
+      (err: unknown) => postToParent({ type: 'savestate_result', id: data.id, ok: false, error: String((err as Error)?.message ?? err) }),
+    );
+    return true;
+  }
+  if (data?.type === 'savestate_restore' && data.state && data.meta) {
+    restoreSavestate(savestateHost, data.meta, data.state).then(
+      () => postToParent({ type: 'savestate_result', id: data.id, ok: true }),
+      (err: unknown) => postToParent({ type: 'savestate_result', id: data.id, ok: false, error: String((err as Error)?.message ?? err) }),
+    );
+    return true;
+  }
+  return false;
+};
+
 const handleWorkerMessage = (event: MessageEvent): void => {
+  if (handleSavestateMessage(event.data)) return;
   if (event.data?.type === 'child_boot') {
     if (childBoot || System.getInstance().process) return;
     childBoot = event.data as ChildBoot;
