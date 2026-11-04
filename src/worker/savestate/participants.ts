@@ -85,6 +85,37 @@ export function restoreParticipants(graphs: Record<string, EncodedGraph>): void 
         const extByName = new Map<string, unknown>();
         for (const [o, n] of engineExternals()) extByName.set(n, o);
         const decoded = decodeGraph(graph, name => protos.get(name), extByName) as Record<string, unknown>;
-        for (const key of Object.keys(decoded)) live[key] = decoded[key];
+        mergeInto(live, decoded, new WeakSet());
+    }
+}
+
+const isPlainMergeable = (v: unknown): v is Record<string, unknown> =>
+    !!v && typeof v === 'object' && !Array.isArray(v) && !(v instanceof Map) && !(v instanceof Set) && !ArrayBuffer.isView(v);
+
+/**
+ * Write decoded data onto the live object graph: where both sides hold an instance of the
+ * same class (or a same-length array), the live instance is kept and updated in place, so
+ * its functions (dropped at capture) and identity survive; anything else is replaced.
+ */
+function mergeInto(live: Record<string, unknown>, decoded: Record<string, unknown>, seen: WeakSet<object>): void {
+    if (seen.has(live)) return;
+    seen.add(live);
+    for (const key of Object.keys(decoded)) {
+        const lv = live[key], dv = decoded[key];
+        if (typeof lv === 'function') continue;
+        if (Array.isArray(lv) && Array.isArray(dv)) {
+            for (let i = 0; i < dv.length; i++) {
+                const a = lv[i], b = dv[i];
+                if (isPlainMergeable(a) && isPlainMergeable(b) && Object.getPrototypeOf(a) === Object.getPrototypeOf(b)) mergeInto(a, b, seen);
+                else lv[i] = b;
+            }
+            lv.length = dv.length;
+            continue;
+        }
+        if (isPlainMergeable(lv) && isPlainMergeable(dv) && Object.getPrototypeOf(lv) === Object.getPrototypeOf(dv)) {
+            mergeInto(lv, dv, seen);
+            continue;
+        }
+        live[key] = dv;
     }
 }
