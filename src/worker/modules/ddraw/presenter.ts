@@ -32,6 +32,8 @@ import { registerGpuDeviceObserver } from "../../core/gpu/gpu-device-lifecycle";
 
 const PRIMARY_SETTLE_MS = 4;
 const PRIMARY_MAX_HOLD_MS = 24;
+/** After a Flip, implicit primary presents are not drawn for this long; the next Flip is. */
+const FLIP_OWNS_SCREEN_MS = 100;
 
 export class DDrawPresenter implements RenderActive {
     private process: Process;
@@ -51,6 +53,7 @@ export class DDrawPresenter implements RenderActive {
     private pumpQueued = false;
     private settleTimer: ReturnType<typeof setTimeout> | null = null;
     private firstSettlingAt = 0;
+    private lastFlipAt = -Infinity;
 
     // Phase-blend present mode (C). When enabled, guest Flips only SNAPSHOT into the interpolator;
     // a per-rAF callback (blendFrameUnreg) re-presents mix(prev,new,phase) at full refresh so a
@@ -241,6 +244,15 @@ export class DDrawPresenter implements RenderActive {
 
     async present(surface: DirectDrawSurfaceState, _mem: Uint8Array, options: { throttle?: boolean; frameAlreadyMarked?: boolean; snapshotTextureView?: GPUTextureView } = {}): Promise<void> {
         this.presentCallCount++;
+        const now = performance.now();
+        if (options.frameAlreadyMarked) {
+            this.lastFlipAt = now;
+        } else if (options.throttle === true && now - this.lastFlipAt < FLIP_OWNS_SCREEN_MS) {
+            // The guest marks its frames with Flip: the image between two Flips is still
+            // being composed (GTA draws the scene and then sprites/text in separate passes),
+            // so only the next Flip shows it.
+            return Promise.resolve();
+        }
         return new Promise<void>((resolve, reject) => {
             if (this.pendingSurface || this.pendingResolvers.length > 0) {
                 const supersededResolvers = this.pendingResolvers.splice(0);
@@ -252,7 +264,12 @@ export class DDrawPresenter implements RenderActive {
             this.pendingSurface = surface;
             this.pendingOptions = options;
             this.pendingResolvers.push({ resolve, reject });
-            this.schedulePump(options.throttle === true);
+            if (options.frameAlreadyMarked) {
+                if (this.settleTimer !== null) { clearTimeout(this.settleTimer); this.settleTimer = null; }
+                void this.pumpLoop();
+            } else {
+                this.schedulePump(options.throttle === true);
+            }
         });
     }
 
