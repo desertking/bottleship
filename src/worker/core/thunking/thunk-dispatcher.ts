@@ -8203,7 +8203,7 @@ export class ThunkDispatcher {
         const dllLower = stub.dllName.toLowerCase();
         const funcName = stub.functionName;
 
-        const allStubs = this.thunkGenerator.getAllStubs();
+        const allStubs = this.thunkGenerator.findStubsByName(stub.dllName, funcName);
         for (const s of allStubs) {
             if (s.functionId === functionId) continue;
             if (s.dllName.toLowerCase() !== dllLower || s.functionName !== funcName) continue;
