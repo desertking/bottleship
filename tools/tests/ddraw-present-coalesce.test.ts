@@ -6,7 +6,7 @@ function presenterWithDrawLog() {
     const presenter = Object.create(DDrawPresenter.prototype) as any;
     Object.assign(presenter, {
         presentCallCount: 0, pendingSurface: null, pendingOptions: null, pendingResolvers: [],
-        pumpRunning: false, pumpQueued: false, settleTimer: null, firstSettlingAt: 0,
+        pumpRunning: false, pumpQueued: false, settleTimer: null, firstSettlingAt: 0, lastFlipAt: -Infinity,
     });
     const drawn: Array<{ options: unknown; at: number }> = [];
     presenter.drawFrame = async (_surface: unknown, options: unknown) => { drawn.push({ options, at: performance.now() }); };
@@ -19,7 +19,7 @@ const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
 
 test("implicit primary presents spread over several slices collapse into one draw of the final state", async () => {
     const { presenter, drawn } = presenterWithDrawLog();
-    const all = [presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true })];
+    const all = [presenter.present(primary, mem, { throttle: true })];
     await sleep(1);
     all.push(presenter.present(primary, mem, { throttle: true }));
     await sleep(1);
@@ -61,4 +61,16 @@ test("an implicit present is not drawn while the primary is still locked", async
     surface.activeLeaseId = undefined;
     await sleep(10);
     expect(drawn).toHaveLength(1);
+});
+
+test("once the guest Flips, only Flips are drawn; implicit presents between them are not", async () => {
+    const { presenter, drawn } = presenterWithDrawLog();
+    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true });
+    expect(drawn).toHaveLength(1);
+    await presenter.present(primary, mem, { throttle: true });
+    await presenter.present(primary, mem, { throttle: true });
+    await sleep(30);
+    expect(drawn).toHaveLength(1);
+    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true });
+    expect(drawn).toHaveLength(2);
 });
