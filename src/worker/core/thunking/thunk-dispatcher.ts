@@ -1,4 +1,5 @@
 import { ThunkGenerator, ThunkStub } from './thunk-generator';
+import { isRestartable } from './restartable';
 import { CallbackManager } from './callback-manager';
 import { Logger, LogCategory } from '../logger';
 import { System } from '../system';
@@ -260,6 +261,8 @@ interface ActiveAsyncThunk {
     originalSpinBytes?: [number, number];
     /** Caller's module base at call time (for offset->linear patch on async return) */
     callerModuleBase?: number;
+    /** The call can be re-issued instead of awaited (see restartable.ts). */
+    restartable?: boolean;
 }
 
 interface PendingAsyncRestore {
@@ -1703,6 +1706,30 @@ export class ThunkDispatcher {
 
     /** Run everything queued, in order. Public so a reader of back-end state outside a trap
      *  (a harness verb, a diagnostic) can bring it current first. */
+    /** Threads parked on host Promises, for savestate readiness. */
+    asyncParks(): Array<{ name: string; threadId: number; restartable: boolean }> {
+        const out: Array<{ name: string; threadId: number; restartable: boolean }> = [];
+        for (const info of this.activeAsyncThunks.values()) {
+            out.push({ name: info.functionName ?? `#${info.functionId}`, threadId: info.threadId ?? 0, restartable: info.restartable === true });
+        }
+        return out;
+    }
+
+    pendingAsyncRestoreCount(): number {
+        return this.pendingAsyncRestores.length;
+    }
+
+    /** Bytes of write-buffer entries not yet applied: the guest ring past the tail, plus the queue. */
+    writeBufferPendingBytes(): number {
+        let ring = 0;
+        const mem32 = this.cachedMem32;
+        const headWordIdx = this.writeBufControlAddr >> 2;
+        if (this.writeBufControlAddr !== 0 && mem32 && headWordIdx < mem32.length) {
+            ring = Math.max(0, (mem32[headWordIdx]! >>> 0) - this.wbufTail);
+        }
+        return ring + this.wbufQueueEnd;
+    }
+
     executeWbufQueue(): void {
         const end = this.wbufQueueEnd;
         if (end === 0) return;
@@ -3462,7 +3489,8 @@ export class ThunkDispatcher {
             stackSnapshot,
             spinAddr,
             originalSpinBytes: originalBytes,
-            callerModuleBase: this.lastCallerModuleBase
+            callerModuleBase: this.lastCallerModuleBase,
+            restartable: isRestartable(promise),
         };
 
         // Set boundary state for scheduler: CPU is now at spin loop.
