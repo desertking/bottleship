@@ -65,12 +65,12 @@ test("an implicit present is not drawn while the primary is still locked", async
 
 test("once the guest Flips, only Flips are drawn; implicit presents between them are not", async () => {
     const { presenter, drawn } = presenterWithDrawLog();
-    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true });
+    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true, flip: true });
     expect(drawn).toHaveLength(1);
     await presenter.present(primary, mem, { throttle: true });
     await presenter.present(primary, mem, { throttle: true });
     await sleep(30);
     expect(drawn).toHaveLength(1);
-    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true });
+    await presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true, flip: true });
     expect(drawn).toHaveLength(2);
 });

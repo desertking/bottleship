@@ -32,7 +32,6 @@ import { registerGpuDeviceObserver } from "../../core/gpu/gpu-device-lifecycle";
 
 const PRIMARY_SETTLE_MS = 4;
 const PRIMARY_MAX_HOLD_MS = 24;
-/** After a Flip, implicit primary presents are not drawn for this long; the next Flip is. */
 const FLIP_OWNS_SCREEN_MS = 100;
 
 export class DDrawPresenter implements RenderActive {
@@ -242,15 +241,13 @@ export class DDrawPresenter implements RenderActive {
         }
     }
 
-    async present(surface: DirectDrawSurfaceState, _mem: Uint8Array, options: { throttle?: boolean; frameAlreadyMarked?: boolean; snapshotTextureView?: GPUTextureView } = {}): Promise<void> {
+    async present(surface: DirectDrawSurfaceState, _mem: Uint8Array, options: { throttle?: boolean; frameAlreadyMarked?: boolean; flip?: boolean; snapshotTextureView?: GPUTextureView } = {}): Promise<void> {
         this.presentCallCount++;
-        const now = performance.now();
-        if (options.frameAlreadyMarked) {
-            this.lastFlipAt = now;
-        } else if (options.throttle === true && now - this.lastFlipAt < FLIP_OWNS_SCREEN_MS) {
-            // The guest marks its frames with Flip: the image between two Flips is still
-            // being composed (GTA draws the scene and then sprites/text in separate passes),
-            // so only the next Flip shows it.
+        if (options.flip) {
+            this.lastFlipAt = performance.now();
+        } else if (options.throttle === true && performance.now() - this.lastFlipAt < FLIP_OWNS_SCREEN_MS) {
+            // A guest that marks its frames with Flip is still composing the next image
+            // between two Flips; the next Flip shows it.
             return Promise.resolve();
         }
         return new Promise<void>((resolve, reject) => {
@@ -264,7 +261,7 @@ export class DDrawPresenter implements RenderActive {
             this.pendingSurface = surface;
             this.pendingOptions = options;
             this.pendingResolvers.push({ resolve, reject });
-            if (options.frameAlreadyMarked) {
+            if (options.flip) {
                 if (this.settleTimer !== null) { clearTimeout(this.settleTimer); this.settleTimer = null; }
                 void this.pumpLoop();
             } else {
@@ -274,14 +271,15 @@ export class DDrawPresenter implements RenderActive {
     }
 
     /**
-     * A guest often composes one image in several primary updates — a Blt of the scene,
-     * then Locks that draw sprites and text over it — each of which asks for a present, and
-     * the steps can land in different guest slices. Drawing at the first of them hands the
-     * compositor a half-finished image for a whole refresh. A present that the guest marks
-     * as a frame end (Flip, explicit present: throttle off) is drawn at the end of the
-     * current slice; an implicit one (Unlock/Blt of the primary) waits until the primary
-     * has been quiet and unlocked for PRIMARY_SETTLE_MS, but never longer than
-     * PRIMARY_MAX_HOLD_MS, so continuous writers keep updating.
+     * The primary is scanout: on hardware an image the guest is still composing is visible
+     * only for the microseconds the beam passes it. Here every present stays on screen for
+     * a whole refresh, so presents are placed where the guest's image is complete:
+     * - Flip draws at once; for FLIP_OWNS_SCREEN_MS after a Flip, implicit presents are not
+     *   drawn (the guest composes the next image in several passes before its next Flip).
+     * - An explicit present (throttle off) draws when the current guest slice returns.
+     * - An implicit present (Unlock/Blt of the primary) draws once the primary has been
+     *   quiet and unlocked for PRIMARY_SETTLE_MS, but at the latest PRIMARY_MAX_HOLD_MS
+     *   after the first one, so continuous writers keep updating.
      */
     private schedulePump(implicit: boolean): void {
         if (!implicit) {
