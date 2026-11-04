@@ -6,32 +6,48 @@ function presenterWithDrawLog() {
     const presenter = Object.create(DDrawPresenter.prototype) as any;
     Object.assign(presenter, {
         presentCallCount: 0, pendingSurface: null, pendingOptions: null, pendingResolvers: [],
-        pumpRunning: false, pumpQueued: false,
+        pumpRunning: false, pumpQueued: false, settleTimer: null, firstSettlingAt: 0,
     });
-    const drawn: Array<{ surface: unknown; options: unknown }> = [];
-    presenter.drawFrame = async (surface: unknown, options: unknown) => { drawn.push({ surface, options }); };
+    const drawn: Array<{ options: unknown; at: number }> = [];
+    presenter.drawFrame = async (_surface: unknown, options: unknown) => { drawn.push({ options, at: performance.now() }); };
     return { presenter: presenter as DDrawPresenter, drawn };
 }
 
-test("presents issued within one guest slice collapse into one draw of the last state", async () => {
+const primary = { surfacePtr: 0x1000 } as DirectDrawSurfaceState;
+const mem = new Uint8Array(0);
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms));
+
+test("implicit primary presents spread over several slices collapse into one draw of the final state", async () => {
     const { presenter, drawn } = presenterWithDrawLog();
-    const primary = { surfacePtr: 0x1000 } as DirectDrawSurfaceState;
-    const mem = new Uint8Array(0);
-    const all = [
-        presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true }),
-        presenter.present(primary, mem, { throttle: true }),
-        presenter.present(primary, mem, { throttle: true }),
-    ];
+    const all = [presenter.present(primary, mem, { throttle: true, frameAlreadyMarked: true })];
+    await sleep(1);
+    all.push(presenter.present(primary, mem, { throttle: true }));
+    await sleep(1);
+    all.push(presenter.present(primary, mem, { throttle: true }));
     expect(drawn).toHaveLength(0);
     await Promise.all(all);
     expect(drawn).toHaveLength(1);
     expect(drawn[0]!.options).toEqual({ throttle: true });
 });
 
-test("a present after the slice returned is drawn again", async () => {
+test("a continuous writer is still drawn at least every max-hold interval", async () => {
     const { presenter, drawn } = presenterWithDrawLog();
-    const primary = { surfacePtr: 0x1000 } as DirectDrawSurfaceState;
-    await presenter.present(primary, new Uint8Array(0));
-    await presenter.present(primary, new Uint8Array(0));
-    expect(drawn).toHaveLength(2);
+    const t0 = performance.now();
+    while (performance.now() - t0 < 120) {
+        void presenter.present(primary, mem, { throttle: true });
+        await sleep(2);
+    }
+    await sleep(30);
+    expect(drawn.length).toBeGreaterThanOrEqual(3);
+});
+
+test("an explicit present (Flip) is drawn at the end of the slice and absorbs pending implicit ones", async () => {
+    const { presenter, drawn } = presenterWithDrawLog();
+    void presenter.present(primary, mem, { throttle: true });
+    const flip = presenter.present(primary, mem, { throttle: false });
+    await flip;
+    expect(drawn).toHaveLength(1);
+    expect(drawn[0]!.options).toEqual({ throttle: false });
+    await sleep(30);
+    expect(drawn).toHaveLength(1);
 });

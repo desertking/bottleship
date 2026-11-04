@@ -30,6 +30,9 @@ import { onFrameEnd as frameCaptureOnFrameEnd } from "./frame-capture";
 import { statsOverlay } from "../../core/stats-overlay";
 import { registerGpuDeviceObserver } from "../../core/gpu/gpu-device-lifecycle";
 
+const PRIMARY_SETTLE_MS = 4;
+const PRIMARY_MAX_HOLD_MS = 24;
+
 export class DDrawPresenter implements RenderActive {
     private process: Process;
     private canvas: OffscreenCanvas | null = null;
@@ -46,6 +49,8 @@ export class DDrawPresenter implements RenderActive {
     private pendingResolvers: Array<{ resolve: () => void, reject: (reason?: unknown) => void }> = [];
     private pumpRunning = false;
     private pumpQueued = false;
+    private settleTimer: ReturnType<typeof setTimeout> | null = null;
+    private firstSettlingAt = 0;
 
     // Phase-blend present mode (C). When enabled, guest Flips only SNAPSHOT into the interpolator;
     // a per-rAF callback (blendFrameUnreg) re-presents mix(prev,new,phase) at full refresh so a
@@ -247,24 +252,40 @@ export class DDrawPresenter implements RenderActive {
             this.pendingSurface = surface;
             this.pendingOptions = options;
             this.pendingResolvers.push({ resolve, reject });
-            this.schedulePump();
+            this.schedulePump(options.throttle === true);
         });
     }
 
     /**
-     * A guest composes one image in several steps that each present the primary (a Blt of
-     * the scene, then Locks that draw sprites and text on top). Drawing at the first of
-     * them hands the compositor a half-finished image for a whole refresh. The pump starts
-     * once the current guest slice has returned to the host, so the steps of that slice
-     * collapse into one present of their final state.
+     * A guest often composes one image in several primary updates — a Blt of the scene,
+     * then Locks that draw sprites and text over it — each of which asks for a present, and
+     * the steps can land in different guest slices. Drawing at the first of them hands the
+     * compositor a half-finished image for a whole refresh. A present that the guest marks
+     * as a frame end (Flip, explicit present: throttle off) is drawn at the end of the
+     * current slice; an implicit one (Unlock/Blt of the primary) waits until the primary
+     * has been quiet for PRIMARY_SETTLE_MS, but never longer than PRIMARY_MAX_HOLD_MS, so
+     * continuous writers keep updating.
      */
-    private schedulePump(): void {
+    private schedulePump(implicit: boolean): void {
+        if (!implicit) {
+            if (this.settleTimer !== null) { clearTimeout(this.settleTimer); this.settleTimer = null; }
+            if (this.pumpQueued) return;
+            this.pumpQueued = true;
+            queueMicrotask(() => {
+                this.pumpQueued = false;
+                void this.pumpLoop();
+            });
+            return;
+        }
         if (this.pumpQueued) return;
-        this.pumpQueued = true;
-        queueMicrotask(() => {
-            this.pumpQueued = false;
+        const now = performance.now();
+        if (this.settleTimer === null) this.firstSettlingAt = now;
+        else clearTimeout(this.settleTimer);
+        const wait = Math.max(0, Math.min(PRIMARY_SETTLE_MS, this.firstSettlingAt + PRIMARY_MAX_HOLD_MS - now));
+        this.settleTimer = setTimeout(() => {
+            this.settleTimer = null;
             void this.pumpLoop();
-        });
+        }, wait);
     }
 
     private async pumpLoop(): Promise<void> {
@@ -287,7 +308,7 @@ export class DDrawPresenter implements RenderActive {
         } finally {
             this.pumpRunning = false;
             if (this.pendingSurface) {
-                void this.pumpLoop();
+                this.schedulePump(this.pendingOptions?.throttle === true);
             }
         }
     }
