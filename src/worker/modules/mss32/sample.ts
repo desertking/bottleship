@@ -7,7 +7,7 @@ import { MSSSample } from "./types";
 import {
     ensureDriverHandle, getBytesPerSecond, getMemory, makeView,
     setSampleStatus, updateSampleMemory, refreshSampleLenDone,
-    readFilenameArg, isEncodedFormat, MSS_SAMPLE_STRUCT_SIZE,
+    readFilenameArg, isEncodedFormat, MSS_SAMPLE_STRUCT_SIZE, isMp3, isOgg,
     computeSampleVolumes, getPlaybackLengthBytes, writeSamplePosition,
 } from "./helpers";
 import {
@@ -19,6 +19,33 @@ import { System } from "../../core/system";
 import { i32ToFloat } from "../../../audio/audio-ring-buffer";
 import { ensureListener3D, writeListener3D } from "./spatial";
 import { clampLevel, f32Arg, levelsToVolumePan, pan127ToPanLevel, panLevelToPan127, volumePanToLevels } from "./volume-levels";
+
+/** A sound image that names its own format; anything else is raw PCM per AIL_set_sample_type. */
+function isContainerImage(data: Uint8Array): boolean {
+    if (data.length >= 4 && data[0] === 0x52 && data[1] === 0x49 && data[2] === 0x46 && data[3] === 0x46) return true;
+    return isMp3(data) || isOgg(data);
+}
+
+/** Decode a raw PCM sound image with the voice's current type (8/16-bit, mono/stereo) and rate. */
+export function decodeRawSampleData(sampleObj: MSSSample): Float32Array | null {
+    const data = sampleObj.fileData;
+    if (!data) return null;
+    const channels = sampleObj.channels > 0 ? sampleObj.channels : 1;
+    const bits = sampleObj.bitsPerSample > 0 ? sampleObj.bitsPerSample : 8;
+    const blockAlign = channels * Math.max(1, bits >> 3);
+    sampleObj.fileFormat = "raw";
+    sampleObj.formatTag = 1;
+    sampleObj.channels = channels;
+    sampleObj.bitsPerSample = bits;
+    sampleObj.blockAlign = blockAlign;
+    sampleObj.encodedDurationMs = undefined;
+    const rate = (sampleObj.playbackRateHz ?? 0) > 0 ? sampleObj.playbackRateHz! : (sampleObj.sampleRate > 0 ? sampleObj.sampleRate : 22050);
+    sampleObj.sampleRate = rate;
+    sampleObj.playbackRate = 1.0;
+    sampleObj.decodedData = convertToFloat(data, channels, bits, 1, blockAlign);
+    sampleObj.pcmBytes = data.length - (data.length % blockAlign);
+    return sampleObj.decodedData;
+}
 
 export function createSampleExports(ctx: MSSContext): Record<string, ThunkImplementation> {
     const exports: Record<string, ThunkImplementation> = {};
@@ -712,7 +739,14 @@ export function createSampleExports(ctx: MSSContext): Record<string, ThunkImplem
         sampleObj.fileDataAllocated = false;
         sampleObj.decodedData = null;
         sampleObj.fileData = memRef.slice(address, address + len);
-        decodeAudioFile(ctx, sampleObj);
+        if (isContainerImage(sampleObj.fileData)) {
+            decodeAudioFile(ctx, sampleObj);
+        } else {
+            const decoded = decodeRawSampleData(sampleObj);
+            if (sampleObj.pendingStart && decoded && decoded.length > 0) {
+                playSample(ctx, sampleObj);
+            }
+        }
 
         updateSampleMemory(ctx, sampleObj, address, sampleObj.pcmBytes ?? len);
         if (sampleObj.pcmBytes !== undefined) {
