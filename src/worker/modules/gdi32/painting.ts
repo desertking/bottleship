@@ -1734,7 +1734,27 @@ export function createPaintingExports(): Record<string, ThunkImplementation> {
     exports['GetSystemPaletteUse'] = (ctx, mem, args): number => {
         const hdc = args[0];
         Logger.verbose(LogCategory.GDI32, `GetSystemPaletteUse(hdc=0x${hdc.toString(16)})`);
-        // SYSPAL_STATIC = 1 (static colors used)
+        return systemPaletteUse;
+    };
+
+    let systemPaletteUse = 1;
+    exports['SetSystemPaletteUse'] = (ctx, mem, args): number => {
+        const use = args[1] >>> 0;
+        if (use !== 1 && use !== 2 && use !== 3) return 0;
+        const previous = systemPaletteUse;
+        systemPaletteUse = use;
+        return previous;
+    };
+
+    exports['AnimatePalette'] = (ctx, mem, args): number => {
+        const hPal = args[0];
+        const iStart = args[1] >>> 0;
+        const cEntries = args[2] >>> 0;
+        const ppe = args[3] >>> 0;
+        const entries = paletteStore.get(hPal);
+        if (!entries) return 0;
+        const end = Math.min(iStart + cEntries, 256);
+        if (ppe && end > iStart) entries.set(mem.subarray(ppe, ppe + (end - iStart) * 4), iStart * 4);
         return 1;
     };
 
