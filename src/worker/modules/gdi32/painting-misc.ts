@@ -11,6 +11,7 @@ import { addFontResource, removeFontResource } from './font-resource';
 import { PS_STYLE_MASK } from './gdi-objects';
 import { DEFAULT_CHARSET, fontSignature, systemDefaultCharset } from './font-charset';
 import { enumerateFontFamilies } from './font-enumeration';
+import { registerFontExtraExports } from './font-extra';
 
 let nextMetafileHandle = 0x50000;
 
@@ -19,6 +20,7 @@ const PS_TYPE_MASK = 0x000F0000;
 const PS_GEOMETRIC = 0x00010000;
 
 export function registerPaintingMiscExports(exports: Record<string, ThunkImplementation>): void {
+    registerFontExtraExports(exports);
     exports['EnumFontFamiliesA'] = (ctx, _mem, args) => enumerateFontFamilies(ctx, args, false, false);
     exports['EnumFontFamiliesExA'] = (ctx, _mem, args) => enumerateFontFamilies(ctx, args, false, true);
     exports['EnumFontFamiliesExW'] = (ctx, _mem, args) => enumerateFontFamilies(ctx, args, true, true);
