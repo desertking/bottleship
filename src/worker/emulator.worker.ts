@@ -1,3 +1,4 @@
+import "./savestate/census";
 import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship/formats/wgb/io-profile";
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
