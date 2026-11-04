@@ -9,10 +9,12 @@ import { createSampleBufferExports } from "../../src/worker/modules/mss32/sample
 import type { MSSContext } from "../../src/worker/modules/mss32/context";
 import type { MSSSample } from "../../src/worker/modules/mss32/types";
 import { Mem } from "../../src/worker/core/memory/mem-accessor";
+import { rawSampleCacheStats, resetRawSampleCache } from "../../src/worker/modules/mss32/raw-sample-cache";
 
 const HANDLE = 0x400, IMAGE = 0x800, DIG_F_MONO_8 = 0, DIG_F_STEREO_16 = 3;
 
 function setup(image: Uint8Array) {
+    resetRawSampleCache();
     const memory = new Uint8Array(0x4000);
     memory.set(image, IMAGE);
     Mem.bind(() => memory);
@@ -85,4 +87,35 @@ describe("MSS32 raw PCM sound images", () => {
         expect(sample.sampleRate).toBe(8000);
         expect(sample.decodedData).toHaveLength(4);
     });
+
+    test("an unchanged image is decoded once and shared across voices and replays", () => {
+        const raw = new Uint8Array(4096).map((_, i) => (i * 7) & 0xff);
+        const { sample, call, memory } = setup(raw);
+        call("_AIL_set_sample_address@12", [HANDLE, IMAGE, raw.length]);
+        const first = sample.decodedData, firstData = sample.fileData;
+        call("_AIL_set_sample_address@12", [HANDLE, IMAGE, raw.length]);
+        expect(sample.decodedData).toBe(first);
+        expect(sample.fileData).toBe(firstData);
+        expect(rawSampleCacheStats()).toMatchObject({ hits: 1, misses: 1 });
+        call("_AIL_set_sample_type@12", [HANDLE, DIG_F_STEREO_16, 0]);
+        call("_AIL_set_sample_type@12", [HANDLE, DIG_F_STEREO_16, 0]);
+        expect(rawSampleCacheStats()).toMatchObject({ hits: 2, misses: 2 });
+        call("_AIL_set_sample_type@12", [HANDLE, DIG_F_MONO_8, 0]);
+        expect(sample.decodedData).toBe(first);
+        expect(memory[IMAGE]).toBe(0);
+    });
+
+    test("rewritten bytes at the same address are decoded again", () => {
+        const raw = new Uint8Array(4096).fill(0x80);
+        const { sample, call, memory } = setup(raw);
+        call("_AIL_set_sample_address@12", [HANDLE, IMAGE, raw.length]);
+        const first = sample.decodedData!;
+        expect(first[0]).toBeCloseTo(0, 5);
+        memory.fill(0xc0, IMAGE, IMAGE + raw.length);
+        call("_AIL_set_sample_address@12", [HANDLE, IMAGE, raw.length]);
+        expect(sample.decodedData).not.toBe(first);
+        expect(sample.decodedData![0]).toBeCloseTo(0.5, 5);
+        expect(first[0]).toBeCloseTo(0, 5);
+    });
 });
+
