@@ -14,6 +14,7 @@ import {
     getWindowByHandle,
 } from './shared-state';
 import { GUEST_INPUT_FLAG } from '../../../input/sab-layout';
+import { createRawInputExports } from './raw-input';
 
 // The three polled key readers are the hottest thunks any title issues (a per-frame
 // input poll, millions of calls over a session), so each has a fast path. The bodies
@@ -590,76 +591,7 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         return hConv; // non-NULL success token for compatibility
     };
 
-    // ── Raw Input (WM_INPUT) ────────────────────────────────────────────────
-    // Modern OldUnreal WinDrv initializes a "Raw Input" mouse handler and enumerates
-    // / queries raw-input devices. These were previously argcount-only stubs (no
-    // handler), so their OUT count/size params (puiNumDevices / pcbSize) were left
-    // UNINITIALISED — the engine then fed that garbage to appMalloc → _aligned_malloc
-    // returned NULL → `check(Ptr)` (FMallocAnsi.h:33) → "Critical: UInput::ReadInput".
-    // We report "no raw-input devices / no data", always writing 0 to the OUT params.
-    const writeU32 = (mem: Uint8Array, addr: number, value: number): void => {
-        if (addr && addr + 4 <= mem.length) Mem.writeUint32(addr >>> 0, value >>> 0);
-    };
-
-    // UINT GetRawInputDeviceList(PRAWINPUTDEVICELIST, PUINT puiNumDevices, UINT cbSize)
-    exports['GetRawInputDeviceList'] = (ctx, mem, args) => {
-        const puiNumDevices = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputDeviceList(0x${(args[0] >>> 0).toString(16)}, 0x${puiNumDevices.toString(16)}, ${args[2] >>> 0})`);
-        writeU32(mem, puiNumDevices, 0); // zero devices
-        return 0; // count copied / required = 0
-    };
-
-    // BOOL RegisterRawInputDevices(PCRAWINPUTDEVICE, UINT uiNumDevices, UINT cbSize)
-    // Must FAIL: we never deliver WM_INPUT, and claiming success makes SDL2 (2.0.18+)
-    // switch focused-window mouse motion to the raw-input path and ignore
-    // WM_MOUSEMOVE coordinates — frozen in-game cursor. A failed registration is
-    // the honest contract; callers fall back to normal window messages.
-    exports['RegisterRawInputDevices'] = (ctx, mem, args) => {
-        Logger.verbose(LogCategory.USER32, `RegisterRawInputDevices(uiNumDevices=${args[1] >>> 0}) -> FALSE (no WM_INPUT delivery)`);
-        System.getInstance().scheduler.setLastError(120); // ERROR_CALL_NOT_IMPLEMENTED
-        return 0;
-    };
-
-    // UINT GetRegisteredRawInputDevices(PRAWINPUTDEVICE, PUINT puiNumDevices, UINT cbSize)
-    exports['GetRegisteredRawInputDevices'] = (ctx, mem, args) => {
-        const puiNumDevices = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRegisteredRawInputDevices(0x${puiNumDevices.toString(16)})`);
-        writeU32(mem, puiNumDevices, 0);
-        return 0;
-    };
-
-    // UINT GetRawInputData(HRAWINPUT, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
-    exports['GetRawInputData'] = (ctx, mem, args) => {
-        const pData = args[2] >>> 0;
-        const pcbSize = args[3] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputData(cmd=0x${(args[1] >>> 0).toString(16)}, pData=0x${pData.toString(16)})`);
-        // pData==NULL → size query: report 0 bytes required. pData!=NULL → 0 bytes copied.
-        if (pData === 0) writeU32(mem, pcbSize, 0);
-        return 0;
-    };
-
-    // UINT GetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
-    exports['GetRawInputBuffer'] = (ctx, mem, args) => {
-        const pData = args[0] >>> 0;
-        const pcbSize = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputBuffer(pData=0x${pData.toString(16)})`);
-        if (pData === 0) writeU32(mem, pcbSize, 0);
-        return 0; // zero messages
-    };
-
-    // UINT GetRawInputDeviceInfoW/A(HANDLE hDevice, UINT uiCommand, LPVOID pData, PUINT pcbSize)
-    exports['GetRawInputDeviceInfoW'] = exports['GetRawInputDeviceInfoA'] = (ctx, mem, args) => {
-        const pcbSize = args[3] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputDeviceInfo(hDevice=0x${(args[0] >>> 0).toString(16)}, cmd=0x${(args[1] >>> 0).toString(16)})`);
-        writeU32(mem, pcbSize, 0);
-        return 0;
-    };
-
-    // LRESULT DefRawInputProc(PRAWINPUT* paRawInput, INT nInput, UINT cbSizeHeader)
-    exports['DefRawInputProc'] = (ctx, mem, args) => {
-        Logger.verbose(LogCategory.USER32, `DefRawInputProc(nInput=${args[1] | 0})`);
-        return 0;
-    };
+    Object.assign(exports, createRawInputExports());
 
     exports['UnpackDDElParam'] = (ctx, mem, args) => {
         const msg = args[0];
