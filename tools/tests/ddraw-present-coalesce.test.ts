@@ -51,3 +51,14 @@ test("an explicit present (Flip) is drawn at the end of the slice and absorbs pe
     await sleep(30);
     expect(drawn).toHaveLength(1);
 });
+
+test("an implicit present is not drawn while the primary is still locked", async () => {
+    const { presenter, drawn } = presenterWithDrawLog();
+    const surface = { surfacePtr: 0x1000, activeLeaseId: 3 } as unknown as DirectDrawSurfaceState & { activeLeaseId?: number };
+    void presenter.present(surface, mem, { throttle: true });
+    await sleep(10);
+    expect(drawn).toHaveLength(0);
+    surface.activeLeaseId = undefined;
+    await sleep(10);
+    expect(drawn).toHaveLength(1);
+});
