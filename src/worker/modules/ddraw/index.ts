@@ -90,7 +90,7 @@ import { freeExecuteBufferScratch } from './d3d/execute-buffer-impl';
 import { freeStridedDrawScratch } from './d3d/strided-draw';
 import { createGPUTexture, convertRGBAToSurface, convertSurfaceToRGBA, resolvePalette, FormatInfo, readSurfaceStateRGBA } from './gpu-texture-utils';
 import { isValidAddress } from '../../core/memory/address-guard';
-import { PrimaryScanoutTracker, primaryAutoPresentDue } from './primary-scanout';
+import { PrimaryScanoutTracker } from './primary-scanout';
 import { resolveBitmapRgba, bitmapHasPixelSource } from '../gdi32/bitmap-resolve';
 import { setAuthorityCpu } from './surface-sync';
 import { startCapture as frameCaptureStart } from './frame-capture';
@@ -696,9 +696,10 @@ export class DDraw implements IModule {
             if (!primaryObj) return;
             const state = primaryObj.getState();
             if (!isRenderSurface(state)) return;
-            if (!primaryAutoPresentDue(state)) return;
             const locked = state.activeLeaseId !== undefined;
-            if (locked && !this.primaryScanout.lockHeldAcrossFrame(state)) return;
+            const indexedCpu = state.format.bpp === 8 && state.everLocked && state.mode === 'CPU'
+                && state.gpuWrittenVersion !== state.version;
+            if (!locked && !indexedCpu) return;
             const mem = this.getMemory();
             if (!locked && !this.primaryScanout.changed(mem, state)) return;
             // A GPU-authored primary has a stale guest copy; never promote that copy.
