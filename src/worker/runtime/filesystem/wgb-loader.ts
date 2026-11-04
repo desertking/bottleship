@@ -178,6 +178,7 @@ export interface WgbManifest {
          * (NatalieBrooksSTH music jumps). Mirrors real per-process x87 precision policy.
          */
         fpuStrict?: boolean;
+        maxPresentFps?: number;
         /**
          * Per-game graphics quality overrides (anisotropy, brightness/contrast/saturation,
          * aspect/integer scaling, post-FX, MSAA/internal-res…). Layered on top of the global
