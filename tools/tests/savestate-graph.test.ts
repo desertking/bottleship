@@ -61,3 +61,11 @@ test("typed arrays behind a Proxy are captured as typed arrays", () => {
     expect(back.p).toBeInstanceOf(Int32Array);
     expect(Array.from(back.p)).toEqual([3, 4]);
 });
+
+test("v86-style register proxies (Proxy over {} forwarding to a view) are captured as typed arrays", () => {
+    const real = new Int32Array([7, 8, 9]);
+    const proxied = new Proxy({}, { get: (_t, k) => { const v = (real as any)[k]; return typeof v === 'function' ? v.bind(real) : v; } });
+    const back: any = decodeGraph(encodeGraph({ r: proxied }), () => undefined);
+    expect(back.r).toBeInstanceOf(Int32Array);
+    expect(Array.from(back.r)).toEqual([7, 8, 9]);
+});

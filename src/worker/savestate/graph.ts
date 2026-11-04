@@ -41,7 +41,10 @@ const TYPED: Record<string, new (b: ArrayBuffer) => ArrayBufferView> = {
 
 function typedArrayName(v: object): string | null {
     for (const name of Object.keys(TYPED)) if (v instanceof TYPED[name]!) return name;
-    return null;
+    // v86 exposes CPU registers as Proxies over {} that forward to a typed array view.
+    const ctor = (v as { constructor?: { name?: string } }).constructor?.name;
+    const m = ctor ? /^bound (\w+Array)$/.exec(ctor) : null;
+    return m && TYPED[m[1]!] ? m[1]! : null;
 }
 
 export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGraph {
@@ -64,7 +67,7 @@ export function encodeGraph(value: unknown, opts: EncodeOptions = {}): EncodedGr
         const typedName = typedArrayName(v);
         if (typedName) {
             // Copy element-wise: engine views may be Proxies over WASM memory.
-            const copy = new TYPED[typedName]!(v as unknown as ArrayBuffer) as unknown as ArrayBufferView;
+            const copy = new TYPED[typedName]!(Array.from(v as ArrayLike<number>) as unknown as ArrayBuffer) as unknown as ArrayBufferView;
             blobs.push(new Uint8Array(copy.buffer, copy.byteOffset, copy.byteLength).slice());
             return { t: 'typed', i, k: typedName, b: blobs.length - 1 };
         }
