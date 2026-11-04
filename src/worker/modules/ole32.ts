@@ -18,6 +18,7 @@ import { MEM_THUNK_CODE_BASE, MEM_THUNK_CODE_SIZE } from "../core/cpu/emulator-c
 import { windows, registerWindowDestroyObserver } from "./user32/shared-state";
 import { DragDropRegistry } from "./ole32-dragdrop";
 import { comApartments, ComApartments } from "../core/com/apartment";
+import { coCreateMlang } from './ole32-mlang-font-link';
 
 // COM error codes
 const REGDB_E_CLASSNOTREG = 0x80040154;
@@ -934,6 +935,8 @@ export class Ole32 implements IModule {
         context: X86Context,
         iidAddress: number,
     ): number {
+        const mlang = coCreateMlang(this.process, clsidNormalized, iidNormalized, ppv);
+        if (mlang !== null) return mlang;
         const registered = lookupHleComClass(this.process, clsidNormalized);
         if (registered) {
             if (!registered.server.acquireLoaderReference()) {
