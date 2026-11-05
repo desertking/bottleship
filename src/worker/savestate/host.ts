@@ -24,9 +24,15 @@ const text = (s: string) => new TextEncoder().encode(s);
 /** @transient(diagnostic text of the last entry-point failure, reported by the census) */
 let bootError = '';
 
-export function noteBootError(message: string): void { bootError = message; }
+/** @transient(diagnostic count of entry-point hook runs, reported by the census) */
+let hookRuns = 0;
 
-export function bootState(): { identity: boolean; error: string } { return { identity: boot !== null, error: bootError }; }
+export function noteBootError(message: string): void { bootError = message; }
+export function noteHookRun(): void { hookRuns++; }
+
+export function bootState(): { identity: boolean; error: string; hookRuns: number } {
+    return { identity: boot !== null, error: bootError, hookRuns };
+}
 
 const safeJson = (v: unknown): string => {
     try { return JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)) ?? ''; } catch { return ''; }

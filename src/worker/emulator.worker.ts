@@ -2,7 +2,7 @@ import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
 import { adoptFreshGuestMemory } from "./core/memory/guest-page-dirty";
-import { noteBootError, noteBootIdentity, restorePendingAtEntry } from "./savestate/host";
+import { noteBootError, noteBootIdentity, noteHookRun, restorePendingAtEntry } from "./savestate/host";
 import { registerCoreParticipants } from "./savestate/core-participants";
 import { Process } from "./core/process";
 import { System, type GuestImagePatch } from "./core/system";
@@ -2214,6 +2214,7 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
     if (await loadPeData(bundle.entrypointBytes, true) === "failed") return;
     bootMark("pe-loaded");
     pauseEmulator();
+    noteHookRun();
     let savestateStep = "participants";
     try {
       registerCoreParticipants();
