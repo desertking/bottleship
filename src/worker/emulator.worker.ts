@@ -548,8 +548,8 @@ const gdiPresentOnce = () => {
       // Game owns the screen. Drop stale dirty flags so a later composite (e.g. after
       // returning to the launcher) starts clean, then keep the canvas showing the last
       // frame at display rate (a 3D renderer presents at ~8-12fps and the WebGPU canvas
-      // otherwise goes black between presents; the DDraw presenter lacks repaintLastFrame
-      // and re-presents each Flip, so this is a no-op there). The only GDI that overlays
+      // otherwise goes black between presents; the DDraw presenter keeps its canvas between
+      // presents and only re-presents under dialog rects / video). The only GDI that overlays
       // the frame here is live modal dialog rects (plan.mode === 'rects').
       if (gdiDirty) gdi.clearOverlayDirty();
       if (isVideoPlaneDirty()) dropVideoPlaneDirty();
@@ -565,7 +565,8 @@ const gdiPresentOnce = () => {
       const guestPresentSerial = system.services.render.getGuestPresentSerial();
       const guestPresentedSinceLastFrame = guestPresentSerial !== gdiLastGuestPresentSerial;
       gdiLastGuestPresentSerial = guestPresentSerial;
-      if (videoWillComposite || rectsWillComposite || !guestPresentedSinceLastFrame) {
+      const retainsCanvas = !!(renderActive as { retainsCanvasBetweenPresents?: boolean } | null)?.retainsCanvasBetweenPresents;
+      if (videoWillComposite || rectsWillComposite || (!guestPresentedSinceLastFrame && !retainsCanvas)) {
         (renderActive as { repaintLastFrame?(): void } | null)?.repaintLastFrame?.();
       }
 

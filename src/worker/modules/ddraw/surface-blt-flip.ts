@@ -47,6 +47,7 @@ import {
     DDGFS_CANFLIP,
 } from "./constants";
 import { readRect, surfaceAt, type Rect } from "./helpers";
+import { noteGuestPrimaryWrite } from "./gdi-visibility";
 import { absToRel } from "./helpers";
 import { copySurfaceRegion, copySurfaceRegionWithColorKey, copySurfaceRegionWithRop, copyCompressedSurfaceRegion, buildFullRect, rectCoversSurface } from "./surface-helpers";
 import { RectPool } from "./rect-pool";
@@ -1379,6 +1380,36 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
 
         // Sync fast path (common case: SYSMEM surfaces, no GPU readback)
         return doBltFast();
+    };
+
+    const afterPrimaryWrite = (
+        result: number | Promise<number>, thisPtr: number,
+        rectOf: (state: DirectDrawSurfaceState) => Rect | null,
+    ): number | Promise<number> => {
+        const state = surfaceAt(context.resourceProvider, thisPtr)?.getState();
+        if (!state) return result;
+        const rect = rectOf(state);
+        const note = (hr: number): number => {
+            if (hr === DD_OK && rect) noteGuestPrimaryWrite(context, state.caps, rect, state.clipperHandle !== undefined);
+            return hr;
+        };
+        return typeof result === "number" ? note(result) : result.then(note);
+    };
+    const blt = exports["IDirectDrawSurface7_Blt"];
+    exports["IDirectDrawSurface7_Blt"] = (ctx, mem, args): number | Promise<number> => {
+        const lpDestRect = args[1];
+        const rect = lpDestRect ? readRect(mem, lpDestRect) : null;
+        return afterPrimaryWrite(blt(ctx, mem, args) as number | Promise<number>, args[0],
+            (state) => rect ?? buildFullRect(state));
+    };
+    const bltFast = exports["IDirectDrawSurface7_BltFast"];
+    exports["IDirectDrawSurface7_BltFast"] = (ctx, mem, args): number | Promise<number> => {
+        const src = surfaceAt(context.resourceProvider, args[3])?.getState();
+        const srcRect = args[4] ? readRect(mem, args[4]) : (src ? buildFullRect(src) : null);
+        return afterPrimaryWrite(bltFast(ctx, mem, args) as number | Promise<number>, args[0], () => srcRect ? {
+            left: args[1], top: args[2],
+            right: args[1] + (srcRect.right - srcRect.left), bottom: args[2] + (srcRect.bottom - srcRect.top),
+        } : null);
     };
 
     return exports;
