@@ -73,8 +73,15 @@ export function registerCoreParticipants(): void {
     });
     savestateParticipants.add({
         id: 'address-space', version: 1, order: 2,
-        capture: () => save(process().addressSpace.captureState()),
-        restore: (s) => process().addressSpace.restoreState(as(s)),
+        capture: () => {
+            if (process().pageTableManager?.hasExternalDataPages()) throw new Error('address space: external data page mappings are not part of a v1 savestate');
+            return save(process().addressSpace.captureState());
+        },
+        restore: (s) => {
+            const p = process();
+            p.addressSpace.restoreState(as(s));
+            p.pageTableManager?.rebuildWriteMap(p.addressSpace.getFastWritableRanges());
+        },
     });
     savestateParticipants.add({
         id: 'memory-manager', version: 1, order: 3,
