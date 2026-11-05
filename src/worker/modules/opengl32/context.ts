@@ -145,12 +145,18 @@ export class GLCapSet extends Set<number> {
     }
 
     override add(cap: number): this {
-        if (cap >>> 0 < 0x10000) this.bits[cap] = 1;
+        if (cap >>> 0 < 0x10000) {
+            if (this.bits[cap] === 1) return this;
+            this.bits[cap] = 1;
+        }
         return super.add(cap);
     }
 
     override delete(cap: number): boolean {
-        if (cap >>> 0 < 0x10000) this.bits[cap] = 0;
+        if (cap >>> 0 < 0x10000) {
+            if (this.bits[cap] === 0) return false;
+            this.bits[cap] = 0;
+        }
         return super.delete(cap);
     }
 
@@ -395,6 +401,32 @@ export const COMBINER_WORD_DEFAULT = (COMBINER_FN_MODULATE
  * get the neutral word and a zero constant so two draws that differ only in combiner
  * state they never consult still merge.
  */
+export function texEnvSlotsEqual(
+    I: Int32Array, F: Float32Array, i: number, f: number,
+    unit0: GLTextureUnit, unit1: GLTextureUnit,
+): boolean {
+    return oneTexEnvSlotEqual(I, F, i + CI_COMBINE0_RGB, i + CI_COMBINE0_ALPHA, f + CF_ENV_COLOR0, unit0)
+        && oneTexEnvSlotEqual(I, F, i + CI_COMBINE1_RGB, i + CI_COMBINE1_ALPHA, f + CF_ENV_COLOR1, unit1);
+}
+
+function oneTexEnvSlotEqual(
+    I: Int32Array, F: Float32Array,
+    rgbSlot: number, alphaSlot: number, colorSlot: number, unit: GLTextureUnit,
+): boolean {
+    if (unit.texEnvMode === GL_COMBINE) {
+        const c = unit.envColor;
+        return I[rgbSlot] === (packCombinerRgb(unit) | 0)
+            && I[alphaSlot] === (packCombinerAlpha(unit) | 0)
+            && F[colorSlot] === Math.fround(c[0]!)
+            && F[colorSlot + 1] === Math.fround(c[1]!)
+            && F[colorSlot + 2] === Math.fround(c[2]!)
+            && F[colorSlot + 3] === Math.fround(c[3]!);
+    }
+    return I[rgbSlot] === (COMBINER_WORD_DEFAULT | 0)
+        && I[alphaSlot] === (COMBINER_WORD_DEFAULT | 0)
+        && F[colorSlot] === 0 && F[colorSlot + 1] === 0 && F[colorSlot + 2] === 0 && F[colorSlot + 3] === 0;
+}
+
 export function writeTexEnvSlots(
     I: Int32Array, F: Float32Array, i: number, f: number,
     unit0: GLTextureUnit, unit1: GLTextureUnit,
@@ -730,15 +762,14 @@ export function mat4Identity(out: Float32Array): void {
 }
 
 export function mat4Multiply(out: Float32Array, a: Float32Array, b: Float32Array): void {
-    // Column-major: out = a * b
-    for (let col = 0; col < 4; col++) {
-        for (let row = 0; row < 4; row++) {
-            let sum = 0;
-            for (let k = 0; k < 4; k++) {
-                sum += a[k * 4 + row] * b[col * 4 + k];
-            }
-            out[col * 4 + row] = sum;
-        }
+    const a0 = a[0]!, a1 = a[1]!, a2 = a[2]!, a3 = a[3]!, a4 = a[4]!, a5 = a[5]!, a6 = a[6]!, a7 = a[7]!;
+    const a8 = a[8]!, a9 = a[9]!, a10 = a[10]!, a11 = a[11]!, a12 = a[12]!, a13 = a[13]!, a14 = a[14]!, a15 = a[15]!;
+    for (let c = 0; c < 16; c += 4) {
+        const b0 = b[c]!, b1 = b[c + 1]!, b2 = b[c + 2]!, b3 = b[c + 3]!;
+        out[c] = a0 * b0 + a4 * b1 + a8 * b2 + a12 * b3;
+        out[c + 1] = a1 * b0 + a5 * b1 + a9 * b2 + a13 * b3;
+        out[c + 2] = a2 * b0 + a6 * b1 + a10 * b2 + a14 * b3;
+        out[c + 3] = a3 * b0 + a7 * b1 + a11 * b2 + a15 * b3;
     }
 }
 

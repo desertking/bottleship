@@ -17,6 +17,7 @@ import { createArrayExports } from "./arrays";
 import { createMultitextureExports } from "./multitexture";
 import { registerWriteBufferGLStateFunctions } from "./wbuf-state";
 import { GL_COMPILE } from "./constants";
+import { GLRingRun } from "./ring-run";
 
 export class OpenGL32 implements IModule {
     name = "opengl32";
@@ -77,11 +78,12 @@ export class OpenGL32 implements IModule {
         // Register Tier-0 write-buffer stubs for high-frequency immediate-mode functions.
         // Stubs may not exist yet (PE loading is deferred); registerWriteBufferGLFunctions
         // uses the pending-registration mechanism and will be applied at applyPendingRegistrations().
-        registerWriteBufferGLFunctions(process.dispatcher, this.context);
+        const runner = (globalThis as { __noGlRingRun?: boolean }).__noGlRingRun ? undefined : new GLRingRun(this.context);
+        registerWriteBufferGLFunctions(process.dispatcher, this.context, runner);
 
         // State / bind / array-pointer entrypoints drain through the table above, so this
         // must run AFTER the display-list wrapper has replaced every entry.
-        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports, raw, this.context);
+        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports, raw, this.context, runner);
     }
 
     setBackend(backend: WebGPUBackend): void {
