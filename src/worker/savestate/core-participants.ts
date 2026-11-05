@@ -12,6 +12,7 @@ import { CPU_FIELDS, captureCpu, restoreCpu, type V86Cpu } from './participants/
 import { objectCodecs } from './object-codecs';
 import { ramPatches } from './session';
 import { registerKernel32Participant } from '../modules/kernel32/savestate';
+import { registerUser32Participants } from './user32-participants';
 import { encodeValue, type SaveValue } from './value-codec';
 
 function v86Cpu(): V86Cpu {
@@ -102,6 +103,7 @@ function registerKernelRecordCodecs(): void {
 
 export function registerCoreParticipants(): void {
     registerKernelRecordCodecs();
+    registerUser32Participants();
     objectCodecs.add<Record<string, SaveValue>>({
         tag: 'plain-record',
         matches: (o): o is Record<string, SaveValue> => {

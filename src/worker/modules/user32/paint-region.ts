@@ -89,6 +89,15 @@ function subtractRect(src: ClientRect, sub: ClientRect): ClientRect[] {
     return out.filter(r => r.right > r.left && r.bottom > r.top);
 }
 
+export function capturePaintRegions(): Array<[number, ClientRect[], boolean]> {
+    return [...updates].map(([h, u]) => [h, u.rects.map(r => ({ ...r })), u.needsErase]);
+}
+
+export function restorePaintRegions(rows: Array<[number, ClientRect[], boolean]>): void {
+    updates.clear();
+    for (const [h, rects, needsErase] of rows) updates.set(h, { rects: rects.map(r => ({ ...r })), needsErase });
+}
+
 export function invalidateWindow(hwnd: number, lpRect: ClientRect | null, bErase: boolean): void {
     const win = windows.get(hwnd);
     if (!win) return;
