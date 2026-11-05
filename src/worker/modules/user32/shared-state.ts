@@ -1055,3 +1055,50 @@ export function getWindowHitTestState(hwnd: number): { visible: boolean; disable
     if (!win) return undefined;
     return { visible: !!win.visible, disabled: (win.style & 0x08000000 /* WS_DISABLED */) !== 0 };
 }
+
+export interface User32SharedState {
+    windows: Array<[number, WindowInfo]>;
+    buttonCheckStates: number[][];
+    listControlStates: Array<[number, ListControlState]>;
+    trackbarStates: Array<[number, TrackbarState]>;
+    controlImageHandles: number[][];
+    clipboard: number[][];
+    clipboardOpenOwner: number | null;
+    clipboardSequence: number;
+    cursorDisplayCount: number;
+    cursorClipRect: CursorClipRect | null;
+    currentCursorHandle: number;
+    lockWindowUpdateHwnd: number;
+    doubleClickTimeMs: number;
+}
+
+export function captureUser32Shared(): User32SharedState {
+    return {
+        windows: [...windows].map(([h, w]) => [h, { ...w, children: [...w.children], extraBytes: w.extraBytes?.slice() }]),
+        buttonCheckStates: [...buttonCheckStates],
+        listControlStates: [...listControlStates],
+        trackbarStates: [...trackbarStates],
+        controlImageHandles: [...controlImageHandles],
+        clipboard: [...clipboardDataByFormat],
+        clipboardOpenOwner, clipboardSequence, cursorDisplayCount,
+        cursorClipRect: cursorClipRect ? { ...cursorClipRect } : null,
+        currentCursorHandle, lockWindowUpdateHwnd, doubleClickTimeMs,
+    };
+}
+
+export function restoreUser32Shared(s: User32SharedState): void {
+    const refill = <K, V>(m: Map<K, V>, rows: Array<[K, V]>) => { m.clear(); for (const [k, v] of rows) m.set(k, v); };
+    refill(windows, s.windows.map(([h, w]) => [h, { ...w, children: [...w.children], extraBytes: w.extraBytes?.slice() }]));
+    refill(buttonCheckStates, s.buttonCheckStates as Array<[number, number]>);
+    refill(listControlStates, s.listControlStates);
+    refill(trackbarStates, s.trackbarStates);
+    refill(controlImageHandles, s.controlImageHandles as Array<[number, number]>);
+    refill(clipboardDataByFormat, s.clipboard as Array<[number, number]>);
+    clipboardOpenOwner = s.clipboardOpenOwner;
+    clipboardSequence = s.clipboardSequence;
+    cursorDisplayCount = s.cursorDisplayCount;
+    cursorClipRect = s.cursorClipRect ? { ...s.cursorClipRect } : null;
+    currentCursorHandle = s.currentCursorHandle;
+    lockWindowUpdateHwnd = s.lockWindowUpdateHwnd;
+    doubleClickTimeMs = s.doubleClickTimeMs;
+}

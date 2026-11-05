@@ -466,6 +466,22 @@ export function interpolatedClockCeilingUs(
     return publishedBaseUs + Math.floor(deltaInsn / mips);
 }
 
+export interface HypercallState {
+    registered: number[][];
+    enabled: boolean;
+    slabControlAddr: number;
+    mutexMirrorAddr: number;
+    eaglTokenCfgAddr: number;
+    eventTable: Uint8Array;
+    flsAllocated: Uint8Array;
+    flsValues: Array<[number, Uint32Array]>;
+    flsCurrentTid: number;
+    captureHwnd: number;
+    suspendSlots: number[][];
+    suspendTable: Uint8Array;
+    wasmStringWritersOff: boolean;
+}
+
 export class HypercallDataManager {
     private hpBase = 0;
     // Guest-RAM address of the slab control block (BASE/END/BUMP/GEN/counts/FREELIST[9]),
@@ -632,6 +648,56 @@ export class HypercallDataManager {
         if (!this.view) return false;
         this.view.setUint8(this.hpBase + this.dispatchEntryOffset(functionId), handlerId);
         return true;
+    }
+
+    captureState(): HypercallState {
+        this.refreshViews();
+        const view = this.view;
+        if (!view) throw new Error('hypercall page: no view');
+        const page = (off: number, len: number) => new Uint8Array(view.buffer, this.hpBase + off, len).slice();
+        return {
+            registered: [...this.registeredEntries],
+            enabled: this.enabled,
+            slabControlAddr: this.slabControlAddr,
+            mutexMirrorAddr: this.mutexMirrorAddr,
+            eaglTokenCfgAddr: this.eaglTokenCfgAddr,
+            eventTable: page(OFF_HC_EVENT_TABLE, EVENT_TABLE_SLOTS),
+            flsAllocated: this.flsAllocatedShadow.slice(),
+            flsValues: [...this.flsValuesByThread].map(([tid, v]) => [tid, v.slice()]),
+            flsCurrentTid: this.flsCurrentTid,
+            captureHwnd: this.captureHwndShadow,
+            suspendSlots: [...this.threadSuspendSlots],
+            suspendTable: page(OFF_HC_THREAD_SUSPEND, HC_THREAD_SUSPEND_SLOTS * 8),
+            wasmStringWritersOff: this.wasmStringWritersOff,
+        };
+    }
+
+    restoreState(state: HypercallState): void {
+        this.refreshViews();
+        const view = this.view;
+        if (!view) throw new Error('hypercall page: no view');
+        this.registeredEntries = new Map(state.registered.map(([f, h]) => [f, h]));
+        this.slabControlAddr = state.slabControlAddr;
+        this.mutexMirrorAddr = state.mutexMirrorAddr;
+        this.eaglTokenCfgAddr = state.eaglTokenCfgAddr;
+        this.eventMirrorShadow.set(state.eventTable);
+        this.flsAllocatedShadow.set(state.flsAllocated);
+        this.flsValuesByThread.clear();
+        for (const [tid, v] of state.flsValues) this.flsValuesByThread.set(tid, v.slice());
+        this.flsCurrentTid = state.flsCurrentTid;
+        this.captureHwndShadow = state.captureHwnd;
+        this.wasmStringWritersOff = state.wasmStringWritersOff;
+        this.threadSuspendSlots.clear();
+        for (const [h, slot] of state.suspendSlots) this.threadSuspendSlots.set(h, slot);
+        new Uint8Array(view.buffer, this.hpBase + OFF_HC_THREAD_SUSPEND, HC_THREAD_SUSPEND_SLOTS * 8).set(state.suspendTable);
+        new Uint8Array(view.buffer, this.hpBase + OFF_HC_DISPATCH_TABLE, 4096).fill(0);
+        new Uint8Array(view.buffer, this.hpBase + OFF_HC_DISPATCH_TABLE_EXT, HC_DISPATCH_EXT_COUNT).fill(0);
+        this.mutexMirrorShadow.fill(0);
+        this.rewriteState();
+        this.writeEventMirrorState(false);
+        this.enabled = state.enabled;
+        view.setUint32(this.hpBase + OFF_HC_ENABLED, state.enabled ? 1 : 0, true);
+        this.resetInsnBaseline();
     }
 
     /** Re-write all JS-owned state into HYPERCALL_PAGE after buffer change. */
