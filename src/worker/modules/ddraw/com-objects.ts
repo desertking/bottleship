@@ -498,7 +498,7 @@ export class DirectDrawSurfaceObject extends BaseComObject {
         const ddrawModule = System.getInstance().process?.getModule("ddraw") as {
             purgeTextureRegistryForRecycledComSlot?: (slot: number, newHandle: number) => void;
         } | undefined;
-        if (ddrawModule?.purgeTextureRegistryForRecycledComSlot) {
+        if (ddrawModule?.purgeTextureRegistryForRecycledComSlot && this.handle) {
             const slot = (this.handle & SystemResourceProvider.COM_SLOT_MASK) >>> 0;
             ddrawModule.purgeTextureRegistryForRecycledComSlot(slot, this.handle);
         }
@@ -512,8 +512,7 @@ export class DirectDrawSurfaceObject extends BaseComObject {
             tex2: o.cachedTexture2Handle, tex: o.cachedTextureHandle, owner: o.ddrawOwnerAddr,
         }),
         restore: (d: { base: ComBaseState; state: Record<string, unknown>; tex2: number; tex: number; owner: number }) => {
-            const o = BaseComObject.restoreComBase<DirectDrawSurfaceObject>(DirectDrawSurfaceObject.prototype, d.base);
-            o.state = restoreSurfaceState(d.state);
+            const o = BaseComObject.restoreComBase(() => new DirectDrawSurfaceObject(0, restoreSurfaceState(d.state)), d.base);
             o.cachedTexture2Handle = d.tex2;
             o.cachedTextureHandle = d.tex;
             o.ddrawOwnerAddr = d.owner;

@@ -240,6 +240,22 @@ export class Performance {
 
     activeStates(): readonly PerfSegmentState[] { return this.states; }
 
+    captureTimeline(): { now: number; tempo: number; transpose: number[][]; drums: number[] } {
+        return { now: this.now, tempo: this.tempo, transpose: [...this.transpose], drums: [...this.drumChannels] };
+    }
+
+    restoreTimeline(t: { now: number; tempo: number; transpose: number[][]; drums: number[] }, states: PerfSegmentState[]): void {
+        this.now = t.now;
+        this.tempo = t.tempo;
+        this.transpose.clear();
+        for (const [ch, v] of t.transpose) this.transpose.set(ch, v);
+        this.drumChannels.clear();
+        for (const ch of t.drums) this.drumChannels.add(ch);
+        this.events = [];
+        for (const st of states) st.fresh = true;
+        this.states = [...states];
+    }
+
     // ── scheduling ──────────────────────────────────────────────────────────────
 
     /** The next boundary at or after `time` the DMUS_SEGF_* resolution flags ask for. */

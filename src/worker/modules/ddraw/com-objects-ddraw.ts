@@ -26,7 +26,7 @@ export class DirectDrawObject extends BaseComObject {
         tag: 'ddraw-object',
         matches: (o: unknown): o is DirectDrawObject => o instanceof DirectDrawObject,
         capture: (o: DirectDrawObject) => ({ base: BaseComObject.captureComBase(o) }),
-        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase<DirectDrawObject>(DirectDrawObject.prototype, d.base),
+        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase(() => new DirectDrawObject(0), d.base),
     };
 
     // IDirectDraw/2/4/7 and IDirect3D/2/3/7 are tear-offs of this one driver object, and
@@ -159,7 +159,7 @@ export class DirectDrawClipperObject extends BaseComObject {
         matches: (o: unknown): o is DirectDrawClipperObject => o instanceof DirectDrawClipperObject,
         capture: (o: DirectDrawClipperObject) => ({ base: BaseComObject.captureComBase(o), hwnd: o.hwnd, clip: o.clipListData?.slice() ?? null }),
         restore: (d: { base: ComBaseState; hwnd: number; clip: Uint8Array | null }) => {
-            const o = BaseComObject.restoreComBase<DirectDrawClipperObject>(DirectDrawClipperObject.prototype, d.base);
+            const o = BaseComObject.restoreComBase(() => new DirectDrawClipperObject(0), d.base);
             o.hwnd = d.hwnd;
             o.clipListData = d.clip ? d.clip.slice() : null;
             o.clipListChanged = true;
@@ -257,7 +257,7 @@ export class DirectDrawPaletteObject extends BaseComObject {
             base: BaseComObject.captureComBase(o), raw: o.entriesRaw.slice(), rgba: o.paletteRGBA.slice(), caps: o.caps, version: o.version,
         }),
         restore: (d: { base: ComBaseState; raw: Uint8Array; rgba: Uint32Array; caps: number; version: number }) => {
-            const o = BaseComObject.restoreComBase<DirectDrawPaletteObject>(DirectDrawPaletteObject.prototype, d.base);
+            const o = BaseComObject.restoreComBase(() => new DirectDrawPaletteObject(0), d.base);
             o.entriesRaw = d.raw.slice();
             o.paletteRGBA = d.rgba.slice();
             o.caps = d.caps;
