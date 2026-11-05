@@ -12,7 +12,7 @@ import { CPU_FIELDS, captureCpu, restoreCpu, type V86Cpu } from './participants/
 import { objectCodecs } from './object-codecs';
 import { ramPatches } from './session';
 import { registerKernel32Participant } from '../modules/kernel32/savestate';
-import type { SaveValue } from './value-codec';
+import { encodeValue, type SaveValue } from './value-codec';
 
 function v86Cpu(): V86Cpu {
     const v86 = System.getInstance().process?.v86 as { cpu?: V86Cpu; v86?: { cpu?: V86Cpu } } | undefined;
@@ -102,6 +102,20 @@ function registerKernelRecordCodecs(): void {
 
 export function registerCoreParticipants(): void {
     registerKernelRecordCodecs();
+    objectCodecs.add<Record<string, SaveValue>>({
+        tag: 'plain-record',
+        matches: (o): o is Record<string, SaveValue> => {
+            if (o === null || typeof o !== 'object' || Object.getPrototypeOf(o) !== Object.prototype) return false;
+            try { encodeValue(o as SaveValue); return true; } catch { return false; }
+        },
+        capture: (o) => structuredClone(o),
+        restore: (d) => structuredClone(d as Record<string, SaveValue>),
+    });
+    savestateParticipants.add({
+        id: 'integration-unchecked-modules', version: 1, order: 200, covers: ['*'],
+        capture: () => null,
+        restore: () => undefined,
+    });
     registerKernel32Participant();
 
     savestateParticipants.add({

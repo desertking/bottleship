@@ -28,6 +28,7 @@ import {
     DMUS_SEGF_SECONDARY, type LoadedBand, PerfSegment, type PerfSegmentState, Performance,
 } from "../core/audio/directmusic/performance";
 import { DlsSynth } from "../core/audio/directmusic/synth";
+import { BaseComObject, type ComBaseState } from "../core/com/base-com-object";
 import { allocateComObject } from "../core/com/com-memory";
 import { InterfaceRegistry } from "../core/com/interface-registry";
 import { Logger, LogCategory } from "../core/logger";
@@ -37,6 +38,8 @@ import { IModule } from "../core/module";
 import { Process } from "../core/process";
 import { SystemResourceProvider } from "../core/resources/system-resource-provider";
 import { TimerKind } from "../core/scheduler/types";
+import { objectCodecs } from "../savestate/object-codecs";
+import { savestateParticipants } from "../savestate/participant";
 import { setTimerHandler } from "../core/scheduler/timer-wheel";
 import { System } from "../core/system";
 import { type GuestCall, type GuestRoutine, runGuestRoutine } from "../core/thunking/guest-routine";
@@ -180,6 +183,7 @@ export class DMusic implements IModule {
     initialize(process: Process): void {
         this.process = process;
         InterfaceRegistry.getInstance().registerFromModuleDescriptor(dmusicModule);
+        this.registerSavestate();
         this.vtables = createVTablesFromDescriptor(this.process, dmusicModule);
 
         // Every generated vtable starts with IUnknown, and the guest calls through those
@@ -825,6 +829,139 @@ export class DMusic implements IModule {
         obj.addRef();
         perf.notifications.push({ type, state: obj, musicTime, queuedAtMs: now });
         if (perf.notificationHandle) System.getInstance().scheduler?.setEvent(perf.notificationHandle);
+    }
+
+    private registerSavestate(): void {
+        type Base = { base: ComBaseState; addresses: Array<[string, number]> };
+        const base = (o: DMusicObject): Base => ({ base: BaseComObject.captureComBase(o), addresses: [...o.addresses] });
+        const make = <T extends DMusicObject>(build: () => T, d: Base): T => {
+            const o = BaseComObject.restoreComBase<T>(build, d.base);
+            const fields = o as unknown as { addresses: Map<string, number>; onDestroy: (() => void) | null };
+            fields.addresses = new Map(d.addresses);
+            fields.onDestroy = null;
+            return o;
+        };
+        const refOrNull = (o: unknown, ref: (x: unknown, w: string) => number, w: string) => (o ? ref(o, w) : -1);
+        const resolve = <T>(r: number, ctx: { object(r: number): unknown }) => (r >= 0 ? ctx.object(r) as T : null);
+
+        objectCodecs.add({
+            tag: 'dmusic-loader',
+            matches: (o: unknown): o is LoaderObject => o instanceof LoaderObject,
+            capture: (o: LoaderObject) => {
+                if (o.defaultCollection) throw new Error('dmusic: a loaded default collection is not part of a v1 savestate');
+                return base(o);
+            },
+            restore: (d: Base) => make<LoaderObject>(() => new LoaderObject(), d),
+            link: (o: LoaderObject) => { (o as { defaultCollection: CollectionObject | null }).defaultCollection = null; },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-audiopath',
+            matches: (o: unknown): o is AudioPathObject => o instanceof AudioPathObject,
+            capture: (o: AudioPathObject) => base(o),
+            restore: (d: Base) => make<AudioPathObject>(() => new AudioPathObject(), d),
+        });
+        objectCodecs.add({
+            tag: 'dmusic-directmusic',
+            matches: (o: unknown): o is DirectMusicObject => o instanceof DirectMusicObject,
+            capture: (o: DirectMusicObject, ref) => ({ ...base(o), directSound: o.directSound, ports: [...o.ports].map(p => ref(p, 'port')) }),
+            restore: (d: Base & { directSound: number }) => {
+                const dm = make<DirectMusicObject>(() => new DirectMusicObject(), d);
+                (dm as { ports: Set<PortObject> }).ports = new Set();
+                dm.directSound = d.directSound;
+                dm.onDestroy = () => this.setDirectSound(dm, 0);
+                return dm;
+            },
+            link: (dm: DirectMusicObject, d: { ports: number[] }, ctx) => { for (const r of d.ports) dm.ports.add(ctx.object(r) as PortObject); },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-port',
+            matches: (o: unknown): o is PortObject => o instanceof PortObject,
+            capture: (o: PortObject, ref) => ({
+                ...base(o), sampleRate: o.sampleRate, audioChannels: o.audioChannels, voices: o.voices, channelGroups: o.channelGroups,
+                directSound: o.directSound, buffer: o.buffer, ownsBuffer: o.ownsBuffer, active: o.active,
+                performance: refOrNull(o.performance, ref, 'performance'),
+            }),
+            restore: (d: Base & Record<string, number | boolean>) => {
+                const port = make<PortObject>(() => new PortObject(), d);
+                port.sampleRate = d.sampleRate as number;
+                port.audioChannels = d.audioChannels as number;
+                port.voices = d.voices as number;
+                port.channelGroups = d.channelGroups as number;
+                port.directSound = d.directSound as number;
+                port.buffer = d.buffer as number;
+                port.ownsBuffer = d.ownsBuffer as boolean;
+                port.synth = new DlsSynth(port.sampleRate, port.voices);
+                port.sink = null;
+                port.active = false;
+                port.performance = null;
+                this.ports.add(port);
+                if (d.active && port.buffer) {
+                    port.sink = new DirectSoundSink(this.process, port.buffer, port.audioChannels, port.sampleRate);
+                    port.active = port.sink.start();
+                }
+                port.onDestroy = () => {
+                    this.activatePort(port, false);
+                    this.releasePortOutput(port);
+                    this.setDirectSound(port, 0);
+                    this.ports.delete(port);
+                    if (port.performance?.port === port) {
+                        port.performance.port = null;
+                        port.performance.engine = null;
+                    }
+                };
+                return port;
+            },
+            link: (port: PortObject, d: { performance: number }, ctx) => { port.performance = resolve<PerformanceObject>(d.performance, ctx); },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-performance',
+            matches: (o: unknown): o is PerformanceObject => o instanceof PerformanceObject,
+            capture: (o: PerformanceObject, ref) => {
+                if (o.notifications.length > 0 || o.stateObjects.size > 0) {
+                    throw new Error('dmusic: playing segments are not part of a v1 savestate');
+                }
+                return {
+                    ...base(o), directMusic: refOrNull(o.directMusic, ref, 'directMusic'), port: refOrNull(o.port, ref, 'port'),
+                    hasEngine: o.engine !== null, notificationHandle: o.notificationHandle, notifySegments: o.notifySegments,
+                    masterVolume: o.masterVolume, masterTempo: o.masterTempo,
+                    defaultAudioPath: refOrNull(o.defaultAudioPath, ref, 'audioPath'),
+                };
+            },
+            restore: (d: Base & Record<string, number | boolean>) => {
+                const perf = make<PerformanceObject>(() => new PerformanceObject(), d);
+                const f = perf as unknown as { notifications: unknown[]; stateObjects: Map<unknown, unknown> };
+                f.notifications = [];
+                f.stateObjects = new Map();
+                perf.engine = null;
+                perf.notificationHandle = d.notificationHandle as number;
+                perf.notifySegments = d.notifySegments as boolean;
+                perf.masterVolume = d.masterVolume as number;
+                perf.masterTempo = d.masterTempo as number;
+                this.performances.add(perf);
+                perf.onDestroy = () => { this.closePerformance(perf); this.performances.delete(perf); };
+                return perf;
+            },
+            link: (perf: PerformanceObject, d: { directMusic: number; port: number; hasEngine: boolean; defaultAudioPath: number }, ctx) => {
+                perf.directMusic = resolve<DirectMusicObject>(d.directMusic, ctx);
+                perf.port = resolve<PortObject>(d.port, ctx);
+                perf.defaultAudioPath = resolve<AudioPathObject>(d.defaultAudioPath, ctx);
+                if (d.hasEngine && perf.port) {
+                    const engine = new Performance(perf.port.synth);
+                    engine.setMasterTempo(perf.masterTempo);
+                    perf.port.synth.setMasterVolume(perf.masterVolume);
+                    engine.onNotification = (type, state, time) => this.notify(perf, type, state, time);
+                    perf.engine = engine;
+                }
+            },
+        });
+        savestateParticipants.add({
+            id: 'dmusic', version: 1, order: 62,
+            capture: () => {
+                if (this.loading.size > 0 || this.messages.size > 0) throw new Error('dmusic: loads or messages in flight');
+                return { pumpTimer: this.pumpTimer };
+            },
+            restore: (saved) => { this.pumpTimer = (saved as { pumpTimer: number | null }).pumpTimer; },
+        });
     }
 
     private createPort(dm: DirectMusicObject | null, sampleRate: number, audioChannels: number, voices: number): PortObject {

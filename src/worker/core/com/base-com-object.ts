@@ -21,6 +21,11 @@ export interface IVTable {
 /**
  * Базовый класс для всех COM-объектов
  */
+export interface ComBaseState {
+    refCount: number; handle: number; iid: string; vtable: number;
+    ifaceRefs: number[][] | null; liveIfaces: number; destroyed: boolean;
+}
+
 export abstract class BaseComObject implements IVTable {
     private _refCount: number = 1; // COM objects start with refcount = 1
     private _handle: number = 0;   // Handle in SystemResourceProvider
@@ -30,6 +35,8 @@ export abstract class BaseComObject implements IVTable {
     private _liveIfaces: number = 0;                       // interfaces whose count is > 0
     private _destroyed: boolean = false;                   // destroy() has run; never run it twice
     private _zeroRefKeptLogged: boolean = false;
+    /** @transient(true only while restoreComBase builds an object that a savestate already registered) */
+    private static detached = false;
 
     constructor(iid: string, vtableAddress: number) {
         this._iid = iid;
@@ -37,7 +44,7 @@ export abstract class BaseComObject implements IVTable {
 
         // Register in SystemResourceProvider
         const resourceProvider = SystemResourceProvider.getInstance();
-        this._handle = resourceProvider.registerComObject(this);
+        this._handle = BaseComObject.detached ? 0 : resourceProvider.registerComObject(this);
         Logger.verbose(LogCategory.COM, `Created COM object ${this.constructor.name} handle=0x${this._handle.toString(16)} iid=${iid}`);
 
         // A per-interface object whose addRef/release was overridden loses the interface
@@ -300,6 +307,29 @@ export abstract class BaseComObject implements IVTable {
      * Force-release this COM object regardless of refcount.
      * Called during shutdown, and by an owner tearing down what it created.
      */
+    static captureComBase(obj: BaseComObject): ComBaseState {
+        return {
+            refCount: obj._refCount, handle: obj._handle, iid: obj._iid, vtable: obj._vtableAddress,
+            ifaceRefs: obj._ifaceRefs ? [...obj._ifaceRefs] : null, liveIfaces: obj._liveIfaces, destroyed: obj._destroyed,
+        };
+    }
+
+    /** A COM object rebuilt from a savestate: no constructor runs, so nothing registers twice. */
+    static restoreComBase<T extends BaseComObject>(build: () => T, s: ComBaseState): T {
+        BaseComObject.detached = true;
+        let obj: BaseComObject;
+        try { obj = build(); } finally { BaseComObject.detached = false; }
+        obj._refCount = s.refCount;
+        obj._handle = s.handle;
+        obj._iid = s.iid;
+        obj._vtableAddress = s.vtable;
+        obj._ifaceRefs = s.ifaceRefs ? new Map(s.ifaceRefs.map(([k, v]) => [k, v])) : null;
+        obj._liveIfaces = s.liveIfaces;
+        obj._destroyed = s.destroyed;
+        obj._zeroRefKeptLogged = false;
+        return obj as T;
+    }
+
     forceRelease(): void {
         if (this._destroyed) return;
         if (this._refCount === 0 && !this.reapableAtZero) return;

@@ -9,6 +9,8 @@ import { allocateComObject, freeComObject } from "../../core/com/com-memory";
 import { TimerKind } from "../../core/scheduler/types";
 import { setTimerHandler } from "../../core/scheduler/timer-wheel";
 import { TimeService } from "../../runtime/time";
+import { savestateParticipants } from "../../savestate/participant";
+import type { SaveValue } from "../../savestate/value-codec";
 import {
     createAudioRingBuffer,
     writeRingData,
@@ -335,6 +337,25 @@ type CaptureBuffer = {
     isLooping: boolean;
 };
 
+interface DSoundSavestate {
+    objects: Array<{
+        ptr: number; type: string; refCount: number; isDs8: boolean; duplex: { ds: number; dsc: number } | null;
+        buffer: {
+            id: number; bytes: number; format: SoundFormat; flags: number; ptr: number; currentPosition: number;
+            volume: number; volumeDb: number; pan: number; frequency: number; playbackRate: number;
+            isPlaying: boolean; isLooping: boolean; streamed: boolean; ringBytes: number; hasSab: boolean;
+            notifications: Array<{ offset: number; eventHandle: number }>; bufferRefCount: number; bufferLost: boolean;
+            has3D: boolean; ds3d: Ds3dState; deferredDs3d: Ds3dState | null;
+        } | null;
+    }>;
+    nextBufferId: number;
+    notifyTimerId: number | null;
+    primaryBufferPtr: number;
+    speakerConfig: number;
+    listener: Record<string, number>;
+    deferredListener: Record<string, number> | null;
+}
+
 type DSoundObject = {
     type: DSoundObjectType;
     refCount: number;
@@ -418,6 +439,11 @@ export class DSound implements IModule {
     initialize(process: Process): void {
         this.process = process;
         this.vtables = createVTablesFromDescriptor(this.process, dsoundModule);
+        savestateParticipants.add({
+            id: 'dsound', version: 1, order: 61,
+            capture: () => this.captureSavestate() as unknown as SaveValue,
+            restore: (saved) => this.restoreSavestate(saved as unknown as DSoundSavestate),
+        });
 
         // Log vtable addresses for debugging
         for (const [name, info] of Object.entries(this.vtables)) {
@@ -2582,6 +2608,85 @@ export class DSound implements IModule {
             });
         }
         return { objectCount: this.objects.size, notifyIntervalActive: this.notifyTimerId !== null, calls: this.dbgAudioCalls, lockTrace: this.dbgLockTrace.slice(-32), lifeRing: this.bufferLifeRing.slice(-96), buffers };
+    }
+
+    private captureSavestate(): DSoundSavestate {
+        const objects: DSoundSavestate['objects'] = [];
+        for (const [ptr, o] of this.objects) {
+            if (o.capture) throw new Error('dsound: capture buffers are not part of a v1 savestate');
+            const b = o.buffer;
+            const buffer = b ? {
+                id: b.id, bytes: b.bytes, format: { ...b.format }, flags: b.flags, ptr: b.ptr,
+                currentPosition: b.sab && b.isPlaying ? getCtrl(b.sab, CTRL_PLAY_CURSOR) % Math.max(1, b.bytes) : b.currentPosition,
+                volume: b.volume, volumeDb: b.volumeDb, pan: b.pan, frequency: b.frequency, playbackRate: b.playbackRate,
+                isPlaying: b.isPlaying, isLooping: b.isLooping, streamed: b.streamed ?? false, ringBytes: b.ringBytes ?? b.bytes,
+                hasSab: !!b.sab, notifications: (b.notifications ?? []).map(n => ({ ...n })),
+                bufferRefCount: b.bufferRefCount, bufferLost: b.bufferLost, has3D: b.has3D,
+                ds3d: { ...b.ds3d }, deferredDs3d: b.deferredDs3d ? { ...b.deferredDs3d } : null,
+            } : null;
+            objects.push({ ptr, type: o.type, refCount: o.refCount, isDs8: o.isDs8 ?? false, duplex: o.duplex ? { ...o.duplex } : null, buffer });
+        }
+        return {
+            objects, nextBufferId: this.nextBufferId, notifyTimerId: this.notifyTimerId, primaryBufferPtr: this.primaryBufferPtr,
+            speakerConfig: this.speakerConfig, listener: { ...this.listenerState },
+            deferredListener: this.deferredListenerState ? { ...this.deferredListenerState } : null,
+        };
+    }
+
+    private restoreSavestate(s: DSoundSavestate): void {
+        this.objects.clear();
+        const mem = this.getMemory();
+        for (const o of s.objects) {
+            let buffer: SoundBuffer | undefined;
+            if (o.buffer) {
+                const b = o.buffer;
+                let sab: SharedArrayBuffer | null = null;
+                if (b.hasSab) {
+                    sab = createAudioRingBuffer(b.ringBytes, {
+                        channels: b.format.channels, sampleRate: b.format.sampleRate, bitsPerSample: b.format.bitsPerSample,
+                    }, true);
+                    setCtrl(sab, CTRL_FREQUENCY, b.frequency);
+                    const src = mem.subarray(b.ptr, b.ptr + b.bytes);
+                    for (let at = 0; at < b.ringBytes; at += b.bytes) writeRingData(sab, at, src, b.bytes);
+                }
+                buffer = {
+                    id: b.id, bytes: b.bytes, ringBytes: b.ringBytes, format: { ...b.format }, flags: b.flags, ptr: b.ptr,
+                    currentPosition: b.currentPosition, volume: b.volume, volumeDb: b.volumeDb, pan: b.pan,
+                    frequency: b.frequency, playbackRate: b.playbackRate, isPlaying: false, isLooping: b.isLooping,
+                    streamed: b.streamed || undefined, sab, registered: false,
+                    notifications: b.notifications.length ? b.notifications.map(n => ({ ...n })) : undefined,
+                    bufferRefCount: b.bufferRefCount, bufferLost: b.bufferLost, has3D: b.has3D,
+                    ds3d: { ...b.ds3d }, deferredDs3d: b.deferredDs3d ? { ...b.deferredDs3d } : null,
+                };
+                if (sab) {
+                    if (b.has3D) this.flushBuffer3dToSab(buffer);
+                    self.postMessage({ type: "audio_register", payload: { id: buffer.id, sab } });
+                    buffer.registered = true;
+                    if (b.isPlaying) {
+                        buffer.isPlaying = true;
+                        buffer.playAnchorVirtualMs = TimeService.getInstance().nowMs();
+                        buffer.playAnchorByte = b.currentPosition;
+                        setCtrl(sab, CTRL_STOP_REQUESTED, 0);
+                        setCtrl(sab, CTRL_PLAY_CURSOR, b.currentPosition);
+                        setCtrl(sab, CTRL_LOOP_MODE, b.isLooping ? -1 : 1);
+                        setCtrl(sab, CTRL_VOLUME, b.volumeDb);
+                        setCtrl(sab, CTRL_PAN, b.pan);
+                        setCtrl(sab, CTRL_FREQUENCY, b.frequency);
+                        setCtrl(sab, CTRL_DATA_LENGTH, b.isLooping ? this.ringSize(buffer) : b.bytes);
+                        setCtrl(sab, CTRL_STATE, STATE_PLAYING);
+                        this.syncFrontierHold(buffer);
+                    }
+                }
+            }
+            this.objects.set(o.ptr, { type: o.type as DSoundObjectType, refCount: o.refCount, buffer, isDs8: o.isDs8 || undefined, duplex: o.duplex ?? undefined });
+        }
+        this.nextBufferId = s.nextBufferId;
+        this.notifyTimerId = s.notifyTimerId;
+        this.primaryBufferPtr = s.primaryBufferPtr;
+        this.speakerConfig = s.speakerConfig;
+        Object.assign(this.listenerState, s.listener);
+        this.deferredListenerState = s.deferredListener ? { ...this.listenerState, ...s.deferredListener } : null;
+        this.flushListenerToSab();
     }
 
     private startNotificationPump(): void {

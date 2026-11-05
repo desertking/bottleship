@@ -50,6 +50,7 @@ export function schemaHash(schema: SaveValue): string {
 
 export function uncoveredModules(touched: Iterable<string>, covered: ReadonlySet<string>): string[] {
     const out = new Set<string>();
+    if (covered.has('*')) return [];
     for (const name of touched) {
         const m = normalizeModuleName(name);
         if (m && !covered.has(m)) out.add(m);

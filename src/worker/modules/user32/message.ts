@@ -13,6 +13,7 @@ import { System } from '../../core/system';
 import { TimeService } from '../../runtime/time';
 import { TimerKind } from '../../core/scheduler/types';
 import { setTimerHandler } from '../../core/scheduler/timer-wheel';
+import { savestateParticipants } from '../../savestate/participant';
 import { hypercallDataManager } from '../../core/cpu/hypercall-data';
 import { installHook, uninstallHook, getHooksOfType, getNextHookInChain, hasHooksOfType, pushActiveHook, popActiveHook, currentActiveHook, WH_KEYBOARD, WH_GETMESSAGE, WH_CBT, HC_ACTION, HC_NOREMOVE } from './hooks';
 import { isSentinelWndProc } from './dialog';
@@ -340,6 +341,18 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
             state.timerId,
         );
     }
+
+    savestateParticipants.add({
+        id: 'user32-timers', version: 1, order: 40,
+        capture: () => ({ timers: [...timers.values()].map(t => ({ ...t })), nextTimerId, nextTimerEpoch }),
+        restore: (saved) => {
+            const st = saved as unknown as { timers: TimerState[]; nextTimerId: number; nextTimerEpoch: number };
+            timers.clear();
+            for (const t of st.timers) timers.set(timerKey(t.hWnd, t.timerId), { ...t });
+            nextTimerId = st.nextTimerId;
+            nextTimerEpoch = st.nextTimerEpoch;
+        },
+    });
 
     setTimerHandler(TimerKind.USER32_TIMER, (hWnd, timerId, wheelId) => {
         const system = System.getInstance();

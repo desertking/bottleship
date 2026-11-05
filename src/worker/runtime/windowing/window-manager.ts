@@ -29,6 +29,15 @@ export interface ForegroundQueue {
 /** `null` on either side means no foreground at all (no foreground queue). */
 export type ForegroundQueueObserver = (next: ForegroundQueue | null, prev: ForegroundQueue | null) => void;
 
+export interface WindowManagerState {
+    classes: Array<[string, WindowClass]>;
+    windows: Array<Omit<WindowObject, 'wndClass'> & { wndClass: { ref: string } | { own: WindowClass } }>;
+    queue: MessageQueueState;
+    nextHwnd: number;
+    focus: number[];
+    zOrder: number[];
+}
+
 export interface WindowObject {
     hwnd: number;
     wndClass: WindowClass;
@@ -53,6 +62,7 @@ export interface WindowObject {
 }
 
 export type { Message } from './message-queue';
+import type { MessageQueueState } from './message-queue';
 
 // Window styles for frame detection
 const WS_POPUP = 0x80000000;
@@ -118,6 +128,36 @@ export class WindowManager {
     private windowStateProvider: ((hwnd: number) => { visible: boolean; disabled: boolean } | undefined) | null = null;
     private activationObservers: ((hwnd: number) => void)[] = [];
     private foregroundQueueObservers: ForegroundQueueObserver[] = [];
+
+    captureState(): WindowManagerState {
+        const classNames = new Map<WindowClass, string>();
+        for (const [name, c] of this.classes) classNames.set(c, name);
+        return {
+            classes: [...this.classes].map(([name, c]) => [name, { ...c }]),
+            windows: [...this.windows.values()].map(w => {
+                const named = classNames.get(w.wndClass);
+                return { ...w, rect: { ...w.rect }, wndClass: named !== undefined ? { ref: named } : { own: { ...w.wndClass } } };
+            }),
+            queue: this.messageQueue.captureState(),
+            nextHwnd: this.nextHwnd,
+            focus: [this.activeHwnd, this.focusHwnd, this.foregroundHwnd, this.foregroundThreadId, this.captureHwnd],
+            zOrder: [...this.zOrder],
+        };
+    }
+
+    restoreState(s: WindowManagerState): void {
+        this.classes = new Map(s.classes.map(([name, c]) => [name, { ...c }]));
+        this.windows = new Map();
+        for (const w of s.windows) {
+            const wndClass = 'ref' in w.wndClass ? this.classes.get(w.wndClass.ref) : { ...w.wndClass.own };
+            if (!wndClass) throw new Error(`window manager: window 0x${w.hwnd.toString(16)} names a missing class`);
+            this.windows.set(w.hwnd, { ...w, rect: { ...w.rect }, wndClass });
+        }
+        this.messageQueue.restoreState(s.queue);
+        this.nextHwnd = s.nextHwnd;
+        [this.activeHwnd, this.focusHwnd, this.foregroundHwnd, this.foregroundThreadId, this.captureHwnd] = s.focus;
+        this.zOrder = [...s.zOrder];
+    }
 
     constructor() { }
 

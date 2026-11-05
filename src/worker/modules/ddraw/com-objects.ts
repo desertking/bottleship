@@ -1,5 +1,5 @@
 import { Logger, LogCategory } from "../../core/logger";
-import { BaseComObject } from "../../core/com/base-com-object";
+import { BaseComObject, type ComBaseState } from "../../core/com/base-com-object";
 import { System } from "../../core/system";
 import { SystemResourceProvider } from "../../core/resources/system-resource-provider";
 import { leaseRegistry } from "../../core/memory/lease-registry";
@@ -396,6 +396,66 @@ export interface RenderSurface extends BaseSurfaceState {
  */
 export type DirectDrawSurfaceState = BitmapTextureSurface | RenderSurface;
 
+type SurfaceFieldPolicy = 'save' | 'derive' | 'host' | 'transient';
+
+export const SURFACE_FIELDS = {
+    width: 'save', height: 'save', pitch: 'save', caps: 'save', caps2: 'save', caps3: 'save', caps4: 'save',
+    surfacePtr: 'save', format: 'save', attachedSurfaceAddr: 'save', attachedSurfaceAddrs: 'save',
+    implicitChainMember: 'save', attachRefOwner: 'save', zOwnerSurfaces: 'save',
+    gpuTexture: 'host', gpuTextureView: 'host', gpuMipLevels: 'host', gpuTextureFormat: 'host',
+    gpuTextureRGB565: 'host', gpuTextureRGB565View: 'host', rgbaPaddedScratch: 'transient',
+    surfacePtrAllocated: 'save', vidMemSize: 'save',
+    activeLeaseId: 'transient', activeLeaseSnapshot: 'transient', activeLeaseSnapshotBase: 'transient', activeLeaseSnapshotSize: 'transient',
+    srcColorKey: 'save', destColorKey: 'save', mipMapCount: 'save', mipSublevels: 'save', textureStage: 'save',
+    alphaBitDepth: 'save', paletteHandle: 'save', clipperHandle: 'save', lastPaletteVersion: 'derive',
+    needsColorClear: 'save', clearColor: 'save', boundByDevices: 'derive', surfaceEverWritten: 'save',
+    lastLoadFingerprint: 'derive', lastLoadSrcDimensions: 'derive', writeGeneration: 'save',
+    lastLoadSourceGeneration: 'derive', lastLoadSourcePtr: 'derive', privateData: 'save',
+    sampledEncoderEpoch: 'host', sampledContentVersion: 'host', surfaceLost: 'save',
+} as const satisfies Record<keyof BaseSurfaceState, SurfaceFieldPolicy>;
+
+export const BITMAP_TEXTURE_FIELDS = {
+    surfaceType: 'save', rgbaScratch: 'save', gpuNeedsUpload: 'derive', contentVersion: 'save', d3dFormat: 'save',
+    dxtFormat: 'save', palette: 'save', needsUVFlip: 'save', rgbaScratchWithColorKey: 'derive', appliedColorKey: 'derive',
+} as const satisfies Record<Exclude<keyof BitmapTextureSurface, keyof BaseSurfaceState>, SurfaceFieldPolicy>;
+
+export const RENDER_SURFACE_FIELDS = {
+    surfaceType: 'save', mode: 'save', version: 'save', gpuDirty: 'derive', gpuWrittenVersion: 'derive', everLocked: 'save',
+    lastLockReadOnly: 'save', lastUploadVersion: 'derive', dirtyRegion: 'derive', leasePriorDirtyRegion: 'transient',
+    rgbaScratch: 'derive', rgbaScratchVersion: 'derive', cpuSyncedVersion: 'derive',
+} as const satisfies Record<Exclude<keyof RenderSurface, keyof BaseSurfaceState>, SurfaceFieldPolicy>;
+
+export function captureSurfaceState(st: DirectDrawSurfaceState): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    const own = isBitmapTexture(st) ? BITMAP_TEXTURE_FIELDS : RENDER_SURFACE_FIELDS;
+    for (const table of [SURFACE_FIELDS, own] as Record<string, SurfaceFieldPolicy>[]) {
+        for (const [k, policy] of Object.entries(table)) {
+            if (policy !== 'save') continue;
+            const v = (st as unknown as Record<string, unknown>)[k];
+            if (v === undefined) continue;
+            if (k === 'mipSublevels') out[k] = (v as DirectDrawSurfaceState[]).map(captureSurfaceState);
+            else if (k === 'privateData') out[k] = [...(v as Map<string, PrivateDataEntry>)].map(([key, e]) => [key, { ...e }]);
+            else out[k] = ArrayBuffer.isView(v) ? (v as Uint8Array).slice() : structuredClone(v);
+        }
+    }
+    if (isRenderSurface(st) && st.mode === 'GPU_ONLY') out.surfaceLost = true;
+    return out;
+}
+
+export function restoreSurfaceState(saved: Record<string, unknown>): DirectDrawSurfaceState {
+    const st = { ...saved } as Record<string, unknown>;
+    if (Array.isArray(saved.mipSublevels)) st.mipSublevels = (saved.mipSublevels as Record<string, unknown>[]).map(restoreSurfaceState);
+    if (Array.isArray(saved.privateData)) st.privateData = new Map(saved.privateData as Array<[string, PrivateDataEntry]>);
+    if (st.surfaceType === 'bitmap_texture') {
+        st.gpuNeedsUpload = true;
+    } else {
+        st.gpuDirty = true;
+        st.lastUploadVersion = -1;
+        if (st.mode === 'GPU_ONLY') st.mode = 'CPU';
+    }
+    return st as unknown as DirectDrawSurfaceState;
+}
+
 // ============================================================================
 // TYPE GUARDS - Compile-time safety
 // ============================================================================
@@ -438,11 +498,27 @@ export class DirectDrawSurfaceObject extends BaseComObject {
         const ddrawModule = System.getInstance().process?.getModule("ddraw") as {
             purgeTextureRegistryForRecycledComSlot?: (slot: number, newHandle: number) => void;
         } | undefined;
-        if (ddrawModule?.purgeTextureRegistryForRecycledComSlot) {
+        if (ddrawModule?.purgeTextureRegistryForRecycledComSlot && this.handle) {
             const slot = (this.handle & SystemResourceProvider.COM_SLOT_MASK) >>> 0;
             ddrawModule.purgeTextureRegistryForRecycledComSlot(slot, this.handle);
         }
     }
+
+    static readonly savestateCodec = {
+        tag: 'ddraw-surface',
+        matches: (o: unknown): o is DirectDrawSurfaceObject => o instanceof DirectDrawSurfaceObject,
+        capture: (o: DirectDrawSurfaceObject) => ({
+            base: BaseComObject.captureComBase(o), state: captureSurfaceState(o.state),
+            tex2: o.cachedTexture2Handle, tex: o.cachedTextureHandle, owner: o.ddrawOwnerAddr,
+        }),
+        restore: (d: { base: ComBaseState; state: Record<string, unknown>; tex2: number; tex: number; owner: number }) => {
+            const o = BaseComObject.restoreComBase(() => new DirectDrawSurfaceObject(0, restoreSurfaceState(d.state)), d.base);
+            o.cachedTexture2Handle = d.tex2;
+            o.cachedTextureHandle = d.tex;
+            o.ddrawOwnerAddr = d.owner;
+            return o;
+        },
+    };
 
     getCachedTexture2Handle(): number {
         return this.cachedTexture2Handle;

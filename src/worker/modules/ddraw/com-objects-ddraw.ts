@@ -2,7 +2,7 @@
  * DirectDraw COM objects: DirectDraw, Clipper, Palette.
  */
 import { Logger, LogCategory } from "../../core/logger";
-import { BaseComObject } from "../../core/com/base-com-object";
+import { BaseComObject, type ComBaseState } from "../../core/com/base-com-object";
 import { SystemResourceProvider } from "../../core/resources/system-resource-provider";
 import { System } from "../../core/system";
 import { Mem } from "../../core/memory/mem-accessor";
@@ -21,6 +21,13 @@ export class DirectDrawObject extends BaseComObject {
     constructor(vtableAddress: number) {
         super(IID_IDirectDraw7, vtableAddress);
     }
+
+    static readonly savestateCodec = {
+        tag: 'ddraw-object',
+        matches: (o: unknown): o is DirectDrawObject => o instanceof DirectDrawObject,
+        capture: (o: DirectDrawObject) => ({ base: BaseComObject.captureComBase(o) }),
+        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase(() => new DirectDrawObject(0), d.base),
+    };
 
     // IDirectDraw/2/4/7 and IDirect3D/2/3/7 are tear-offs of this one driver object, and
     // DirectDraw gives each its own refcount (see BaseComObject.perInterfaceRefs).
@@ -147,6 +154,19 @@ export class DirectDrawClipperObject extends BaseComObject {
         super(IID_IDirectDrawClipper, vtableAddress);
     }
 
+    static readonly savestateCodec = {
+        tag: 'ddraw-clipper',
+        matches: (o: unknown): o is DirectDrawClipperObject => o instanceof DirectDrawClipperObject,
+        capture: (o: DirectDrawClipperObject) => ({ base: BaseComObject.captureComBase(o), hwnd: o.hwnd, clip: o.clipListData?.slice() ?? null }),
+        restore: (d: { base: ComBaseState; hwnd: number; clip: Uint8Array | null }) => {
+            const o = BaseComObject.restoreComBase(() => new DirectDrawClipperObject(0), d.base);
+            o.hwnd = d.hwnd;
+            o.clipListData = d.clip ? d.clip.slice() : null;
+            o.clipListChanged = true;
+            return o;
+        },
+    };
+
     setHwnd(hwnd: number): void {
         if (this.hwnd !== hwnd) {
             this.clipListChanged = true;
@@ -229,6 +249,22 @@ export class DirectDrawPaletteObject extends BaseComObject {
     constructor(vtableAddress: number) {
         super(IID_IDirectDrawPalette, vtableAddress);
     }
+
+    static readonly savestateCodec = {
+        tag: 'ddraw-palette',
+        matches: (o: unknown): o is DirectDrawPaletteObject => o instanceof DirectDrawPaletteObject,
+        capture: (o: DirectDrawPaletteObject) => ({
+            base: BaseComObject.captureComBase(o), raw: o.entriesRaw.slice(), rgba: o.paletteRGBA.slice(), caps: o.caps, version: o.version,
+        }),
+        restore: (d: { base: ComBaseState; raw: Uint8Array; rgba: Uint32Array; caps: number; version: number }) => {
+            const o = BaseComObject.restoreComBase(() => new DirectDrawPaletteObject(0), d.base);
+            o.entriesRaw = d.raw.slice();
+            o.paletteRGBA = d.rgba.slice();
+            o.caps = d.caps;
+            o.version = d.version + 1;
+            return o;
+        },
+    };
 
     setEntries(startIndex: number, count: number, entriesPtr: number, mem: Uint8Array): void {
         const srcOffset = guestPtrToMemOffset(entriesPtr, mem);
