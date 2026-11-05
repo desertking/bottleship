@@ -1704,6 +1704,15 @@ export class ThunkDispatcher {
         if (this.wbufQueueEnd > this.wbufDeferStats.peakQueueBytes) this.wbufDeferStats.peakQueueBytes = this.wbufQueueEnd;
     }
 
+    thunkNames(): Array<[number, string]> {
+        const out: Array<[number, string]> = [];
+        for (let id = 0; id < this.namesTable.length; id++) {
+            const name = this.namesTable[id];
+            if (name) out.push([id, name]);
+        }
+        return out;
+    }
+
     /** Threads parked on host Promises, for savestate readiness. */
     asyncParks(): Array<{ name: string; threadId: number; restartable: boolean }> {
         const out: Array<{ name: string; threadId: number; restartable: boolean }> = [];
