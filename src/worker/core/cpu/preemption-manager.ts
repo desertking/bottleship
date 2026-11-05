@@ -91,11 +91,19 @@ export class PreemptionManager {
      *  (NFSU in-race +5.1 %, 16/16 ABBA pairs).
      *  RET memo inline: a RET/indirect exit probes the dynamic-chaining memo in generated code
      *  and tail-calls on a hit instead of calling the Rust helper (offline: −7.6 % time on a
-     *  cross-page call/ret workload, 6 layouts). */
+     *  cross-page call/ret workload, 6 layouts).
+     *  FWAIT inline: FWAIT no longer spills/reloads every register and ends the block (Delphi
+     *  emits it after nearly every x87 op; offline x87+FWAIT micro −80 % time). Needs multi-entry
+     *  loop safety, which also gives loops with several entries their LOOP_COUNTER exit.
+     *  SSE scalar inline: MULSS/ADDSS/... with memory operand, (U)COMISS/SD, CVT*, SQRTS* as wasm
+     *  float ops instead of helper calls (Bigfoot: helpers 5.4 % of worker time). */
     private pageTailsEnabled = true;            // switch jit_page_tails
     private hotEdgeRegionsEnabled = false;      // switch jit_hot_edge_regions
     private guardGroupsEnabled = true;          // switch jit_guard_groups
     private retMemoInlineEnabled = true;        // switch jit_ret_memo_inline
+    private fwaitInlineEnabled = true;          // switch jit_fwait_inline
+    private multiEntryLoopSafetyEnabled = true; // switch jit_multi_entry_loop_safety
+    private sseScalarInlineEnabled = true;      // switch jit_sse_scalar_inline
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -324,7 +332,10 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_hot_edge_regions", this.hotEdgeRegionsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_guard_groups", this.guardGroupsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_ret_memo_inline", this.retMemoInlineEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fwait_inline", this.fwaitInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_multi_entry_loop_safety", this.multiEntryLoopSafetyEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_sse_scalar_inline", this.sseScalarInlineEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"}`);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
