@@ -14,6 +14,7 @@ import {
     getWindowByHandle,
 } from './shared-state';
 import { GUEST_INPUT_FLAG } from '../../../input/sab-layout';
+import { createRawInputExports } from './raw-input';
 
 // The three polled key readers are the hottest thunks any title issues (a per-frame
 // input poll, millions of calls over a session), so each has a fast path. The bodies
@@ -71,6 +72,27 @@ export function createInputExports(): Record<string, ThunkImplementation> {
     const ddeInstances = new Set<number>();
     const ddeLastError = new Map<number, number>();
     const ddeStrings = new Map<number, string>();
+    const ddeServices = new Map<string, Set<number>>();
+    const ddeConversations = new Set<number>();
+    const ddeClientOnly = new Set<number>();
+    // Wine's shell32 DDE server registers Progman, Shell and Folders, and also accepts
+    // AppProperties as a service; it answers the Progman and Shell topics.
+    const ddeShellServices = new Set(['progman', 'shell', 'folders', 'appproperties']);
+    const ddeShellTopics = new Set(['progman', 'shell']);
+    const DNS_REGISTER = 0x0001;
+    const DNS_UNREGISTER = 0x0002;
+    const APPCMD_CLIENTONLY = 0x00000010;
+    const DMLERR_DLL_USAGE = 0x4004;
+    const ddeServiceKey = (hsz: number): string | null => {
+        const name = ddeStrings.get(hsz);
+        return name === undefined ? null : name.toLowerCase();
+    };
+    const ddeDropInstanceServices = (idInst: number): void => {
+        for (const [key, owners] of ddeServices) {
+            owners.delete(idInst);
+            if (owners.size === 0) ddeServices.delete(key);
+        }
+    };
     function resolvePropertyKey(mem: Uint8Array, lpString: number, wide: boolean): string | null {
         if (lpString === 0) {
             return null;
@@ -492,6 +514,7 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         }
         const inst = nextDdeInstance++;
         ddeInstances.add(inst);
+        if ((args[2] >>> 0) & APPCMD_CLIENTONLY) ddeClientOnly.add(inst);
         ddeLastError.set(inst, DMLERR_NO_ERROR);
         Mem.writeUint32(pidInst, inst >>> 0);
         return DMLERR_NO_ERROR;
@@ -505,7 +528,49 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         }
         ddeInstances.delete(idInst);
         ddeLastError.delete(idInst);
+        ddeClientOnly.delete(idInst);
+        ddeDropInstanceServices(idInst);
         return 1;
+    };
+
+    // HDDEDATA DdeNameService(DWORD idInst, HSZ hsz1, HSZ hsz2, UINT afCmd)
+    exports['DdeNameService'] = (ctx, mem, args) => {
+        const idInst = args[0] >>> 0;
+        const hsz1 = args[1] >>> 0;
+        const afCmd = args[3] >>> 0;
+        if (!ddeInstances.has(idInst)) {
+            return 0;
+        }
+        if (ddeClientOnly.has(idInst)) {
+            ddeLastError.set(idInst, DMLERR_DLL_USAGE);
+            return 0;
+        }
+        if (afCmd & DNS_UNREGISTER) {
+            if (hsz1 === 0) {
+                ddeDropInstanceServices(idInst);
+            } else {
+                const key = ddeServiceKey(hsz1);
+                const owners = key === null ? undefined : ddeServices.get(key);
+                owners?.delete(idInst);
+                if (key !== null && owners && owners.size === 0) ddeServices.delete(key);
+            }
+        } else if (afCmd & DNS_REGISTER) {
+            const key = ddeServiceKey(hsz1);
+            if (key === null) {
+                ddeLastError.set(idInst, DMLERR_INVALIDPARAMETER);
+                return 0;
+            }
+            let owners = ddeServices.get(key);
+            if (!owners) ddeServices.set(key, owners = new Set());
+            owners.add(idInst);
+        }
+        ddeLastError.set(idInst, DMLERR_NO_ERROR);
+        return 1;
+    };
+
+    // BOOL DdeDisconnect(HCONV hConv)
+    exports['DdeDisconnect'] = (ctx, mem, args) => {
+        return ddeConversations.delete(args[0] >>> 0) ? 1 : 0;
     };
 
     // UINT DdeGetLastError(DWORD idInst)
@@ -567,14 +632,27 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         const idInst = args[0] >>> 0;
         const hszService = args[1] >>> 0;
         const hszTopic = args[2] >>> 0;
-        if (!ddeInstances.has(idInst) || hszService === 0 || hszTopic === 0) {
-            if (ddeInstances.has(idInst)) {
-                ddeLastError.set(idInst, DMLERR_NO_CONV_ESTABLISHED);
-            }
+        if (!ddeInstances.has(idInst)) {
+            return 0;
+        }
+        // A NULL service or topic is a wildcard: any server, or any topic the server
+        // supports. Registration alone accepts the connection here; real DDEML also asks
+        // the server's callback (XTYP_CONNECT, refused under CBF_FAIL_CONNECTIONS). The
+        // service table is per process, while DDEML's is system-wide, so a service a
+        // parent process registered is not visible to its child.
+        const service = hszService === 0 ? null : ddeServiceKey(hszService);
+        const topic = hszTopic === 0 ? null : ddeServiceKey(hszTopic);
+        const connectable = hszService === 0
+            ? ddeServices.size > 0 || hszTopic === 0 || (topic !== null && ddeShellTopics.has(topic))
+            : service !== null && (ddeServices.has(service) || ddeShellServices.has(service));
+        if (!connectable) {
+            ddeLastError.set(idInst, DMLERR_NO_CONV_ESTABLISHED);
             return 0;
         }
         ddeLastError.set(idInst, DMLERR_NO_ERROR);
-        return (0xD0000000 | (nextDdeConv++ & 0x0FFFFFFF)) >>> 0;
+        const hConv = (0xD0000000 | (nextDdeConv++ & 0x0FFFFFFF)) >>> 0;
+        ddeConversations.add(hConv);
+        return hConv;
     };
 
     // HDDEDATA DdeClientTransaction(...)
@@ -590,76 +668,7 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         return hConv; // non-NULL success token for compatibility
     };
 
-    // ── Raw Input (WM_INPUT) ────────────────────────────────────────────────
-    // Modern OldUnreal WinDrv initializes a "Raw Input" mouse handler and enumerates
-    // / queries raw-input devices. These were previously argcount-only stubs (no
-    // handler), so their OUT count/size params (puiNumDevices / pcbSize) were left
-    // UNINITIALISED — the engine then fed that garbage to appMalloc → _aligned_malloc
-    // returned NULL → `check(Ptr)` (FMallocAnsi.h:33) → "Critical: UInput::ReadInput".
-    // We report "no raw-input devices / no data", always writing 0 to the OUT params.
-    const writeU32 = (mem: Uint8Array, addr: number, value: number): void => {
-        if (addr && addr + 4 <= mem.length) Mem.writeUint32(addr >>> 0, value >>> 0);
-    };
-
-    // UINT GetRawInputDeviceList(PRAWINPUTDEVICELIST, PUINT puiNumDevices, UINT cbSize)
-    exports['GetRawInputDeviceList'] = (ctx, mem, args) => {
-        const puiNumDevices = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputDeviceList(0x${(args[0] >>> 0).toString(16)}, 0x${puiNumDevices.toString(16)}, ${args[2] >>> 0})`);
-        writeU32(mem, puiNumDevices, 0); // zero devices
-        return 0; // count copied / required = 0
-    };
-
-    // BOOL RegisterRawInputDevices(PCRAWINPUTDEVICE, UINT uiNumDevices, UINT cbSize)
-    // Must FAIL: we never deliver WM_INPUT, and claiming success makes SDL2 (2.0.18+)
-    // switch focused-window mouse motion to the raw-input path and ignore
-    // WM_MOUSEMOVE coordinates — frozen in-game cursor. A failed registration is
-    // the honest contract; callers fall back to normal window messages.
-    exports['RegisterRawInputDevices'] = (ctx, mem, args) => {
-        Logger.verbose(LogCategory.USER32, `RegisterRawInputDevices(uiNumDevices=${args[1] >>> 0}) -> FALSE (no WM_INPUT delivery)`);
-        System.getInstance().scheduler.setLastError(120); // ERROR_CALL_NOT_IMPLEMENTED
-        return 0;
-    };
-
-    // UINT GetRegisteredRawInputDevices(PRAWINPUTDEVICE, PUINT puiNumDevices, UINT cbSize)
-    exports['GetRegisteredRawInputDevices'] = (ctx, mem, args) => {
-        const puiNumDevices = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRegisteredRawInputDevices(0x${puiNumDevices.toString(16)})`);
-        writeU32(mem, puiNumDevices, 0);
-        return 0;
-    };
-
-    // UINT GetRawInputData(HRAWINPUT, UINT uiCommand, LPVOID pData, PUINT pcbSize, UINT cbSizeHeader)
-    exports['GetRawInputData'] = (ctx, mem, args) => {
-        const pData = args[2] >>> 0;
-        const pcbSize = args[3] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputData(cmd=0x${(args[1] >>> 0).toString(16)}, pData=0x${pData.toString(16)})`);
-        // pData==NULL → size query: report 0 bytes required. pData!=NULL → 0 bytes copied.
-        if (pData === 0) writeU32(mem, pcbSize, 0);
-        return 0;
-    };
-
-    // UINT GetRawInputBuffer(PRAWINPUT pData, PUINT pcbSize, UINT cbSizeHeader)
-    exports['GetRawInputBuffer'] = (ctx, mem, args) => {
-        const pData = args[0] >>> 0;
-        const pcbSize = args[1] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputBuffer(pData=0x${pData.toString(16)})`);
-        if (pData === 0) writeU32(mem, pcbSize, 0);
-        return 0; // zero messages
-    };
-
-    // UINT GetRawInputDeviceInfoW/A(HANDLE hDevice, UINT uiCommand, LPVOID pData, PUINT pcbSize)
-    exports['GetRawInputDeviceInfoW'] = exports['GetRawInputDeviceInfoA'] = (ctx, mem, args) => {
-        const pcbSize = args[3] >>> 0;
-        Logger.verbose(LogCategory.USER32, `GetRawInputDeviceInfo(hDevice=0x${(args[0] >>> 0).toString(16)}, cmd=0x${(args[1] >>> 0).toString(16)})`);
-        writeU32(mem, pcbSize, 0);
-        return 0;
-    };
-
-    // LRESULT DefRawInputProc(PRAWINPUT* paRawInput, INT nInput, UINT cbSizeHeader)
-    exports['DefRawInputProc'] = (ctx, mem, args) => {
-        Logger.verbose(LogCategory.USER32, `DefRawInputProc(nInput=${args[1] | 0})`);
-        return 0;
-    };
+    Object.assign(exports, createRawInputExports());
 
     exports['UnpackDDElParam'] = (ctx, mem, args) => {
         const msg = args[0];

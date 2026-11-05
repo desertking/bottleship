@@ -199,6 +199,7 @@ export const gdi32Module: ModuleDescriptor = {
         makeFunc("GetPaletteEntries", 4),
         makeFunc("GetNearestPaletteIndex", 2),
         makeFunc("SetSystemPaletteUse", 2),
+        makeFunc("AnimatePalette", 4),
         makeFunc("UnrealizeObject", 1),
         makeFunc("CombineRgn", 4),
         makeFunc("CreateRectRgn", 4),

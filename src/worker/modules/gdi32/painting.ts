@@ -1747,6 +1747,18 @@ export function createPaintingExports(): Record<string, ThunkImplementation> {
         return previous;
     };
 
+    exports['AnimatePalette'] = (ctx, mem, args): number => {
+        const hPal = args[0];
+        const iStart = args[1] >>> 0;
+        const cEntries = args[2] >>> 0;
+        const ppe = args[3] >>> 0;
+        const entries = paletteStore.get(hPal);
+        if (!entries) return 0;
+        const end = Math.min(iStart + cEntries, 256);
+        if (ppe && end > iStart) entries.set(mem.subarray(ppe, ppe + (end - iStart) * 4), iStart * 4);
+        return 1;
+    };
+
     // GetSystemPaletteEntries - retrieves system palette entries
     exports['GetSystemPaletteEntries'] = (ctx, mem, args): number => {
         const hdc = args[0];
