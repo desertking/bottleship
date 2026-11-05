@@ -20,6 +20,8 @@ import { ThunkImplementation, WriteBufHandler, X86Context } from "../../core/thu
 import { Logger, LogCategory } from "../../core/logger";
 import { APIRegistry } from "../../core/api-registry";
 import type { OpenGLContext } from "./context";
+import { bindWriteBufRun } from "../../core/thunking/wbuf-run";
+import type { GLRingRun } from "./ring-run";
 
 /**
  * [export name, DWORD count the caller pushes]. The count must match
@@ -88,6 +90,12 @@ function plainImpl(
     return ctx && typeof plain === "function" && plain !== wrapped ? plain : null;
 }
 
+function bindRun(name: string, handler: WriteBufHandler, impl: ThunkImplementation, argCount: number, runner: GLRingRun | undefined): void {
+    if (!runner) return;
+    const op = runner.callOp(impl, argCount, name);
+    if (op) bindWriteBufRun(handler, runner, op);
+}
+
 /**
  * Patch the listed stubs to the JMP trampoline and drain them through the module's
  * OWN export table. Reusing the export (not a second copy of the logic) is what keeps
@@ -104,6 +112,7 @@ export function registerWriteBufferGLStateFunctions(
     exports: Record<string, ThunkImplementation>,
     raw?: Record<string, ThunkImplementation>,
     ctx?: OpenGLContext,
+    runner?: GLRingRun,
 ): void {
     if (typeof dispatcher?.registerWriteBufferFunction !== "function") return;
     if ((globalThis as { __noGlStateWbuf?: boolean }).__noGlStateWbuf) {
@@ -139,6 +148,7 @@ export function registerWriteBufferGLStateFunctions(
             // trap frame to hand it, which is exactly why nothing that reads one qualifies.
             (plain !== null && ctx!.compilingList === null ? plain : impl)(null as unknown as X86Context, mem8, args);
         };
+        bindRun(name, handler, plain ?? impl, argCount, runner);
 
         dispatcher.registerWriteBufferFunction("opengl32", name, argCount, handler, true /* stdcall */);
         count++;
@@ -154,6 +164,7 @@ export function registerWriteBufferGLStateFunctions(
             const handler: WriteBufHandler = (mem8) => {
                 (plain !== null && ctx!.compilingList === null ? plain : impl)(null as unknown as X86Context, mem8, none);
             };
+            bindRun(name, handler, plain ?? impl, 0, runner);
             dispatcher.registerZeroArgWriteBufferFunction("opengl32", name, handler);
             count++;
         }

@@ -11,7 +11,7 @@ import {
     CF_DEPTH_RANGE_NEAR, CF_DEPTH_RANGE_FAR,
     DF_DEPTH_TEST, DF_DEPTH_MASK, DF_BLEND, DF_ALPHA_TEST, DF_CULL, DF_FOG,
     DF_COLOR_MASK_R, DF_COLOR_MASK_G, DF_COLOR_MASK_B, DF_COLOR_MASK_A, DF_STENCIL_TEST, DF_SCISSOR,
-    writeTexEnvSlots, boundTextureStorageId,
+    writeTexEnvSlots, texEnvSlotsEqual, boundTextureStorageId,
 } from "./context";
 import {
     GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN, GL_QUADS, GL_QUAD_STRIP,
@@ -22,6 +22,11 @@ import {
 } from "./constants";
 import { Logger, LogCategory } from "../../core/logger";
 import { guestViews } from "./client-arrays";
+import { bindWriteBufRun } from "../../core/thunking/wbuf-run";
+import {
+    GLRingRun, GL_RUN_BEGIN, GL_RUN_VERTEX3, GL_RUN_VERTEX2, GL_RUN_TEXCOORD2, GL_RUN_NORMAL3,
+    GL_RUN_COLOR4F, GL_RUN_COLOR3F, GL_RUN_COLOR4UB,
+} from "./ring-run";
 
 const _f32ab = new ArrayBuffer(4);
 const _f32dv = new DataView(_f32ab);
@@ -278,31 +283,8 @@ function mergePrimStride(mode: number): number {
     return 3; // every triangle-ish mode has been expanded to a triangle list
 }
 
-/** True when two DRAW records differ only in their vertex range. */
-function drawStateEqual(i32: Int32Array, f32: Float32Array, a: number, b: number): boolean {
-    const ai = a * CMD_I32, bi = b * CMD_I32;
-    if (i32[ai + CI_MODE] !== i32[bi + CI_MODE]) return false;
-    for (let k = CI_FLAGS; k < CMD_I32; k++) {
-        if (i32[ai + k] !== i32[bi + k]) return false;
-    }
-    const af = a * CMD_F32, bf = b * CMD_F32;
-    for (let k = 0; k < CMD_F32; k++) {
-        if (f32[af + k] !== f32[bf + k]) return false;
-    }
-    return true;
-}
-
-function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number, vertCount: number): void {
-    // GL_SELECT and GL_FEEDBACK do not touch the framebuffer (GL 1.3 §5.2). A picking
-    // pass re-renders the whole scene, so rasterizing it would overwrite the frame the
-    // guest just presented.
-    if (ctx.renderMode !== GL_RENDER) return;
-
-    const unit0 = ctx.textureUnits[0];
-    const unit1 = ctx.textureUnits[1];
-    const fc = ctx.fogColor;
+export function drawFlags(ctx: OpenGLContext): number {
     const en = ctx.enableFlags;
-
     let flags = 0;
     if (en.has(0x0B71)) flags |= DF_DEPTH_TEST;
     if (ctx.depthMask) flags |= DF_DEPTH_MASK;
@@ -316,16 +298,62 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
     if (ctx.colorMaskA) flags |= DF_COLOR_MASK_A;
     if (en.has(GL_STENCIL_TEST)) flags |= DF_STENCIL_TEST;
     if (en.has(0x0C11)) flags |= DF_SCISSOR;
+    return flags;
+}
 
-    const stream = ctx.commands;
-    const idx = stream.alloc(GLDrawCommandType.DRAW);
-    const I = stream.i32, F = stream.f32;
-    const i = idx * CMD_I32;
-    const f = idx * CMD_F32;
+export function drawRecordMatches(ctx: OpenGLContext, I: Int32Array, F: Float32Array, p: number, pf: number, mode: number, flags: number): boolean {
+    const unit0 = ctx.textureUnits[0]!;
+    const unit1 = ctx.textureUnits[1]!;
+    const fc = ctx.fogColor;
+    return I[p + CI_MODE] === (mode | 0)
+        && I[p + CI_FLAGS] === flags
+        && I[p + CI_TEX_ID0] === ((unit0.enabled2d ? boundTextureStorageId(unit0) : 0) | 0)
+        && I[p + CI_TEX_ID1] === ((unit1.enabled2d ? boundTextureStorageId(unit1) : 0) | 0)
+        && I[p + CI_DEPTH_FUNC] === (ctx.depthFunc | 0)
+        && I[p + CI_BLEND_SRC] === (ctx.blendSrc | 0)
+        && I[p + CI_BLEND_DST] === (ctx.blendDst | 0)
+        && I[p + CI_ALPHA_FUNC] === (ctx.alphaFunc | 0)
+        && I[p + CI_CULL_FACE] === (ctx.cullFace | 0)
+        && I[p + CI_FRONT_FACE] === (ctx.frontFace | 0)
+        && I[p + CI_TEXENV0] === (unit0.texEnvMode | 0)
+        && I[p + CI_TEXENV1] === (unit1.texEnvMode | 0)
+        && I[p + CI_SHADE_MODEL] === (ctx.shadeModel | 0)
+        && I[p + CI_FOG_MODE] === (ctx.fogMode | 0)
+        && I[p + CI_POLYGON_MODE] === (ctx.polygonModeFront | 0)
+        && I[p + CI_STENCIL_FUNC] === (ctx.stencilFunc | 0)
+        && I[p + CI_STENCIL_REF] === (ctx.stencilRef | 0)
+        && I[p + CI_STENCIL_MASK] === (ctx.stencilMask | 0)
+        && I[p + CI_STENCIL_FAIL] === (ctx.stencilFail | 0)
+        && I[p + CI_STENCIL_ZFAIL] === (ctx.stencilZFail | 0)
+        && I[p + CI_STENCIL_ZPASS] === (ctx.stencilZPass | 0)
+        && I[p + CI_STENCIL_WRITE_MASK] === (ctx.stencilWriteMask | 0)
+        && I[p + CI_SCISSOR_X] === (ctx.scissorX | 0)
+        && I[p + CI_SCISSOR_Y] === (ctx.scissorY | 0)
+        && I[p + CI_SCISSOR_W] === (ctx.scissorW | 0)
+        && I[p + CI_SCISSOR_H] === (ctx.scissorH | 0)
+        && I[p + CI_VP_X] === (ctx.viewportX | 0)
+        && I[p + CI_VP_Y] === (ctx.viewportY | 0)
+        && I[p + CI_VP_W] === (ctx.viewportW | 0)
+        && I[p + CI_VP_H] === (ctx.viewportH | 0)
+        && F[pf + CF_ALPHA_REF] === Math.fround(ctx.alphaRef)
+        && F[pf + CF_FOG_R] === Math.fround(fc[0]!)
+        && F[pf + CF_FOG_G] === Math.fround(fc[1]!)
+        && F[pf + CF_FOG_B] === Math.fround(fc[2]!)
+        && F[pf + CF_FOG_A] === Math.fround(fc[3]!)
+        && F[pf + CF_FOG_DENSITY] === Math.fround(ctx.fogDensity)
+        && F[pf + CF_FOG_START] === Math.fround(ctx.fogStart)
+        && F[pf + CF_FOG_END] === Math.fround(ctx.fogEnd)
+        && F[pf + CF_DEPTH_RANGE_NEAR] === Math.fround(ctx.depthRangeNear)
+        && F[pf + CF_DEPTH_RANGE_FAR] === Math.fround(ctx.depthRangeFar)
+        && texEnvSlotsEqual(I, F, p, pf, unit0, unit1);
+}
+
+export function writeDrawRecord(ctx: OpenGLContext, I: Int32Array, F: Float32Array, i: number, f: number, mode: number, flags: number): void {
+    const unit0 = ctx.textureUnits[0];
+    const unit1 = ctx.textureUnits[1];
+    const fc = ctx.fogColor;
 
     I[i + CI_MODE] = mode;
-    I[i + CI_VERT_OFFSET] = vertOffset;
-    I[i + CI_VERT_COUNT] = vertCount;
     I[i + CI_FLAGS] = flags;
     I[i + CI_DEPTH_FUNC] = ctx.depthFunc;
     I[i + CI_BLEND_SRC] = ctx.blendSrc;
@@ -367,22 +395,32 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
     F[f + CF_FOG_END] = ctx.fogEnd;
     F[f + CF_DEPTH_RANGE_NEAR] = ctx.depthRangeNear;
     F[f + CF_DEPTH_RANGE_FAR] = ctx.depthRangeFar;
+}
+
+function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number, vertCount: number): void {
+    if (ctx.renderMode !== GL_RENDER) return;
+
+    const flags = drawFlags(ctx);
+    const stream = ctx.commands;
+    const I = stream.i32, F = stream.f32;
 
     ctx.frameSnapshot.vertexCount += vertCount;
 
-    // Fold into the previous draw when it is state-identical and its vertices end
-    // exactly where ours begin — the concatenated range is the same draw.
-    if (idx > 0 && isMergeableMode(mode) && stream.typeAt(idx - 1) === GLDrawCommandType.DRAW) {
-        const p = (idx - 1) * CMD_I32;
+    const last = stream.count - 1;
+    if (last >= 0 && isMergeableMode(mode) && stream.typeAt(last) === GLDrawCommandType.DRAW) {
+        const p = last * CMD_I32;
         if (I[p + CI_VERT_OFFSET] + I[p + CI_VERT_COUNT] * VERT_FLOATS === vertOffset &&
             I[p + CI_VERT_COUNT] % mergePrimStride(mode) === 0 &&
-            drawStateEqual(I, F, idx - 1, idx)) {
+            drawRecordMatches(ctx, I, F, p, last * CMD_F32, mode, flags)) {
             I[p + CI_VERT_COUNT] += vertCount;
-            stream.pop();
             return;
         }
     }
 
+    const idx = stream.alloc(GLDrawCommandType.DRAW);
+    writeDrawRecord(ctx, stream.i32, stream.f32, idx * CMD_I32, idx * CMD_F32, mode, flags);
+    stream.i32[idx * CMD_I32 + CI_VERT_OFFSET] = vertOffset;
+    stream.i32[idx * CMD_I32 + CI_VERT_COUNT] = vertCount;
     ctx.frameSnapshot.drawCalls++;
 }
 
@@ -1079,7 +1117,7 @@ export function createImmediateExports(ctx: OpenGLContext): Record<string, Thunk
  * args are recorded into compilingCommands and execution is skipped.  During
  * GL_COMPILE_AND_EXECUTE they are recorded AND executed.
  */
-export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLContext): void {
+export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLContext, runner?: GLRingRun): void {
     if (typeof dispatcher.registerWriteBufferFunction !== 'function') return;
 
     // GL_COMPILE = 0x1300.  Inline the constant to avoid an extra import at hot-path drain time.
@@ -1089,7 +1127,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
     // `readArgs` extracts the arg array from the ring buffer (same values the normal thunk
     // would pass in `args[]`).  When compiling a list we push {fn, args} and optionally
     // skip execution (GL_COMPILE).
-    const reg = (name: string, argCount: number, readArgs: (mem32: Uint32Array, ptr: number) => number[], handler: WriteBufHandler) => {
+    const reg = (name: string, argCount: number, readArgs: (mem32: Uint32Array, ptr: number) => number[], handler: WriteBufHandler, op = 0) => {
         const wrapped: WriteBufHandler = (mem8, mem32, ptr) => {
             if (ctx.compilingList !== null) {
                 ctx.compilingCommands.push({ fn: name, args: readArgs(mem32, ptr) });
@@ -1097,6 +1135,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             }
             handler(mem8, mem32, ptr);
         };
+        if (runner && op) bindWriteBufRun(wrapped, runner, op);
         dispatcher.registerWriteBufferFunction('opengl32', name, argCount, wrapped, true /* stdcall */);
     };
 
@@ -1109,7 +1148,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
     // lists.ts replay for *fv variants treats args[0] as a pointer — using the scalar
     // name ensures the replay switch-case interprets the args as float bits correctly.
     if (typeof dispatcher.registerPtrDerefWriteBufferFunction === 'function') {
-        const regPd = (name: string, scalarName: string, floatCount: number, readArgs: (mem32: Uint32Array, ptr: number) => number[], handler: WriteBufHandler) => {
+        const regPd = (name: string, scalarName: string, floatCount: number, readArgs: (mem32: Uint32Array, ptr: number) => number[], handler: WriteBufHandler, op = 0) => {
             const wrapped: WriteBufHandler = (mem8, mem32, ptr) => {
                 if (ctx.compilingList !== null) {
                     ctx.compilingCommands.push({ fn: scalarName, args: readArgs(mem32, ptr) });
@@ -1117,6 +1156,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
                 }
                 handler(mem8, mem32, ptr);
             };
+            if (runner && op) bindWriteBufRun(wrapped, runner, op);
             dispatcher.registerPtrDerefWriteBufferFunction('opengl32', name, floatCount, wrapped, true /* stdcall */);
         };
 
@@ -1129,7 +1169,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
                     bitsToF32(mem32[(ptr + 4) >> 2]),
                     bitsToF32(mem32[(ptr + 8) >> 2]),
                     1);
-            });
+            }, GL_RUN_VERTEX3);
 
         // glNormal3fv(const GLfloat *v) — ring contains 3 float bits, record as glNormal3f
         regPd('glNormal3fv', 'glNormal3f', 3,
@@ -1138,7 +1178,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
                 ctx.currentNormal[0] = bitsToF32(mem32[ptr >> 2]);
                 ctx.currentNormal[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
                 ctx.currentNormal[2] = bitsToF32(mem32[(ptr + 8) >> 2]);
-            });
+            }, GL_RUN_NORMAL3);
 
         // glTexCoord2fv(const GLfloat *v) — ring contains 2 float bits, record as glTexCoord2f
         regPd('glTexCoord2fv', 'glTexCoord2f', 2,
@@ -1147,7 +1187,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
                 const tc = ctx.currentTexCoord[ctx.activeTextureUnit];
                 tc[0] = bitsToF32(mem32[ptr >> 2]);
                 tc[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
-            });
+            }, GL_RUN_TEXCOORD2);
     }
 
     // --- glBegin (mode) ---
@@ -1163,7 +1203,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             ctx.immediateMode = true;
             ctx.immediatePrimMode = mem32[ptr >> 2] >>> 0;
             ctx.immediateFlatCount = 0;
-        });
+        }, GL_RUN_BEGIN);
 
     // --- glVertex3f (x, y, z) ---
     reg('glVertex3f', 3,
@@ -1174,14 +1214,14 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
                 bitsToF32(mem32[(ptr + 4) >> 2]),
                 bitsToF32(mem32[(ptr + 8) >> 2]),
                 1);
-        });
+        }, GL_RUN_VERTEX3);
 
     // --- glVertex2f (x, y) ---
     reg('glVertex2f', 2,
         (m32, p) => [m32[p >> 2], m32[(p + 4) >> 2]],
         (_mem8, mem32, ptr) => {
             pushVertex(ctx, bitsToF32(mem32[ptr >> 2]), bitsToF32(mem32[(ptr + 4) >> 2]), 0, 1);
-        });
+        }, GL_RUN_VERTEX2);
 
     // --- glNormal3f (nx, ny, nz) ---
     reg('glNormal3f', 3,
@@ -1190,7 +1230,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             ctx.currentNormal[0] = bitsToF32(mem32[ptr >> 2]);
             ctx.currentNormal[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
             ctx.currentNormal[2] = bitsToF32(mem32[(ptr + 8) >> 2]);
-        });
+        }, GL_RUN_NORMAL3);
 
     // --- glTexCoord2f (s, t) ---
     reg('glTexCoord2f', 2,
@@ -1199,7 +1239,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             const tc = ctx.currentTexCoord[ctx.activeTextureUnit];
             tc[0] = bitsToF32(mem32[ptr >> 2]);
             tc[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
-        });
+        }, GL_RUN_TEXCOORD2);
 
     // --- glColor4f (r, g, b, a) ---
     reg('glColor4f', 4,
@@ -1209,7 +1249,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             ctx.currentColor[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
             ctx.currentColor[2] = bitsToF32(mem32[(ptr + 8) >> 2]);
             ctx.currentColor[3] = bitsToF32(mem32[(ptr + 12) >> 2]);
-        });
+        }, GL_RUN_COLOR4F);
 
     // --- glColor3f (r, g, b) ---
     reg('glColor3f', 3,
@@ -1219,7 +1259,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             ctx.currentColor[1] = bitsToF32(mem32[(ptr + 4) >> 2]);
             ctx.currentColor[2] = bitsToF32(mem32[(ptr + 8) >> 2]);
             ctx.currentColor[3] = 1.0;
-        });
+        }, GL_RUN_COLOR3F);
 
     // --- glColor4ub (r, g, b, a) — byte args packed as separate u32 words in ring buffer ---
     reg('glColor4ub', 4,
@@ -1229,7 +1269,7 @@ export function registerWriteBufferGLFunctions(dispatcher: any, ctx: OpenGLConte
             ctx.currentColor[1] = (mem32[(ptr + 4) >> 2] & 0xFF) / 255;
             ctx.currentColor[2] = (mem32[(ptr + 8) >> 2] & 0xFF) / 255;
             ctx.currentColor[3] = (mem32[(ptr + 12) >> 2] & 0xFF) / 255;
-        });
+        }, GL_RUN_COLOR4UB);
 
     Logger.log(LogCategory.SYSTEM,
         'Registered Tier-0 write-buffer stubs for OpenGL immediate-mode functions');

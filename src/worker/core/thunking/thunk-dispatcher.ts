@@ -32,6 +32,7 @@ import {
 } from './unimplemented-return';
 import { thunkChecksumManager } from '../memory/thunk-checksum';
 import { invalidateGuestCode } from '../memory/guest-code';
+import { writeBufRunOf, type WriteBufRunConsumer } from './wbuf-run';
 import { hypercallDataManager } from '../cpu/hypercall-data';
 import { preemptionManager } from '../cpu/preemption-manager';
 import {
@@ -427,6 +428,11 @@ export class ThunkDispatcher {
     private writeBufBarrierTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
     private writeBufPairRuns: WriteBufPairRunRegistration[] = [];
     private writeBufPairRunByFirst: Array<WriteBufPairRunBinding[] | null> = new Array(MAX_THUNK_ID).fill(null);
+    private readonly writeBufRunTables: { owners: Array<WriteBufRunConsumer | null>; ops: Uint8Array; argCounts: Uint8Array } = {
+        owners: new Array(MAX_THUNK_ID).fill(null),
+        ops: new Uint8Array(MAX_THUNK_ID),
+        argCounts: this.writeBufArgCountTable,
+    };
     // Write-buffer ring addresses (populated from thunkMemoryManager regions)
     private writeBufControlAddr = 0;
     private writeBufDataBase = 0;
@@ -1805,8 +1811,15 @@ export class ThunkDispatcher {
         return id;
     }
 
-    private bindQueuePayloadHandler(id: number, handler: WriteBufHandler): void {
+    private setWriteBufHandler(id: number, handler: WriteBufHandler): void {
         this.writeBufHandlerTable[id] = handler;
+        const run = writeBufRunOf(handler);
+        this.writeBufRunTables.owners[id] = run ? run.consumer : null;
+        this.writeBufRunTables.ops[id] = run ? run.op : 0;
+    }
+
+    private bindQueuePayloadHandler(id: number, handler: WriteBufHandler): void {
+        this.setWriteBufHandler(id, handler);
         this.writeBufArgCountTable[id] = WBUF_ARG_PAYLOAD;
         // A recorded call may read state the ring set around it: the coalescer must not merge
         // two setters across it (the front applied them one trap at a time).
@@ -1851,7 +1864,7 @@ export class ThunkDispatcher {
         const sep = key.indexOf(":");
         id = this.findStubsByName(key.slice(0, sep), key.slice(sep + 1))[0]?.functionId ?? 0;
         if (id > 0 && id < MAX_THUNK_ID) {
-            this.writeBufHandlerTable[id] = reg.handler;
+            this.setWriteBufHandler(id, reg.handler);
             this.writeBufArgCountTable[id] = reg.argCount;
             this.wbufQueueOnly[id] = 1;
             this.noteWriteBufTransportSafety(id, reg.dllName);
@@ -2098,9 +2111,21 @@ export class ThunkDispatcher {
         const pairRuns = this.writeBufPairRunByFirst;
         const barriers = this.writeBufBarrierTable;
         const transportSafe = this.wbufTransportSafe;
+        const runTables = this.writeBufRunTables;
+        const runOwners = runTables.owners;
         while (offset < head) {
             const funcId: number = rMem32[(rBase + offset) >> 2] >>> 0;
             if (plain && funcId > 0 && funcId < MAX_THUNK_ID) {
+                const run = runOwners[funcId];
+                if (run !== null) {
+                    const next = run.run(rMem8, rMem32, rBase, offset, head, runTables);
+                    if (next > offset) {
+                        if (transportSafe[funcId] !== 1) this.drainUnsafeSeen++;
+                        this.wbufHitsTotal++;
+                        offset = next;
+                        continue;
+                    }
+                }
                 const argCount = argCounts[funcId];
                 const handler = handlers[funcId];
                 if (argCount > 0 && argCount <= 8 && handler && pairRuns[funcId] === null) {
@@ -4919,7 +4944,7 @@ export class ThunkDispatcher {
 
             // Register the drain handler
             const id = stub.functionId;
-            this.writeBufHandlerTable[id]  = handler;
+            this.setWriteBufHandler(id, handler);
 
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = argCount;
@@ -5328,7 +5353,7 @@ export class ThunkDispatcher {
 
             // Register drain handler — floatCount is the argCount for stride calculation
             const id = stub.functionId;
-            this.writeBufHandlerTable[id]  = handler;
+            this.setWriteBufHandler(id, handler);
 
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = floatCount;
@@ -5404,7 +5429,7 @@ export class ThunkDispatcher {
         invalidateGuestCode(stubAddr, 16);
 
         const id = stub.functionId;
-        this.writeBufHandlerTable[id]  = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = WBUF_ARG_SHADER_CONSTANT;
@@ -5443,7 +5468,7 @@ export class ThunkDispatcher {
             mem8[stubAddr + 9] = (rel32 >> 24) & 0xFF;
             invalidateGuestCode(stubAddr, 16);
             const id = stub.functionId;
-            this.writeBufHandlerTable[id] = handler;
+            this.setWriteBufHandler(id, handler);
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = 1;
             this.writeBufCoalesceMaskTable[id] = 0;
@@ -5505,7 +5530,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `StructCapture stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         // Standard stride formula (n+1)*4 with n = scalars + payload dwords.
@@ -5557,7 +5582,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `MultiStructCapture stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = argCount + ptrArgIndices.length * payloadDwords;
@@ -5590,7 +5615,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `UpDraw stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = WBUF_ARG_UP_DRAW;
@@ -9349,6 +9374,8 @@ export class ThunkDispatcher {
         this.fastPathTable.fill(null);
         this.writeBufHandlerTable.fill(null);
         this.writeBufArgCountTable.fill(0);
+        this.writeBufRunTables.owners.fill(null);
+        this.writeBufRunTables.ops.fill(0);
         this.writeBufCoalesceMaskTable.fill(0);
         this.writeBufPairRunByFirst.fill(null);
         this.wbufCoalescingEnabled = false;
