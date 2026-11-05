@@ -157,7 +157,7 @@ export function fillSurfaceRectCpu(
  * @param targetFormat - GPU texture format to use (should match destination for copyTextureToTexture)
  * @returns true if surface now has a valid GPU texture
  */
-function ensureGpuTextureForBlt(
+export function ensureGpuTextureForBlt(
     state: DirectDrawSurfaceState,
     context: DDrawContext,
     mem: Uint8Array,
