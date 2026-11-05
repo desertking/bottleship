@@ -28,6 +28,17 @@ export function savestateCensus(): Record<string, unknown> {
         })),
         timersByKind: timers,
         com: table('comObjects'),
+        comByIid: (() => {
+            const out: Counts = {};
+            for (const o of (rp['comObjects']?.items ?? [])) {
+                if (!o) continue;
+                const iid = (o as { iid?: string }).iid ?? '?';
+                out[iid] = (out[iid] ?? 0) + 1;
+            }
+            return out;
+        })(),
+        kernelKinds: tally((rp['kernelObjects']?.items ?? []).filter(x => x !== undefined).map(o => (o as { kind?: string }).kind ?? '?') as unknown[]),
+        userTypes: (rp['userObjects']?.items ?? []).filter(x => x !== undefined).map(o => (o as { type?: string }).type ?? '?'),
         gdi: table('gdiObjects'),
         kernel: table('kernelObjects'),
         user: table('userObjects'),

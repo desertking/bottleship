@@ -52,6 +52,23 @@ type PendingMessage = {
     return coalesceMouseMoveEnabled;
 };
 
+export interface RingState {
+    capacity: number; head: number; tail: number; count: number;
+    hwnds: Uint32Array; messages: Uint32Array; wParams: Uint32Array; lParams: Uint32Array; times: Uint32Array;
+    ptXs: Int32Array; ptYs: Int32Array; targetThreadIds: Uint32Array; keyStatePresent: Uint8Array;
+    keyStatesPacked: Uint8Array; extraInfos: Uint32Array;
+}
+
+export interface MessageQueueState {
+    posted: RingState;
+    input: RingState;
+    paintPending: Array<[number, PendingMessage]>;
+    timerPending: Array<[string, { hwnd: number; pending: PendingMessage; materialized: boolean }]>;
+    nextTimerMessage: number;
+    lastMouseMove: Array<[number, PendingMessage]>;
+    moveSetCursor: Array<[number, PendingMessage]>;
+}
+
 class RingBuffer {
     private capacity: number;
     private mask: number;
@@ -88,6 +105,25 @@ class RingBuffer {
 
     get length(): number {
         return this.count;
+    }
+
+    captureState(): RingState {
+        return {
+            capacity: this.capacity, head: this.head, tail: this.tail, count: this.count,
+            hwnds: this.hwnds.slice(), messages: this.messages.slice(), wParams: this.wParams.slice(),
+            lParams: this.lParams.slice(), times: this.times.slice(), ptXs: this.ptXs.slice(), ptYs: this.ptYs.slice(),
+            targetThreadIds: this.targetThreadIds.slice(), keyStatePresent: this.keyStatePresent.slice(),
+            keyStatesPacked: this.keyStatesPacked.slice(), extraInfos: this.extraInfos.slice(),
+        };
+    }
+
+    restoreState(s: RingState): void {
+        this.capacity = s.capacity; this.mask = s.capacity - 1;
+        this.head = s.head; this.tail = s.tail; this.count = s.count;
+        this.hwnds = s.hwnds.slice(); this.messages = s.messages.slice(); this.wParams = s.wParams.slice();
+        this.lParams = s.lParams.slice(); this.times = s.times.slice(); this.ptXs = s.ptXs.slice(); this.ptYs = s.ptYs.slice();
+        this.targetThreadIds = s.targetThreadIds.slice(); this.keyStatePresent = s.keyStatePresent.slice();
+        this.keyStatesPacked = s.keyStatesPacked.slice(); this.extraInfos = s.extraInfos.slice();
     }
 
     private setKeyStateSnapshot(idx: number, keyStatePacked?: Uint8Array): void {
@@ -378,6 +414,30 @@ export class MessageQueue {
     // Keeping ticks as ordinary posts can permanently starve a modal loop's idle path.
     private timerPending: Map<string, { hwnd: number; pending: PendingMessage; materialized: boolean }> = new Map();
     private nextTimerMessage = 1;
+
+    captureState(): MessageQueueState {
+        const pm = (p: PendingMessage): PendingMessage => ({ ...p, keyStatePacked: p.keyStatePacked?.slice() });
+        return {
+            posted: this.postedQueue.captureState(),
+            input: this.inputQueue.captureState(),
+            paintPending: [...this.paintPending].map(([h, p]) => [h, pm(p)]),
+            timerPending: [...this.timerPending].map(([k, e]) => [k, { hwnd: e.hwnd, pending: pm(e.pending), materialized: e.materialized }]),
+            nextTimerMessage: this.nextTimerMessage,
+            lastMouseMove: [...this.lastMouseMove].map(([h, p]) => [h, pm(p)]),
+            moveSetCursor: [...this.moveSetCursor].map(([h, p]) => [h, pm(p)]),
+        };
+    }
+
+    restoreState(s: MessageQueueState): void {
+        this.postedQueue.restoreState(s.posted);
+        this.inputQueue.restoreState(s.input);
+        this.paintPending = new Map(s.paintPending);
+        this.timerPending = new Map(s.timerPending);
+        this.nextTimerMessage = s.nextTimerMessage;
+        this.lastMouseMove = new Map(s.lastMouseMove);
+        this.moveSetCursor = new Map(s.moveSetCursor);
+        this.waiters = [];
+    }
 
     /** A due timer is generated lazily; a WM_TIMER already returned by PM_NOREMOVE survives cancellation. */
     cancelTimer(hwnd: number, id: number): void {

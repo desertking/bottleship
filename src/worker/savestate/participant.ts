@@ -1,12 +1,21 @@
 import type { SaveValue } from './value-codec';
 
+export interface CaptureContext {
+    ref(obj: unknown, where: string): number;
+}
+
+export interface RestoreContext {
+    object(ref: number): unknown;
+}
+
 export type FieldPolicy = 'save' | 'derive' | 'host' | 'transient';
 
 export interface Participant {
     readonly id: string;
     readonly version: number;
-    capture(): SaveValue;
-    restore(state: SaveValue): void;
+    readonly order?: number;
+    capture(ctx: CaptureContext): SaveValue;
+    restore(state: SaveValue, ctx: RestoreContext): void;
 }
 
 type SavedKeys<T, P extends Record<keyof T, FieldPolicy>> = { [K in keyof T]: P[K] extends 'save' ? K : never }[keyof T];
@@ -34,7 +43,9 @@ export class ParticipantRegistry {
         };
     }
 
-    all(): readonly Participant[] { return this.list; }
+    all(): readonly Participant[] {
+        return [...this.list].sort((a, b) => (a.order ?? 50) - (b.order ?? 50));
+    }
 
     versions(): Record<string, number> {
         const out: Record<string, number> = {};

@@ -912,3 +912,20 @@ export function getWindowClassByName(name: string) {
     }
     return undefined;
 }
+
+export interface User32ClassState { classes: Array<[number, unknown]>; byName: Array<[string, number]>; nextClassId: number; app: string[] }
+
+export function captureUser32Classes(): User32ClassState {
+    return { classes: [...windowClasses].map(([id, c]) => [id, { ...c }]), byName: [...windowClassesByName], nextClassId, app: [...appRegisteredClasses] };
+}
+
+export function restoreUser32Classes(s: User32ClassState): void {
+    windowClasses.clear();
+    for (const [id, c] of s.classes) windowClasses.set(id, { ...(c as object) });
+    windowClassesByName.clear();
+    for (const [n, id] of s.byName) windowClassesByName.set(n, id);
+    nextClassId = s.nextClassId;
+    appRegisteredClasses.clear();
+    for (const n of s.app) appRegisteredClasses.add(n);
+    builtinClassInfoCache.clear();
+}
