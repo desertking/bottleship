@@ -3348,6 +3348,7 @@ const initV86 = async (canvas: OffscreenCanvas) => {
         system.executableArgs = boot.commandLine;
         system.executableCommandLine = boot.rawCommandLine ?? null;
         if (boot.environment) process.environment = new Map(boot.environment);
+        noteBootError('this game runs as a child process, which a savestate does not cover yet');
         if (await loadPeData(boot.bytes, true) === 'ok') resolveChildImageReady?.();
       }
 

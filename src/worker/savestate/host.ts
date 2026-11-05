@@ -51,7 +51,7 @@ export async function noteBootIdentity(input: {
 }
 
 function target(): SavestateTarget {
-    if (!boot) throw new Error('savestate: no boot identity (the game has not reached its entry point)');
+    if (!boot) throw new Error(bootError ? `savestate: ${bootError}` : 'savestate: no boot identity (the game has not reached its entry point)');
     const identity = boot;
     return {
         guestMemory: () => {
@@ -83,7 +83,7 @@ function checkSlotName(slot: string): string {
 }
 
 function gameDir(): string {
-    if (!boot) throw new Error('savestate: no boot identity (the game has not reached its entry point)');
+    if (!boot) throw new Error(bootError ? `savestate: ${bootError}` : 'savestate: no boot identity (the game has not reached its entry point)');
     return gameIdToContainerDir(boot.gameId);
 }
 
