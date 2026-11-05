@@ -2016,8 +2016,29 @@ export class ThunkDispatcher {
         // would have to match, which is why this is a separate, separately-armed tier.
         if (this.wbufSequenceWant > 0) this.recordWriteBufSequence(rMem32, rBase, offset, head);
         const coalescing = this.wbufCoalescingEnabled && this.buildWbufCoalesceIndex(rMem32, rBase, offset, head);
+        const plain = !coalescing && !transport && !verbose;
+        const handlers = this.writeBufHandlerTable;
+        const argCounts = this.writeBufArgCountTable;
+        const pairRuns = this.writeBufPairRunByFirst;
+        const barriers = this.writeBufBarrierTable;
+        const transportSafe = this.wbufTransportSafe;
         while (offset < head) {
             const funcId: number = rMem32[(rBase + offset) >> 2] >>> 0;
+            if (plain && funcId > 0 && funcId < MAX_THUNK_ID) {
+                const argCount = argCounts[funcId];
+                const handler = handlers[funcId];
+                if (argCount > 0 && argCount <= 8 && handler && pairRuns[funcId] === null) {
+                    if (barriers[funcId]) {
+                        segment++;
+                        this.wbufBarrierEntriesTotal++;
+                    }
+                    if (transportSafe[funcId] !== 1) this.drainUnsafeSeen++;
+                    handler(rMem8, rMem32, rBase + offset + 4);
+                    offset += (argCount + 1) * 4;
+                    this.wbufHitsTotal++;
+                    continue;
+                }
+            }
             if (funcId > 0 && funcId < MAX_THUNK_ID) {
                 // Exact pair fusion is attempted before either ordinary handler mutates state.
                 // A decline is therefore a strict rollback point: resume at the same offset.
