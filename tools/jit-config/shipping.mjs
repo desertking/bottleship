@@ -107,6 +107,9 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_hot_edge_regions", 0],    // hot-edge region formation: measured −3..−4 %, OFF
     ["jit_guard_groups", 1],        // one widened TLB check per group of same-base accesses
     ["jit_ret_memo_inline", 1],     // RET/indirect exits probe the dispatch memo in generated code
+    ["jit_fwait_inline", 1],        // FWAIT is an inline CR0 test, not a spilling block boundary
+    ["jit_multi_entry_loop_safety", 1], // multi-entry wasm loops get the LOOP_COUNTER exit too
+    ["jit_sse_scalar_inline", 1],   // scalar SSE memory/compare/convert forms as wasm float ops
 ]));
 
 /** The all-off reference for the switches. */
