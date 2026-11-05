@@ -19,20 +19,31 @@ function isAllZero(bytes: Uint8Array): boolean {
     return true;
 }
 
-export async function captureRam(
-    mem: Uint8Array, store: ChunkStore, compress = true,
-): Promise<{ manifest: RamManifest; stats: RamCaptureStats }> {
-    const manifest: RamManifest = { chunkSize: RAM_CHUNK_SIZE, length: mem.length, compressed: compress, chunks: [] };
-    const stats: RamCaptureStats = { chunks: 0, knownZero: 0, scannedZero: 0, written: 0, reused: 0 };
+export function snapshotRam(mem: Uint8Array): { length: number; chunks: Map<number, Uint8Array>; knownZero: number; scannedZero: number } {
+    const chunks = new Map<number, Uint8Array>();
+    let knownZero = 0, scannedZero = 0;
     const count = Math.ceil(mem.length / RAM_CHUNK_SIZE);
-    const known = new Set<string>(await store.list());
     for (let i = 0; i < count; i++) {
-        stats.chunks++;
         const base = i * RAM_CHUNK_SIZE;
         const size = Math.min(RAM_CHUNK_SIZE, mem.length - base);
-        if (isGuestRangeKnownZero(mem, base, size)) { stats.knownZero++; continue; }
+        if (isGuestRangeKnownZero(mem, base, size)) { knownZero++; continue; }
         const bytes = mem.slice(base, base + size);
-        if (isAllZero(bytes)) { stats.scannedZero++; continue; }
+        if (isAllZero(bytes)) { scannedZero++; continue; }
+        chunks.set(i, bytes);
+    }
+    return { length: mem.length, chunks, knownZero, scannedZero };
+}
+
+export async function storeRam(
+    snap: ReturnType<typeof snapshotRam>, store: ChunkStore, compress = true,
+): Promise<{ manifest: RamManifest; stats: RamCaptureStats }> {
+    const manifest: RamManifest = { chunkSize: RAM_CHUNK_SIZE, length: snap.length, compressed: compress, chunks: [] };
+    const stats: RamCaptureStats = {
+        chunks: Math.ceil(snap.length / RAM_CHUNK_SIZE), knownZero: snap.knownZero, scannedZero: snap.scannedZero,
+        written: 0, reused: 0,
+    };
+    const known = new Set<string>(await store.list());
+    for (const [i, bytes] of snap.chunks) {
         const hash = await sha256Hex(bytes);
         manifest.chunks.push([i, hash]);
         if (known.has(hash)) { stats.reused++; continue; }
@@ -41,6 +52,12 @@ export async function captureRam(
         stats.written++;
     }
     return { manifest, stats };
+}
+
+export async function captureRam(
+    mem: Uint8Array, store: ChunkStore, compress = true,
+): Promise<{ manifest: RamManifest; stats: RamCaptureStats }> {
+    return storeRam(snapshotRam(mem), store, compress);
 }
 
 export async function restoreRam(mem: Uint8Array, manifest: RamManifest, store: ChunkStore): Promise<void> {

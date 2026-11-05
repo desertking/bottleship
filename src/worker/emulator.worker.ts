@@ -2,6 +2,8 @@ import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
 import { adoptFreshGuestMemory } from "./core/memory/guest-page-dirty";
+import { noteBootIdentity, restorePendingAtEntry } from "./savestate/host";
+import { registerCoreParticipants } from "./savestate/core-participants";
 import { Process } from "./core/process";
 import { System, type GuestImagePatch } from "./core/system";
 import { applyHostJitMode, isHostJitMode, type HostJitMode } from "../utils/host-jit-policy";
@@ -2211,6 +2213,25 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
     // put the launch overlay back over that dialog and read as a hang.
     if (await loadPeData(bundle.entrypointBytes, true) === "failed") return;
     bootMark("pe-loaded");
+    pauseEmulator();
+    try {
+      registerCoreParticipants();
+      const layout = {
+        thunks: system.process?.dispatcher?.thunkNames() ?? [],
+        modules: [...(system.process?.modules.keys() ?? [])],
+      };
+      await noteBootIdentity({
+        gameId, manifest: bundle.manifest, bundleSize: bundle.archive.listEntries().length,
+        config: EmulatorConfig.getInstance().snapshotForChild(), layout,
+      });
+      const restored = await restorePendingAtEntry();
+      if (restored) (globalThis as Record<string, unknown>).__bsSavestateRestored = restored;
+    } catch (e) {
+      Logger.error(LogCategory.SYSTEM, `[SAVESTATE] load at entry failed: ${e instanceof Error ? e.stack : e}`);
+      (globalThis as Record<string, unknown>).__bsSavestateRestored = { error: String(e) };
+    } finally {
+      resumeEmulator();
+    }
 
     // AOT units must be transaction-committed BEFORE the JIT claims their pages
     // refuses a page the live JIT already owns (rc 2), and that is the whole ordering problem

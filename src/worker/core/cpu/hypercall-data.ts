@@ -677,7 +677,7 @@ export class HypercallDataManager {
             this.view.setUint32(this.hpBase + OFF_HC_ENABLED, 1, true);
             // Re-snapshot instruction counter and wall-clock — it may also have been reset
             this.lastInsnSnapshot = readRetiredInsns(this.cpu);
-            this.lastWallSnapshot = performance.now();
+            this.lastWallSnapshot = TimeService.getInstance().wallMs();
             Logger.log(LogCategory.SYSTEM,
                 `[HYPERCALL] Re-synced state after buffer change ` +
                 `(${this.registeredEntries.size} handlers, enabled=true)`);
@@ -1206,7 +1206,7 @@ export class HypercallDataManager {
         // Re-enable after buffer change (rewriteState) already re-snapshots.
         if (!this.enabled) {
             this.lastInsnSnapshot = readRetiredInsns(this.cpu);
-            this.lastWallSnapshot = performance.now();
+            this.lastWallSnapshot = TimeService.getInstance().wallMs();
         }
         this.enabled = true;
 
@@ -1253,7 +1253,7 @@ export class HypercallDataManager {
     /** Reset instruction baseline after pause/resume to prevent stale delta. */
     resetInsnBaseline(): void {
         this.lastInsnSnapshot = readRetiredInsns(this.cpu);
-        this.lastWallSnapshot = performance.now();
+        this.lastWallSnapshot = TimeService.getInstance().wallMs();
         this.resetPublishedClock();
     }
 
@@ -1285,7 +1285,7 @@ export class HypercallDataManager {
         // Hard clamp: virtual time must not lead wall clock by more than MAX_AHEAD_MS.
         // v86 in a Web Worker can tick faster than 1ms, causing instruction-based time
         // to accumulate faster than wall clock. This prevents runaway speedup.
-        const wallNow = performance.now();
+        const wallNow = timeService.wallMs();
         const currentVirtual = timeService.nowMs();
         const maxAllowed = wallNow + MAX_AHEAD_MS - currentVirtual;
         if (maxAllowed < virtualDeltaMs) {

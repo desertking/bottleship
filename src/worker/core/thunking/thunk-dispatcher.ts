@@ -1704,8 +1704,15 @@ export class ThunkDispatcher {
         if (this.wbufQueueEnd > this.wbufDeferStats.peakQueueBytes) this.wbufDeferStats.peakQueueBytes = this.wbufQueueEnd;
     }
 
-    /** Run everything queued, in order. Public so a reader of back-end state outside a trap
-     *  (a harness verb, a diagnostic) can bring it current first. */
+    thunkNames(): Array<[number, string]> {
+        const out: Array<[number, string]> = [];
+        for (let id = 0; id < this.namesTable.length; id++) {
+            const name = this.namesTable[id];
+            if (name) out.push([id, name]);
+        }
+        return out;
+    }
+
     /** Threads parked on host Promises, for savestate readiness. */
     asyncParks(): Array<{ name: string; threadId: number; restartable: boolean }> {
         const out: Array<{ name: string; threadId: number; restartable: boolean }> = [];
@@ -1730,6 +1737,8 @@ export class ThunkDispatcher {
         return ring + this.wbufQueueEnd;
     }
 
+    /** Run everything queued, in order. Public so a reader of back-end state outside a trap
+     *  (a harness verb, a diagnostic) can bring it current first. */
     executeWbufQueue(): void {
         const end = this.wbufQueueEnd;
         if (end === 0) return;
