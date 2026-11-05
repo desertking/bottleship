@@ -88,10 +88,14 @@ export class PreemptionManager {
      *  Page tails: compile instructions in the last 15 bytes of a page (NFSU in-race +3..+5 %).
      *  Hot-edge regions: measured −3..−4 % in-race, kept OFF.
      *  Guard groups: accesses through one base register share the first one's TLB check
-     *  (NFSU in-race +5.1 %, 16/16 ABBA pairs). */
+     *  (NFSU in-race +5.1 %, 16/16 ABBA pairs).
+     *  RET memo inline: a RET/indirect exit probes the dynamic-chaining memo in generated code
+     *  and tail-calls on a hit instead of calling the Rust helper (offline: −7.6 % time on a
+     *  cross-page call/ret workload, 6 layouts). */
     private pageTailsEnabled = true;            // switch jit_page_tails
     private hotEdgeRegionsEnabled = false;      // switch jit_hot_edge_regions
     private guardGroupsEnabled = true;          // switch jit_guard_groups
+    private retMemoInlineEnabled = true;        // switch jit_ret_memo_inline
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -319,7 +323,8 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_page_tails", this.pageTailsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_hot_edge_regions", this.hotEdgeRegionsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_guard_groups", this.guardGroupsEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_ret_memo_inline", this.retMemoInlineEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"}`);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
