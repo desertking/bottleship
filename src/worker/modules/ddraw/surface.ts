@@ -54,6 +54,7 @@ import {
     DDERR_WASSTILLDRAWING,
 } from "./constants";
 import { bytesToGuid, readRect, Rect, absToRel, readU16Abs, readU32Abs, surfaceAt } from "./helpers";
+import { noteGuestPrimaryWrite } from "./gdi-visibility";
 import { writeSurfaceDescV1 } from "./structs";
 import { DirectDrawSurfaceObject, DirectDrawSurfaceState, Direct3DTextureObject, Direct3DTexture2Object, DirectDrawGammaControlObject, DirectDrawClipperObject, Direct3DDevice3Object, isBitmapTexture, isRenderSurface } from "./com-objects";
 import { writePixelFormat, writeSurfaceDesc } from "./structs";
@@ -165,6 +166,22 @@ const surfaceAlreadyLocked = (state: DirectDrawSurfaceState): boolean => {
     // A revoked lease is not a lock: drop the stale id rather than refuse forever.
     state.activeLeaseId = undefined;
     return false;
+};
+
+/**
+ * Only the primary surface IS the screen. Every other surface — an offscreen plain surface
+ * in video memory included — owns its own pixels, and GDI drawn through its DC has to land
+ * in them: an engine that renders text into an offscreen surface and blits it later
+ * otherwise blits the surface's untouched memory and sees its text drawn over the screen.
+ */
+export const usesScreenOverlayDC = (caps: number): boolean => (caps & DDSCAPS_PRIMARYSURFACE) !== 0;
+
+/** The rect a writable Lock exposed (the lease's lock rect, else the whole surface). */
+const writableLockRect = (state: DirectDrawSurfaceState): Rect | null => {
+    if (state.activeLeaseId === undefined) return null;
+    const lease = leaseRegistry.validateLease(state.activeLeaseId);
+    if (!lease || lease.perms === "r") return null;
+    return lease.rect ?? { left: 0, top: 0, right: state.width, bottom: state.height };
 };
 
 const consumeActiveLeaseWriteState = (
@@ -1639,6 +1656,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             const isTexture = (state.caps & DDSCAPS_TEXTURE) !== 0;
             profiler.start("Unlock:leaseCompare");
             const lcCompare = lockCostProfiler.now();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             profiler.end("Unlock:leaseCompare");
             const wasReadOnly = leaseWriteState.wasReadOnly;
@@ -1647,6 +1665,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             lockCostProfiler.add(LP.ucompare, lcCompare, ucClass);
             const lcState = lockCostProfiler.now();
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
             const previousSurfaceEverWritten = state.surfaceEverWritten;
             const previousWriteGeneration = state.writeGeneration;
             recordSurfaceOp("unlock", wasReadOnly ? "readonly" : didWritePixels ? "wrote" : "nochange",
@@ -1920,8 +1939,10 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
         const obj = context.resourceProvider.getComObjectByAddress(thisPtr) as DirectDrawSurfaceObject | null;
         if (obj) {
             const state = obj.getState();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
 
             if (didWritePixels) {
                 state.surfaceEverWritten = true;
@@ -1970,8 +1991,10 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
         const obj = context.resourceProvider.getComObjectByAddress(thisPtr) as DirectDrawSurfaceObject | null;
         if (obj) {
             const state = obj.getState();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
 
             if (didWritePixels) {
                 state.surfaceEverWritten = true;
@@ -2245,8 +2268,8 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             Mem.writeUint32(lphDC, existingHdc);
             return DD_OK;
         }
-        if (!(state.caps & (DDSCAPS_TEXTURE | DDSCAPS_SYSTEMMEMORY | DDSCAPS_BACKBUFFER))) {
-            // Preserve the existing primary-surface overlay path.
+        if (usesScreenOverlayDC(state.caps)) {
+            // The primary is the screen: its DC draws where GDI window output goes.
             const hdc = gdiContext.createOverlayDC();
             if (!hdc) return E_FAIL;
             gdiContext.linkDCToSurface(hdc, thisPtr);
