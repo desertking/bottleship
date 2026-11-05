@@ -21,6 +21,11 @@ export interface IVTable {
 /**
  * Базовый класс для всех COM-объектов
  */
+export interface ComBaseState {
+    refCount: number; handle: number; iid: string; vtable: number;
+    ifaceRefs: number[][] | null; liveIfaces: number; destroyed: boolean;
+}
+
 export abstract class BaseComObject implements IVTable {
     private _refCount: number = 1; // COM objects start with refcount = 1
     private _handle: number = 0;   // Handle in SystemResourceProvider
@@ -300,6 +305,27 @@ export abstract class BaseComObject implements IVTable {
      * Force-release this COM object regardless of refcount.
      * Called during shutdown, and by an owner tearing down what it created.
      */
+    static captureComBase(obj: BaseComObject): ComBaseState {
+        return {
+            refCount: obj._refCount, handle: obj._handle, iid: obj._iid, vtable: obj._vtableAddress,
+            ifaceRefs: obj._ifaceRefs ? [...obj._ifaceRefs] : null, liveIfaces: obj._liveIfaces, destroyed: obj._destroyed,
+        };
+    }
+
+    /** A COM object rebuilt from a savestate: no constructor runs, so nothing registers twice. */
+    static restoreComBase<T extends BaseComObject>(proto: object, s: ComBaseState): T {
+        const obj = Object.create(proto) as BaseComObject;
+        obj._refCount = s.refCount;
+        obj._handle = s.handle;
+        obj._iid = s.iid;
+        obj._vtableAddress = s.vtable;
+        obj._ifaceRefs = s.ifaceRefs ? new Map(s.ifaceRefs.map(([k, v]) => [k, v])) : null;
+        obj._liveIfaces = s.liveIfaces;
+        obj._destroyed = s.destroyed;
+        obj._zeroRefKeptLogged = false;
+        return obj as T;
+    }
+
     forceRelease(): void {
         if (this._destroyed) return;
         if (this._refCount === 0 && !this.reapableAtZero) return;

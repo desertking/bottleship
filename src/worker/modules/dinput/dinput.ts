@@ -8,7 +8,8 @@ import { createVTablesFromDescriptor, VTableInfo } from "../../api/adapters/modu
 import { dinputModule } from "../../api/dinput.api";
 import { InterfaceRegistry } from "../../core/com/interface-registry";
 import { readGuidFromMem } from "../../core/com/typelib/typelib-types";
-import { BaseComObject, ComObjectFactory } from "../../core/com/base-com-object";
+import { BaseComObject, ComObjectFactory, type ComBaseState } from "../../core/com/base-com-object";
+import { objectCodecs } from "../../savestate/object-codecs";
 import { SystemResourceProvider } from "../../core/resources/system-resource-provider";
 import { Mem } from "../../core/memory/mem-accessor";
 import { Marshaler } from "../../core/memory/marshaler";
@@ -450,6 +451,13 @@ class DirectInputObject extends BaseComObject {
         super("89521360-AA8A-11CF-BFC7-444553540000", vtableAddress); // IDirectInputA IID
     }
 
+    static readonly savestateCodec = {
+        tag: 'dinput-object',
+        matches: (o: unknown): o is DirectInputObject => o instanceof DirectInputObject,
+        capture: (o: DirectInputObject) => ({ base: BaseComObject.captureComBase(o) }),
+        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase<DirectInputObject>(DirectInputObject.prototype, d.base),
+    };
+
     protected destroy(): void {
         Logger.verbose(LogCategory.COM, "DirectInputObject destroyed");
     }
@@ -507,6 +515,47 @@ class DirectInputDeviceObject extends BaseComObject {
     /** Latch epoch this device has already observed — see DInput.readMouseButtons. */
     public mouseLatchEpoch = -1;
 
+    static readonly savestateCodec = {
+        tag: 'dinput-device',
+        matches: (o: unknown): o is DirectInputDeviceObject => o instanceof DirectInputDeviceObject,
+        capture: (o: DirectInputDeviceObject) => ({
+            base: BaseComObject.captureComBase(o), deviceType: o._deviceType, dataFormat: o.dataFormat, isDI8: o.isDI8,
+            dataSize: o.dataSize, acquired: o.acquired, inputLost: o.inputLost, exclusive: o.exclusive,
+            lastMouseX: o.lastMouseX, lastMouseY: o.lastMouseY, notifyEvent: o.notifyEvent,
+            isActionMapped: o.isActionMapped, actionMap: structuredClone(o.actionMap), actionMapGuid: o.actionMapGuid,
+            seq: o.seq, mousePollPrevButtons: o.mousePollPrevButtons,
+        }),
+        restore: (d: Record<string, unknown> & { base: ComBaseState }) => {
+            const o = BaseComObject.restoreComBase<DirectInputDeviceObject>(DirectInputDeviceObject.prototype, d.base);
+            o._deviceType = 'unknown';
+            o.deviceType = d.deviceType as DeviceKind;
+            o.dataFormat = d.dataFormat as DeviceKind;
+            o.isDI8 = d.isDI8 as boolean;
+            o.dataSize = d.dataSize as number;
+            o.acquired = d.acquired as boolean;
+            o.inputLost = d.inputLost as boolean;
+            o.exclusive = d.exclusive as boolean;
+            o.lastMouseX = d.lastMouseX as number;
+            o.lastMouseY = d.lastMouseY as number;
+            o.lastDInputAccumX = 0;
+            o.lastDInputAccumY = 0;
+            o.mouseInitialized = false;
+            o.notifyEvent = d.notifyEvent as number;
+            o.isActionMapped = d.isActionMapped as boolean;
+            o.actionMap = structuredClone(d.actionMap as ActionMapEntry[]);
+            o.actionMapGuid = d.actionMapGuid as string;
+            o.seq = d.seq as number;
+            o.mousePollPrevButtons = d.mousePollPrevButtons as number;
+            o.actionDataPending = [];
+            o.actionDataOverflowed = false;
+            o.mouseLatchEpoch = -1;
+            liveDInputDevices.add(o);
+            if (o.notifyEvent) notifyRegistry.setEventNotification(o, o.notifyEvent);
+            if (o.acquired && o.exclusive && o.deviceType === 'mouse') setExclusiveMouseOwner(o, true);
+            return o;
+        },
+    };
+
     constructor(vtableAddress: number, iid: string = "5944e680-c92e-11cf-bfc7-444553540000") {
         super(iid, vtableAddress); // default: IDirectInputDeviceA IID
         liveDInputDevices.add(this);
@@ -536,6 +585,8 @@ export class DInput implements IModule {
 
     initialize(process: Process): void {
         this.process = process;
+        objectCodecs.add(DirectInputObject.savestateCodec);
+        objectCodecs.add(DirectInputDeviceObject.savestateCodec);
         const resourceProvider = SystemResourceProvider.getInstance();
 
         // Register interfaces in InterfaceRegistry

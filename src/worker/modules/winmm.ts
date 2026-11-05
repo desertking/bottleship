@@ -12,6 +12,8 @@ import { Mem } from "../core/memory/mem-accessor";
 import { Marshaler } from "../core/memory/marshaler";
 import { TimerKind } from "../core/scheduler/types";
 import { setTimerHandler } from "../core/scheduler/timer-wheel";
+import { savestateParticipants } from "../savestate/participant";
+import type { SaveValue } from "../savestate/value-codec";
 import { findResourceInPE } from "./kernel32/resource";
 import { probeAudioAt } from "@bottleship/formats/audio";
 import {
@@ -408,6 +410,39 @@ export class WinMM implements IModule {
     private nextTimerId = 1;
 
     constructor() {
+        savestateParticipants.add({
+            id: 'winmm', version: 1, order: 63,
+            capture: () => {
+                if (this.waveOutDevices.size > 0) throw new Error('winmm: open waveOut devices are not part of a v1 savestate');
+                if (this.mmioHandles.size > 0) throw new Error('winmm: open MMIO handles are not part of a v1 savestate');
+                if (this.pendingTimerCallbacks.length > this.pendingTimerHead || this.dispatchingTimerCallback || this.dispatchingPosted) {
+                    throw new Error('winmm: a timer callback is queued or running');
+                }
+                return {
+                    timers: [...this.timers].map(([id, t]) => [id, { ...t }]),
+                    byWheel: [...this.timersByWheel].map(([w, t]) => [w, t.wTimerID]),
+                    nextTimerId: this.nextTimerId, periodRefCounts: [...this.periodRefCounts],
+                    timerThreadId: this.timerThreadId, timerThreadHandle: this.timerThreadHandle, timerWakeEvent: this.timerWakeEvent,
+                    nextWaveOutId: this.nextWaveOutId,
+                } as unknown as SaveValue;
+            },
+            restore: (saved) => {
+                const st = saved as unknown as {
+                    timers: Array<[number, WinMMTimer]>; byWheel: number[][]; nextTimerId: number; periodRefCounts: number[][];
+                    timerThreadId: number; timerThreadHandle: number; timerWakeEvent: number; nextWaveOutId: number;
+                };
+                this.timers = new Map(st.timers.map(([id, t]) => [id, { ...t }]));
+                this.timersByWheel = new Map();
+                for (const [w, id] of st.byWheel) { const t = this.timers.get(id); if (t) this.timersByWheel.set(w, t); }
+                this.nextTimerId = st.nextTimerId;
+                this.periodRefCounts = new Map(st.periodRefCounts.map(([k, v]) => [k, v]));
+                this.publishTimerResolution();
+                this.timerThreadId = st.timerThreadId;
+                this.timerThreadHandle = st.timerThreadHandle;
+                this.timerWakeEvent = st.timerWakeEvent;
+                this.nextWaveOutId = st.nextWaveOutId;
+            },
+        });
         setTimerHandler(TimerKind.WINMM_TIMER, (_owner, _arg, wheelId) => {
             const timer = this.timersByWheel.get(wheelId);
             if (!timer) return;
