@@ -144,6 +144,12 @@ function multiplyCurrentByTemp(ctx: OpenGLContext, temp: Float32Array): void {
     cur.set(_mulResult);
 }
 
+function translateInPlace(m: Float32Array, x: number, y: number, z: number): void {
+    for (let r = 0; r < 4; r++) {
+        m[12 + r] = m[r] * x + m[4 + r] * y + m[8 + r] * z + m[12 + r];
+    }
+}
+
 // ---- Stack helpers ----
 
 function getStackForMode(ctx: OpenGLContext, mode: number): GLMatrixStack | null {
@@ -221,13 +227,12 @@ export function createMatrixExports(ctx: OpenGLContext): Record<string, ThunkImp
                 if (ctx.error === GL_NO_ERROR) ctx.error = GL_STACK_OVERFLOW;
                 return 0;
             }
-            const copy = new Float32Array(16);
-            copy.set(stack.stack[stack.top]);
+            const src = stack.stack[stack.top];
             stack.top++;
             if (stack.top >= stack.stack.length) {
-                stack.stack.push(copy);
+                stack.stack.push(new Float32Array(src));
             } else {
-                stack.stack[stack.top] = copy;
+                stack.stack[stack.top].set(src);
             }
             return 0;
         },
@@ -248,8 +253,7 @@ export function createMatrixExports(ctx: OpenGLContext): Record<string, ThunkImp
             const x = bitsToF32(args[0]);
             const y = bitsToF32(args[1]);
             const z = bitsToF32(args[2]);
-            mat4Translation(_tempMat, x, y, z);
-            multiplyCurrentByTemp(ctx, _tempMat);
+            translateInPlace(ctx.currentMatrix(), x, y, z);
             return 0;
         },
 

@@ -135,6 +135,31 @@ export const DF_COLOR_MASK_A = 1 << 9;
 export const DF_STENCIL_TEST = 1 << 10;
 export const DF_SCISSOR = 1 << 11;
 
+/** The enable set, with a byte table in front of it for the capability range the draw
+ *  path probes on every glEnd. Still a Set for every other consumer. */
+export class GLCapSet extends Set<number> {
+    private readonly bits = new Uint8Array(0x10000);
+
+    override has(cap: number): boolean {
+        return cap >>> 0 < 0x10000 ? this.bits[cap] === 1 : super.has(cap);
+    }
+
+    override add(cap: number): this {
+        if (cap >>> 0 < 0x10000) this.bits[cap] = 1;
+        return super.add(cap);
+    }
+
+    override delete(cap: number): boolean {
+        if (cap >>> 0 < 0x10000) this.bits[cap] = 0;
+        return super.delete(cap);
+    }
+
+    override clear(): void {
+        this.bits.fill(0);
+        super.clear();
+    }
+}
+
 export class GLCommandStream {
     count = 0;
     i32: Int32Array;
@@ -749,7 +774,7 @@ export function createOpenGLContext(process: Process): OpenGLContext {
             return s.stack[s.top];
         },
 
-        enableFlags: new Set(),
+        enableFlags: new GLCapSet(),
 
         viewportX: 0, viewportY: 0, viewportW: 640, viewportH: 480,
         depthRangeNear: 0, depthRangeFar: 1,
