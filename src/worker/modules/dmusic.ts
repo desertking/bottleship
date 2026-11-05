@@ -26,7 +26,7 @@ import { createVTablesFromDescriptor, VTableInfo } from "../api/adapters/module-
 import { buildSegment, loadBand } from "../core/audio/directmusic/build";
 import { isStandardMidiFile, smfToSegment } from "../core/audio/directmusic/smf";
 import {
-    DMUS_SEGF_SECONDARY, type LoadedBand, PerfSegment, type PerfSegmentState, Performance,
+    DMUS_SEGF_SECONDARY, type LoadedBand, PerfSegment, PerfSegmentState, Performance,
 } from "../core/audio/directmusic/performance";
 import { DlsSynth } from "../core/audio/directmusic/synth";
 import { BaseComObject, type ComBaseState } from "../core/com/base-com-object";
@@ -651,7 +651,7 @@ export class DMusic implements IModule {
         return obj;
     }
 
-    private objectFromFile(loader: LoaderObject, bytes: Uint8Array, fileName: string): LoadableObject | null {
+    private smfParts(gm: DlsCollection | null, bytes: Uint8Array, fileName: string) {
         if (!isStandardMidiFile(bytes)) return null;
         const gmRef = {
             validData: DMUS_OBJ_OBJECT, classId: "", objectId: GUID_DefaultGMCollection, name: "", category: "",
@@ -659,15 +659,32 @@ export class DMusic implements IModule {
         };
         const file = smfToSegment(bytes, fileName, gmRef);
         if (!file) return null;
-        const gm = this.defaultCollection(loader);
+        return {
+            file,
+            identity: { ...file.identity },
+            segment: buildSegment(file, () => null, (ref) => ref.objectId === GUID_DefaultGMCollection ? gm : null),
+            tracks: file.tracks.map((t) => ({ classId: t.classId, group: t.group, object: null })),
+        };
+    }
+
+    private objectFromFile(loader: LoaderObject, bytes: Uint8Array, fileName: string): LoadableObject | null {
+        if (!isStandardMidiFile(bytes)) return null;
+        const parts = this.smfParts(this.defaultCollection(loader).collection, bytes, fileName);
+        if (!parts) return null;
         const obj = new SegmentObject();
-        obj.file = file;
-        obj.identity = { ...file.identity };
+        obj.file = parts.file;
+        obj.identity = parts.identity;
         obj.fileName = fileName;
-        obj.segment = buildSegment(file, () => null, (ref) => ref.objectId === GUID_DefaultGMCollection ? gm.collection : null);
-        obj.tracks = file.tracks.map((t) => ({ classId: t.classId, group: t.group, object: null }));
+        obj.segment = parts.segment;
+        obj.tracks = parts.tracks;
         obj.loaded = true;
+        obj.sourceBytes = bytes;
         return obj;
+    }
+
+    private gmCollectionData(): DlsCollection | null {
+        const bytes = this.readSystemFile(DEFAULT_COLLECTION_PATHS);
+        return bytes ? parseDls(bytes) : null;
     }
 
     private readSystemFile(paths: string[]): Uint8Array | null {
@@ -887,11 +904,71 @@ export class DMusic implements IModule {
             tag: 'dmusic-loader',
             matches: (o: unknown): o is LoaderObject => o instanceof LoaderObject,
             capture: (o: LoaderObject) => {
-                if (o.defaultCollection) throw new Error('dmusic: a loaded default collection is not part of a v1 savestate');
-                return base(o);
+                if (o.defaultCollection && o.defaultCollection.identity.objectId !== GUID_DefaultGMCollection) {
+                    throw new Error('dmusic: a loaded collection other than the default GM one is not part of a v1 savestate');
+                }
+                return { ...base(o), searchDirectory: o.searchDirectory, gm: o.defaultCollection ? base(o.defaultCollection) : null };
             },
-            restore: (d: Base) => make<LoaderObject>(() => new LoaderObject(), d),
-            link: (o: LoaderObject) => { (o as { defaultCollection: CollectionObject | null }).defaultCollection = null; },
+            restore: (d: Base & { searchDirectory: string; gm: Base | null }) => {
+                const loader = make<LoaderObject>(() => new LoaderObject(), d);
+                const f = loader as unknown as { defaultCollection: CollectionObject | null; searchDirectory: string };
+                f.defaultCollection = null;
+                f.searchDirectory = d.searchDirectory;
+                if (d.gm) {
+                    const gm = make<CollectionObject>(() => new CollectionObject(), { base: d.gm.base, addresses: d.gm.addresses });
+                    const identity = { objectId: GUID_DefaultGMCollection, name: "GM", versionMS: 0, versionLS: 0, hasVersion: false };
+                    Object.assign(gm as unknown as Record<string, unknown>, {
+                        identity, fileName: "", loaded: true, references: [],
+                        collection: this.gmCollectionData() ?? { identity: { ...identity }, instruments: [], waves: [] },
+                    });
+                    loader.defaultCollection = gm;
+                    loader.onDestroy = () => { loader.defaultCollection = null; gm.release(); };
+                }
+                return loader;
+            },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-gm-collection',
+            matches: (o: unknown): o is CollectionObject => o instanceof CollectionObject && o.identity.objectId === GUID_DefaultGMCollection,
+            capture: (o: CollectionObject, ref) => ({ loader: ref(this.loaderOwning(o), 'loader') }),
+            restore: (d: { loader: number }, ctx) => {
+                const gm = (ctx.object(d.loader) as LoaderObject).defaultCollection;
+                if (!gm) throw new Error('dmusic: the GM collection was not restored with its loader');
+                return gm;
+            },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-smf-segment',
+            matches: (o: unknown): o is SegmentObject => o instanceof SegmentObject,
+            capture: (o: SegmentObject, ref) => {
+                if (!o.sourceBytes) throw new Error('dmusic: only Standard MIDI File segments are part of a v1 savestate');
+                const loader = this.anyLoader();
+                if (!loader) throw new Error('dmusic: no loader for a MIDI segment');
+                return { ...base(o), bytes: o.sourceBytes, fileName: o.fileName, loader: ref(loader, 'loader') };
+            },
+            restore: (d: Base & { bytes: Uint8Array; fileName: string; loader: number }, ctx) => {
+                const loader = ctx.object(d.loader) as LoaderObject;
+                const parts = this.smfParts(loader.defaultCollection?.collection ?? null, d.bytes, d.fileName);
+                if (!parts) throw new Error(`dmusic: ${d.fileName} no longer parses as MIDI`);
+                const seg = make<SegmentObject>(() => new SegmentObject(), d);
+                Object.assign(seg as unknown as Record<string, unknown>, {
+                    identity: parts.identity, fileName: d.fileName, loaded: true, references: [],
+                    segment: parts.segment, file: parts.file, tracks: parts.tracks, sourceBytes: d.bytes.slice(),
+                });
+                return seg;
+            },
+        });
+        objectCodecs.add({
+            tag: 'dmusic-segment-state',
+            matches: (o: unknown): o is SegmentStateObject => o instanceof SegmentStateObject,
+            capture: (o: SegmentStateObject, ref) => ({ ...base(o), segment: refOrNull(o.segment, ref, 'segment') }),
+            restore: (d: Base) => {
+                const st = make<SegmentStateObject>(() => new SegmentStateObject(), d);
+                st.state = null;
+                st.segment = null;
+                return st;
+            },
+            link: (st: SegmentStateObject, d: { segment: number }, ctx) => { st.segment = resolve<SegmentObject>(d.segment, ctx); },
         });
         objectCodecs.add({
             tag: 'dmusic-audiopath',
@@ -956,10 +1033,21 @@ export class DMusic implements IModule {
             tag: 'dmusic-performance',
             matches: (o: unknown): o is PerformanceObject => o instanceof PerformanceObject,
             capture: (o: PerformanceObject, ref) => {
-                if (o.notifications.length > 0 || o.stateObjects.size > 0) {
-                    throw new Error('dmusic: playing segments are not part of a v1 savestate');
+                const states: Array<Record<string, number | boolean | null>> = [];
+                for (const st of o.engine?.activeStates() ?? []) {
+                    if (st.queued || st.pattern || st.segment.fixedPattern || st.segment.styles.length > 0) {
+                        throw new Error('dmusic: queued or style-based segments are not part of a v1 savestate');
+                    }
+                    const obj = o.stateObjects.get(st);
+                    if (!obj?.segment || obj.segment.segment !== st.segment) throw new Error('dmusic: a playing segment has no segment object');
+                    states.push({
+                        obj: ref(obj, 'segment state'), primary: st.primary, startTime: st.startTime, base: st.base,
+                        repeatsLeft: st.repeatsLeft, started: st.started, stopAt: st.stopAt ?? null,
+                    });
                 }
                 return {
+                    timeline: o.engine ? o.engine.captureTimeline() : null, states,
+                    notifications: o.notifications.map(n => ({ type: n.type, state: ref(n.state, 'notification'), musicTime: n.musicTime })),
                     ...base(o), directMusic: refOrNull(o.directMusic, ref, 'directMusic'), port: refOrNull(o.port, ref, 'port'),
                     hasEngine: o.engine !== null, notificationHandle: o.notificationHandle, notifySegments: o.notifySegments,
                     masterVolume: o.masterVolume, masterTempo: o.masterTempo,
@@ -980,7 +1068,7 @@ export class DMusic implements IModule {
                 perf.onDestroy = () => { this.closePerformance(perf); this.performances.delete(perf); };
                 return perf;
             },
-            link: (perf: PerformanceObject, d: { directMusic: number; port: number; hasEngine: boolean; defaultAudioPath: number }, ctx) => {
+            link: (perf: PerformanceObject, d: { directMusic: number; port: number; hasEngine: boolean; defaultAudioPath: number; states: unknown[]; timeline: unknown; notifications: unknown[] }, ctx) => {
                 perf.directMusic = resolve<DirectMusicObject>(d.directMusic, ctx);
                 perf.port = resolve<PortObject>(d.port, ctx);
                 perf.defaultAudioPath = resolve<AudioPathObject>(d.defaultAudioPath, ctx);
@@ -990,6 +1078,32 @@ export class DMusic implements IModule {
                     perf.port.synth.setMasterVolume(perf.masterVolume);
                     engine.onNotification = (type, state, time) => this.notify(perf, type, state, time);
                     perf.engine = engine;
+                    const gm = this.anyLoader()?.defaultCollection?.collection ?? null;
+                    if (gm) engine.defaultCollection = gm;
+                    const live: PerfSegmentState[] = [];
+                    for (const s of d.states as Array<Record<string, number | boolean | null>>) {
+                        const obj = ctx.object(s.obj as number) as SegmentStateObject;
+                        const segment = obj.segment?.segment;
+                        if (!segment) throw new Error('dmusic: a restored segment state lost its segment');
+                        const st = new PerfSegmentState(segment, s.primary as boolean, s.startTime as number);
+                        st.base = s.base as number;
+                        st.repeatsLeft = s.repeatsLeft as number;
+                        st.started = s.started as boolean;
+                        st.stopAt = (s.stopAt as number | null) ?? undefined;
+                        obj.state = st;
+                        perf.stateObjects.set(st, obj);
+                        const made = obj;
+                        obj.onDestroy = () => {
+                            if (perf.stateObjects.get(st) === made) perf.stateObjects.delete(st);
+                            made.segment?.release();
+                            made.segment = null;
+                        };
+                        live.push(st);
+                    }
+                    if (d.timeline) engine.restoreTimeline(d.timeline as never, live);
+                }
+                for (const n of d.notifications as Array<{ type: number; state: number; musicTime: number }>) {
+                    perf.notifications.push({ type: n.type, state: ctx.object(n.state) as SegmentStateObject, musicTime: n.musicTime, queuedAtMs: performance.now() });
                 }
             },
         });
@@ -1001,6 +1115,16 @@ export class DMusic implements IModule {
             },
             restore: (saved) => { this.pumpTimer = (saved as { pumpTimer: number | null }).pumpTimer; },
         });
+    }
+
+    private anyLoader(): LoaderObject | null {
+        for (const o of SystemResourceProvider.getInstance().getAllComObjects()) if (o instanceof LoaderObject && o.refCount > 0) return o;
+        return null;
+    }
+
+    private loaderOwning(collection: CollectionObject): LoaderObject | null {
+        for (const o of SystemResourceProvider.getInstance().getAllComObjects()) if (o instanceof LoaderObject && o.defaultCollection === collection) return o;
+        return null;
     }
 
     private createPort(dm: DirectMusicObject | null, sampleRate: number, audioChannels: number, voices: number): PortObject {

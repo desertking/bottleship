@@ -141,6 +141,7 @@ export class SegmentObject extends LoadableObject {
     /** Null until loaded (or made by a style, a band or the composer). */
     segment: PerfSegment | null = null;
     file: Segment | null = null;
+    sourceBytes: Uint8Array | null = null;
     tracks: SegmentTrackInfo[] = [];
 }
 
