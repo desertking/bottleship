@@ -1,3 +1,6 @@
+import { objectCodecs } from "../../savestate/object-codecs";
+import { savestateParticipants } from "../../savestate/participant";
+
 import { surfaceAt } from "./helpers";
 import { IModule } from '../../core/module';
 import { Process } from '../../core/process';
@@ -583,6 +586,43 @@ export class DDraw implements IModule {
 
     initialize(process: Process): void {
         this.process = process;
+        objectCodecs.add(DirectDrawSurfaceObject.savestateCodec);
+        objectCodecs.add(DirectDrawObject.savestateCodec);
+        objectCodecs.add(DirectDrawClipperObject.savestateCodec);
+        objectCodecs.add(DirectDrawPaletteObject.savestateCodec);
+        savestateParticipants.add({
+            id: 'ddraw', version: 1, order: 60,
+            capture: () => {
+                const c = this.context;
+                return {
+                    display: { ...c.display }, desktopMode: { ...c.desktopMode }, cooperative: { ...c.cooperative },
+                    gdiSurfaceVisible: c.gdiSurfaceVisible, surfaces: { ...c.surfaces }, ddraw7ObjectAddr: c.ddraw7ObjectAddr,
+                    usedVidMem: c.usedVidMem, nextTextureHandle: c.nextTextureHandle, suppressPresent: c.suppressPresent,
+                    gammaRamp: c.gammaRamp ? { red: c.gammaRamp.red.slice(), green: c.gammaRamp.green.slice(), blue: c.gammaRamp.blue.slice(), isIdentity: c.gammaRamp.isIdentity } : null,
+                    deferredSurfacePtrFrees: [...c.deferredSurfacePtrFrees],
+                    textureHandles: c.textureHandles.size,
+                };
+            },
+            restore: (saved) => {
+                const s = saved as unknown as Record<string, any>;
+                if (s.textureHandles > 0) throw new Error('ddraw: Direct3D texture handles are not part of a v1 savestate');
+                const c = this.context;
+                c.display = { ...s.display };
+                c.desktopMode = { ...s.desktopMode };
+                c.cooperative = { ...s.cooperative };
+                c.gdiSurfaceVisible = s.gdiSurfaceVisible;
+                c.surfaces = { ...s.surfaces };
+                c.ddraw7ObjectAddr = s.ddraw7ObjectAddr;
+                c.usedVidMem = s.usedVidMem;
+                c.nextTextureHandle = s.nextTextureHandle;
+                c.suppressPresent = s.suppressPresent;
+                c.gammaRamp = s.gammaRamp ?? undefined;
+                c.deferredSurfacePtrFrees = [...s.deferredSurfacePtrFrees];
+                System.getInstance().requestHostResize(c.display.width, c.display.height, {
+                    modeSet: true, bpp: c.display.bpp, refreshRate: c.display.refresh,
+                });
+            },
+        });
 
         const interfaceRegistry = InterfaceRegistry.getInstance();
         interfaceRegistry.registerFromModuleDescriptor(ddrawModule);

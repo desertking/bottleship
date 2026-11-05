@@ -11,7 +11,7 @@ import { savestateParticipants } from './participant';
 import { captureUser32Shared, restoreUser32Shared, type User32SharedState } from '../modules/user32/shared-state';
 import { captureUser32Classes, restoreUser32Classes, type User32ClassState } from '../modules/user32/class';
 import { captureCpu, restoreCpu, type V86Cpu } from './participants/cpu';
-import { objectCodecs, PLAIN_KERNEL_KINDS } from './object-codecs';
+import { isPlainRecord, objectCodecs, PLAIN_KERNEL_KINDS } from './object-codecs';
 import { patchSnapshotWord, ramFixups } from './session';
 import type { SaveValue } from './value-codec';
 
@@ -57,6 +57,13 @@ export function registerCoreParticipants(): void {
             && Object.getPrototypeOf(o) === Object.prototype && PLAIN_KERNEL_KINDS.has(String((o as { kind?: unknown }).kind)),
         capture: (o) => ({ ...o }),
         restore: (d) => ({ ...(d as Record<string, SaveValue>) }),
+    });
+
+    objectCodecs.add<Record<string, SaveValue>>({
+        tag: 'plain-record',
+        matches: (o): o is Record<string, SaveValue> => isPlainRecord(o),
+        capture: (o) => structuredClone(o),
+        restore: (d) => structuredClone(d as Record<string, SaveValue>),
     });
 
     savestateParticipants.add({
