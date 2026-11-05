@@ -51,10 +51,12 @@ export class OpenGL32 implements IModule {
             "glIsList",
         ]);
 
+        const raw: Record<string, ThunkImplementation> = { ...this.exports };
         for (const [name, impl] of Object.entries(this.exports)) {
+            if (listControl.has(name)) continue;
             this.exports[name] = (sysCtx, mem, args) => {
                 const ctx = this.context;
-                if (!ctx || ctx.replayingList || listControl.has(name)) {
+                if (!ctx || ctx.replayingList) {
                     return impl(sysCtx, mem, args);
                 }
 
@@ -79,7 +81,7 @@ export class OpenGL32 implements IModule {
 
         // State / bind / array-pointer entrypoints drain through the table above, so this
         // must run AFTER the display-list wrapper has replaced every entry.
-        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports);
+        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports, raw, this.context);
     }
 
     setBackend(backend: WebGPUBackend): void {

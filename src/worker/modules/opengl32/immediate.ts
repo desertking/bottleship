@@ -388,9 +388,16 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
 
 export function emitDrawCommandFlat(
     ctx: OpenGLContext, mode: number, src: Float32Array, srcCount: number, preTransformed = false,
+    transformSource = false,
 ): void {
     const expected = assembledVertCount(mode, srcCount);
     if (expected === 0) return;
+
+    if (transformSource && !preTransformed) {
+        applyTexGenFlat(ctx, src, 0, srcCount);
+        transformFlatVerts(ctx, src, 0, srcCount);
+        preTransformed = true;
+    }
 
     const arena = ctx.vertArena;
     arena.reserve(expected);
@@ -468,7 +475,7 @@ export function createImmediateExports(ctx: OpenGLContext): Record<string, Thunk
             return 0;
         }
         ctx.immediateMode = false;
-        emitDrawCommandFlat(ctx, ctx.immediatePrimMode, ctx.immediateFlatBuf, ctx.immediateFlatCount);
+        emitDrawCommandFlat(ctx, ctx.immediatePrimMode, ctx.immediateFlatBuf, ctx.immediateFlatCount, false, true);
         ctx.immediateFlatCount = 0;
         return 0;
     };
