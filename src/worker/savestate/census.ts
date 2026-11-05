@@ -1,4 +1,5 @@
 import { System } from '../core/system';
+import { bootState } from './host';
 
 type Counts = Record<string, number>;
 
@@ -23,6 +24,7 @@ export function savestateCensus(): Record<string, unknown> {
     const timers: Counts = {};
     for (const [, , , kind] of sched.timerWheel.captureState().entries) timers[kind] = (timers[kind] ?? 0) + 1;
     return {
+        boot: bootState(),
         threads: [...sched.threads.values()].map(t => ({
             id: t.id, state: t.state, wait: t.waitInfo?.reason ?? null, timed: !!t.waitInfo?.timeoutTimerId, apcs: t.apcQueue.length,
         })),

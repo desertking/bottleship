@@ -2,7 +2,7 @@ import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
 import { adoptFreshGuestMemory } from "./core/memory/guest-page-dirty";
-import { noteBootIdentity, restorePendingAtEntry } from "./savestate/host";
+import { noteBootError, noteBootIdentity, restorePendingAtEntry } from "./savestate/host";
 import { registerCoreParticipants } from "./savestate/core-participants";
 import { Process } from "./core/process";
 import { System, type GuestImagePatch } from "./core/system";
@@ -2220,14 +2220,17 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
         thunks: system.process?.dispatcher?.thunkNames() ?? [],
         modules: [...(system.process?.modules.keys() ?? [])],
       };
+      let entries = 0;
+      try { entries = bundle.archive.listEntries().length; } catch { entries = -1; }
       await noteBootIdentity({
-        gameId, manifest: bundle.manifest, bundleSize: bundle.archive.listEntries().length,
+        gameId, manifest: bundle.manifest, bundleSize: entries,
         config: EmulatorConfig.getInstance().snapshotForChild(), layout,
       });
       const restored = await restorePendingAtEntry();
       if (restored) (globalThis as Record<string, unknown>).__bsSavestateRestored = restored;
     } catch (e) {
       Logger.error(LogCategory.SYSTEM, `[SAVESTATE] load at entry failed: ${e instanceof Error ? e.stack : e}`);
+      noteBootError(String(e instanceof Error ? e.message : e));
       (globalThis as Record<string, unknown>).__bsSavestateRestored = { error: String(e) };
     } finally {
       resumeEmulator();

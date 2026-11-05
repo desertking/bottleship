@@ -2,6 +2,7 @@ import type { MSSContext } from "./context";
 import type { MSSSample, MSSStream, MSSTimer } from "./types";
 import { playSample } from "./playback-engine";
 
+/** @transient(constant: sample fields that are host timing, not session data) */
 const HOST_SAMPLE_FIELDS = new Set<keyof MSSSample>([
     'startTime', 'lastDebugLogTime', 'lastDebugPos', 'lastAudioPositionTime', 'lastAudioPositionBytes',
     'lastRingCursorBytes', 'lastRingCursorTime',
