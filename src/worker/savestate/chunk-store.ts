@@ -4,6 +4,7 @@ export interface ChunkStore {
     put(hash: string, bytes: Uint8Array): Promise<void>;
     list(): Promise<string[]>;
     delete(hash: string): Promise<void>;
+    size(hash: string): Promise<number>;
 }
 
 export class MemoryChunkStore implements ChunkStore {
@@ -13,6 +14,7 @@ export class MemoryChunkStore implements ChunkStore {
     async put(hash: string, bytes: Uint8Array): Promise<void> { this.chunks.set(hash, bytes.slice()); }
     async list(): Promise<string[]> { return [...this.chunks.keys()]; }
     async delete(hash: string): Promise<void> { this.chunks.delete(hash); }
+    async size(hash: string): Promise<number> { return this.chunks.get(hash)?.length ?? 0; }
 }
 
 const HASH_NAME = /^[0-9a-f]{64}$/;
@@ -53,6 +55,10 @@ export class OpfsChunkStore implements ChunkStore {
 
     async delete(hash: string): Promise<void> {
         await this.dir.removeEntry(hash).catch(() => undefined);
+    }
+
+    async size(hash: string): Promise<number> {
+        try { return (await (await this.dir.getFileHandle(hash)).getFile()).size; } catch { return 0; }
     }
 }
 

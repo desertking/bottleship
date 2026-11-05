@@ -11,12 +11,14 @@ import { pendingMessageBoxes } from "../../runtime/dialog-bridge";
 import { videoEngine } from "../../../video/video-engine";
 import { assessReadiness, type Readiness } from "../../savestate/readiness";
 import { savestateCensus } from "../../savestate/census";
-import { requestLoadOnNextBoot, saveToSlot } from "../../savestate/host";
+import { deleteSlot, listSlots, requestLoadOnNextBoot, saveToSlot } from "../../savestate/host";
 
 export function registerSavestateCommands(svc: HarnessService): void {
     svc.register("savestateReadiness", () => readiness());
     svc.register("savestateCensus", () => savestateCensus());
     svc.register("savestateSave", async (args) => saveToSlot(String(args[0] ?? "quick"), haltAtSafePoint));
+    svc.register("savestateSlots", async () => listSlots());
+    svc.register("savestateDelete", async (args) => deleteSlot(String(args[0] ?? "")));
     svc.register("savestateLoadOnNextBoot", async (args) => {
         await requestLoadOnNextBoot(String(args[0] ?? "quick"));
         return { pending: String(args[0] ?? "quick") };

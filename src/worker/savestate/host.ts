@@ -3,7 +3,9 @@ import { Logger, LogCategory } from '../core/logger';
 import { MemoryChunkStore, OpfsChunkStore, sha256Hex, type ChunkStore } from './chunk-store';
 import { captureSession, checkSavestate, restoreSession, type SavestateTarget } from './session';
 import { savestateParticipants } from './participant';
-import type { CompatibilityKey } from './container';
+import { decodeSavestate, incompatibilities, type CompatibilityKey } from './container';
+import { OpfsDir, SlotStore, type SlotInfo } from './slots';
+import { gameIdToContainerDir } from '@bottleship/formats/wgb/container-id';
 
 declare const __BUILD_SHA__: string;
 
@@ -56,70 +58,87 @@ async function chunkStore(): Promise<ChunkStore> {
     try { return await OpfsChunkStore.open(); } catch { return new MemoryChunkStore(); }
 }
 
-async function slotDir(create: boolean): Promise<FileSystemDirectoryHandle> {
-    const root = await navigator.storage.getDirectory();
-    return root.getDirectoryHandle('savestates', { create });
+const SLOT_NAME = /^[a-z0-9_-]{1,32}$/i;
+
+function checkSlotName(slot: string): string {
+    if (!SLOT_NAME.test(slot)) throw new Error(`savestate: bad slot name ${slot}`);
+    return slot;
 }
 
-async function writeSlot(name: string, bytes: Uint8Array): Promise<void> {
-    const dir = await slotDir(true);
-    const handle = await dir.getFileHandle(`${name}.bss`, { create: true });
-    const w = await handle.createWritable();
-    await w.write(bytes as Uint8Array<ArrayBuffer>);
-    await w.close();
+function gameDir(): string {
+    if (!boot) throw new Error('savestate: no boot identity (the game has not reached its entry point)');
+    return gameIdToContainerDir(boot.gameId);
 }
 
-async function readSlot(name: string): Promise<Uint8Array> {
-    const dir = await slotDir(false);
-    const file = await (await dir.getFileHandle(`${name}.bss`)).getFile();
-    return new Uint8Array(await file.arrayBuffer());
+async function slots(): Promise<SlotStore> {
+    return new SlotStore(await OpfsDir.root('savestates'), await chunkStore());
 }
 
 const PENDING = 'pending-load.json';
 
-export async function requestLoadOnNextBoot(name: string): Promise<void> {
-    await readSlot(name);
-    const dir = await slotDir(true);
-    const w = await (await dir.getFileHandle(PENDING, { create: true })).createWritable();
-    await w.write(JSON.stringify({ name, at: Date.now() }));
-    await w.close();
+export async function requestLoadOnNextBoot(slot: string): Promise<void> {
+    const game = gameDir();
+    if (!(await (await slots()).read(game, checkSlotName(slot)))) throw new Error(`savestate: slot ${slot} is empty`);
+    await (await OpfsDir.root('savestates')).write(PENDING, new TextEncoder().encode(JSON.stringify({ game, slot, at: Date.now() })));
 }
 
-async function takePendingLoad(): Promise<string | null> {
-    try {
-        const dir = await slotDir(false);
-        const file = await (await dir.getFileHandle(PENDING)).getFile();
-        const { name } = JSON.parse(await file.text()) as { name: string };
-        await dir.removeEntry(PENDING);
-        return name;
-    } catch { return null; }
+async function takePendingLoad(): Promise<{ game: string; slot: string } | null> {
+    const root = await OpfsDir.root('savestates');
+    const bytes = await root.read(PENDING);
+    if (!bytes) return null;
+    await root.remove(PENDING);
+    try { return JSON.parse(new TextDecoder().decode(bytes)) as { game: string; slot: string }; } catch { return null; }
 }
 
-export interface SaveReport { name: string; bytes: number; chunkWrites: number; ms: { capture: number; store: number }; sections: Record<string, number>; ram: unknown }
+export async function listSlots(): Promise<{ gameId: string; game: string; slots: SlotInfo[] }> {
+    const game = gameDir();
+    const t = target();
+    const list = await (await slots()).list(game, (state) => {
+        const reasons = incompatibilities(state.header.key, t.compatibilityKey());
+        if (state.header.gameId !== t.gameId()) reasons.unshift('other game');
+        return reasons;
+    });
+    return { gameId: boot!.gameId, game, slots: list };
+}
+
+export async function deleteSlot(slot: string): Promise<{ removedChunks: number }> {
+    return { removedChunks: await (await slots()).remove(gameDir(), checkSlotName(slot)) };
+}
+
+export interface SaveReport { name: string; bytes: number; chunkBytes: number; chunkWrites: number; ms: { capture: number; store: number }; sections: Record<string, number>; ram: unknown }
 
 export async function saveToSlot(name: string, halt: () => Promise<() => void>): Promise<SaveReport> {
+    checkSlotName(name);
     const t0 = performance.now();
+    const store = await chunkStore();
     const release = await halt();
     let result;
     try {
-        result = await captureSession(target(), await chunkStore());
+        result = await captureSession(target(), store);
     } finally {
         release();
     }
     const t1 = performance.now();
-    await writeSlot(name, result.bytes);
+    const manifest = decodeSavestate(result.bytes).header.ram;
+    let chunkBytes = 0;
+    for (const [, hash] of manifest.chunks) chunkBytes += await store.size(hash);
+    await (await slots()).save(gameDir(), name, result.bytes, chunkBytes);
     const t2 = performance.now();
     return {
-        name, bytes: result.bytes.length, chunkWrites: result.ram.written,
+        name, bytes: result.bytes.length, chunkBytes, chunkWrites: result.ram.written,
         ms: { capture: Math.round(t1 - t0), store: Math.round(t2 - t1) }, sections: result.sections, ram: result.ram,
     };
 }
 
 export async function restorePendingAtEntry(): Promise<{ name: string; ms: number } | null> {
-    const name = await takePendingLoad();
-    if (!name) return null;
+    const pending = await takePendingLoad();
+    if (!pending) return null;
+    if (pending.game !== gameDir()) return null;
+    const name = pending.slot;
+    const bytes = await (await slots()).read(pending.game, checkSlotName(name));
+    if (!bytes) throw new Error(`savestate: slot ${name} is empty`);
     const t0 = performance.now();
-    const check = checkSavestate(target(), await readSlot(name));
+    const check = checkSavestate(target(), bytes);
     if (!check.ok) throw new Error(`savestate ${name} does not fit this boot: ${check.reasons.join('; ')}`);
     if (check.overlayChanged) Logger.warn(LogCategory.SYSTEM, `[SAVESTATE] ${name}: the game's files changed since it was taken`);
     await restoreSession(target(), check.state, await chunkStore());
