@@ -25,6 +25,7 @@ export function savestateCensus(): Record<string, unknown> {
     for (const [, , , kind] of sched.timerWheel.captureState().entries) timers[kind] = (timers[kind] ?? 0) + 1;
     return {
         boot: bootState(),
+        executable: { path: system.executablePath, args: system.executableArgs, commandLine: system.executableCommandLine, cwd: (system.fileSystem as unknown as { currentDir?: string }).currentDir ?? null, env: system.process ? [...((system.process as unknown as { environment?: Map<string, string> }).environment ?? new Map())] : null },
         threads: [...sched.threads.values()].map(t => ({
             id: t.id, state: t.state, wait: t.waitInfo?.reason ?? null, timed: !!t.waitInfo?.timeoutTimerId, apcs: t.apcQueue.length,
         })),
