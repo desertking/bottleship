@@ -834,8 +834,8 @@ export class DMusic implements IModule {
     private registerSavestate(): void {
         type Base = { base: ComBaseState; addresses: Array<[string, number]> };
         const base = (o: DMusicObject): Base => ({ base: BaseComObject.captureComBase(o), addresses: [...o.addresses] });
-        const make = <T extends DMusicObject>(proto: object, d: Base): T => {
-            const o = BaseComObject.restoreComBase<T>(proto, d.base);
+        const make = <T extends DMusicObject>(build: () => T, d: Base): T => {
+            const o = BaseComObject.restoreComBase<T>(build, d.base);
             const fields = o as unknown as { addresses: Map<string, number>; onDestroy: (() => void) | null };
             fields.addresses = new Map(d.addresses);
             fields.onDestroy = null;
@@ -851,21 +851,21 @@ export class DMusic implements IModule {
                 if (o.defaultCollection) throw new Error('dmusic: a loaded default collection is not part of a v1 savestate');
                 return base(o);
             },
-            restore: (d: Base) => make<LoaderObject>(LoaderObject.prototype, d),
+            restore: (d: Base) => make<LoaderObject>(() => new LoaderObject(), d),
             link: (o: LoaderObject) => { (o as { defaultCollection: CollectionObject | null }).defaultCollection = null; },
         });
         objectCodecs.add({
             tag: 'dmusic-audiopath',
             matches: (o: unknown): o is AudioPathObject => o instanceof AudioPathObject,
             capture: (o: AudioPathObject) => base(o),
-            restore: (d: Base) => make<AudioPathObject>(AudioPathObject.prototype, d),
+            restore: (d: Base) => make<AudioPathObject>(() => new AudioPathObject(), d),
         });
         objectCodecs.add({
             tag: 'dmusic-directmusic',
             matches: (o: unknown): o is DirectMusicObject => o instanceof DirectMusicObject,
             capture: (o: DirectMusicObject, ref) => ({ ...base(o), directSound: o.directSound, ports: [...o.ports].map(p => ref(p, 'port')) }),
             restore: (d: Base & { directSound: number }) => {
-                const dm = make<DirectMusicObject>(DirectMusicObject.prototype, d);
+                const dm = make<DirectMusicObject>(() => new DirectMusicObject(), d);
                 (dm as { ports: Set<PortObject> }).ports = new Set();
                 dm.directSound = d.directSound;
                 dm.onDestroy = () => this.setDirectSound(dm, 0);
@@ -882,7 +882,7 @@ export class DMusic implements IModule {
                 performance: refOrNull(o.performance, ref, 'performance'),
             }),
             restore: (d: Base & Record<string, number | boolean>) => {
-                const port = make<PortObject>(PortObject.prototype, d);
+                const port = make<PortObject>(() => new PortObject(), d);
                 port.sampleRate = d.sampleRate as number;
                 port.audioChannels = d.audioChannels as number;
                 port.voices = d.voices as number;
@@ -928,7 +928,7 @@ export class DMusic implements IModule {
                 };
             },
             restore: (d: Base & Record<string, number | boolean>) => {
-                const perf = make<PerformanceObject>(PerformanceObject.prototype, d);
+                const perf = make<PerformanceObject>(() => new PerformanceObject(), d);
                 const f = perf as unknown as { notifications: unknown[]; stateObjects: Map<unknown, unknown> };
                 f.notifications = [];
                 f.stateObjects = new Map();

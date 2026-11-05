@@ -35,6 +35,8 @@ export abstract class BaseComObject implements IVTable {
     private _liveIfaces: number = 0;                       // interfaces whose count is > 0
     private _destroyed: boolean = false;                   // destroy() has run; never run it twice
     private _zeroRefKeptLogged: boolean = false;
+    /** @transient(true only while restoreComBase builds an object that a savestate already registered) */
+    private static detached = false;
 
     constructor(iid: string, vtableAddress: number) {
         this._iid = iid;
@@ -42,7 +44,7 @@ export abstract class BaseComObject implements IVTable {
 
         // Register in SystemResourceProvider
         const resourceProvider = SystemResourceProvider.getInstance();
-        this._handle = resourceProvider.registerComObject(this);
+        this._handle = BaseComObject.detached ? 0 : resourceProvider.registerComObject(this);
         Logger.verbose(LogCategory.COM, `Created COM object ${this.constructor.name} handle=0x${this._handle.toString(16)} iid=${iid}`);
 
         // A per-interface object whose addRef/release was overridden loses the interface
@@ -313,8 +315,10 @@ export abstract class BaseComObject implements IVTable {
     }
 
     /** A COM object rebuilt from a savestate: no constructor runs, so nothing registers twice. */
-    static restoreComBase<T extends BaseComObject>(proto: object, s: ComBaseState): T {
-        const obj = Object.create(proto) as BaseComObject;
+    static restoreComBase<T extends BaseComObject>(build: () => T, s: ComBaseState): T {
+        BaseComObject.detached = true;
+        let obj: BaseComObject;
+        try { obj = build(); } finally { BaseComObject.detached = false; }
         obj._refCount = s.refCount;
         obj._handle = s.handle;
         obj._iid = s.iid;

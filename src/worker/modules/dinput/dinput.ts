@@ -455,7 +455,7 @@ class DirectInputObject extends BaseComObject {
         tag: 'dinput-object',
         matches: (o: unknown): o is DirectInputObject => o instanceof DirectInputObject,
         capture: (o: DirectInputObject) => ({ base: BaseComObject.captureComBase(o) }),
-        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase<DirectInputObject>(DirectInputObject.prototype, d.base),
+        restore: (d: { base: ComBaseState }) => BaseComObject.restoreComBase(() => new DirectInputObject(0), d.base),
     };
 
     protected destroy(): void {
@@ -526,7 +526,7 @@ class DirectInputDeviceObject extends BaseComObject {
             seq: o.seq, mousePollPrevButtons: o.mousePollPrevButtons,
         }),
         restore: (d: Record<string, unknown> & { base: ComBaseState }) => {
-            const o = BaseComObject.restoreComBase<DirectInputDeviceObject>(DirectInputDeviceObject.prototype, d.base);
+            const o = BaseComObject.restoreComBase(() => new DirectInputDeviceObject(0), d.base);
             o._deviceType = 'unknown';
             o.deviceType = d.deviceType as DeviceKind;
             o.dataFormat = d.dataFormat as DeviceKind;
