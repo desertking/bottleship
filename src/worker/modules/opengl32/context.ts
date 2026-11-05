@@ -139,6 +139,7 @@ export const DF_SCISSOR = 1 << 11;
  *  path probes on every glEnd. Still a Set for every other consumer. */
 export class GLCapSet extends Set<number> {
     private readonly bits = new Uint8Array(0x10000);
+    private readonly seen = new Uint8Array(0x10000);
 
     override has(cap: number): boolean {
         return cap >>> 0 < 0x10000 ? this.bits[cap] === 1 : super.has(cap);
@@ -146,23 +147,52 @@ export class GLCapSet extends Set<number> {
 
     override add(cap: number): this {
         if (cap >>> 0 < 0x10000) {
-            if (this.bits[cap] === 1) return this;
             this.bits[cap] = 1;
+            if (this.seen[cap] === 1) return this;
+            this.seen[cap] = 1;
         }
         return super.add(cap);
     }
 
     override delete(cap: number): boolean {
         if (cap >>> 0 < 0x10000) {
-            if (this.bits[cap] === 0) return false;
+            const had = this.bits[cap] === 1;
             this.bits[cap] = 0;
+            return had;
         }
         return super.delete(cap);
     }
 
     override clear(): void {
         this.bits.fill(0);
+        this.seen.fill(0);
         super.clear();
+    }
+
+    override get size(): number {
+        let n = 0;
+        for (const cap of super.values()) if (this.has(cap)) n++;
+        return n;
+    }
+
+    override *values(): SetIterator<number> {
+        for (const cap of super.values()) if (this.has(cap)) yield cap;
+    }
+
+    override keys(): SetIterator<number> {
+        return this.values();
+    }
+
+    override *entries(): SetIterator<[number, number]> {
+        for (const cap of this.values()) yield [cap, cap];
+    }
+
+    override [Symbol.iterator](): SetIterator<number> {
+        return this.values();
+    }
+
+    override forEach(fn: (value: number, key: number, set: Set<number>) => void, thisArg?: unknown): void {
+        for (const cap of this.values()) fn.call(thisArg, cap, cap, this);
     }
 }
 
