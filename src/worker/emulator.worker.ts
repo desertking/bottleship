@@ -2214,23 +2214,27 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
     if (await loadPeData(bundle.entrypointBytes, true) === "failed") return;
     bootMark("pe-loaded");
     pauseEmulator();
+    let savestateStep = "participants";
     try {
       registerCoreParticipants();
+      savestateStep = "layout";
       const layout = {
         thunks: system.process?.dispatcher?.thunkNames() ?? [],
         modules: [...(system.process?.modules.keys() ?? [])],
       };
       let entries = 0;
       try { entries = bundle.archive.listEntries().length; } catch { entries = -1; }
+      savestateStep = "identity";
       await noteBootIdentity({
         gameId, manifest: bundle.manifest, bundleSize: entries,
         config: EmulatorConfig.getInstance().snapshotForChild(), layout,
       });
+      savestateStep = "restore";
       const restored = await restorePendingAtEntry();
       if (restored) (globalThis as Record<string, unknown>).__bsSavestateRestored = restored;
     } catch (e) {
-      Logger.error(LogCategory.SYSTEM, `[SAVESTATE] load at entry failed: ${e instanceof Error ? e.stack : e}`);
-      noteBootError(String(e instanceof Error ? e.message : e));
+      Logger.error(LogCategory.SYSTEM, `[SAVESTATE] ${savestateStep} at entry failed: ${e instanceof Error ? e.stack : e}`);
+      noteBootError(`${savestateStep}: ${e instanceof Error ? (e.stack ?? e.message) : String(e)}`.slice(0, 600));
       (globalThis as Record<string, unknown>).__bsSavestateRestored = { error: String(e) };
     } finally {
       resumeEmulator();

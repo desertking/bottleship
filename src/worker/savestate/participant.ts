@@ -15,7 +15,7 @@ export interface Participant {
     readonly version: number;
     readonly order?: number;
     capture(ctx: CaptureContext): SaveValue;
-    restore(state: SaveValue, ctx: RestoreContext): void;
+    restore(state: SaveValue, ctx: RestoreContext): void | Promise<void>;
 }
 
 type SavedKeys<T, P extends Record<keyof T, FieldPolicy>> = { [K in keyof T]: P[K] extends 'save' ? K : never }[keyof T];

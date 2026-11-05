@@ -1,6 +1,7 @@
 import type { MSSContext } from "./context";
 import type { MSSSample, MSSStream, MSSTimer } from "./types";
-import { playSample } from "./playback-engine";
+import { incrementalStreamPosition, playSample } from "./playback-engine";
+import { openVfsStreamSource, seekIncrementalStream, startIncrementalStream } from "./stream-engine";
 
 /** @transient(constant: sample fields that are host timing, not session data) */
 const HOST_SAMPLE_FIELDS = new Set<keyof MSSSample>([
@@ -55,8 +56,12 @@ export function captureMss(ctx: MSSContext): MssSavestate {
     if (ctx.fileHandles.size > 0) throw new Error('mss32: open Miles file handles are not part of a v1 savestate');
     const streams: Array<Record<string, unknown>> = [];
     for (const st of ctx.streams.values()) {
-        if (st.source) throw new Error('mss32: incrementally streamed audio is not part of a v1 savestate');
-        streams.push(plainSample(st as unknown as MSSSample));
+        if (st.source && (st.source.kind !== 'vfs' || !st.filename)) {
+            throw new Error('mss32: a stream fed through the game\'s own file callbacks is not part of a v1 savestate');
+        }
+        const plain = plainSample({ ...st, source: undefined, decodedData: st.source ? null : st.decodedData } as unknown as MSSSample);
+        plain.resume = st.source ? { position: incrementalStreamPosition(st) } : null;
+        streams.push(plain);
     }
     const scalars: Record<string, unknown> = {};
     for (const k of SCALARS) scalars[k] = ctx[k];
@@ -87,7 +92,7 @@ export function captureMss(ctx: MSSContext): MssSavestate {
     };
 }
 
-export function restoreMss(ctx: MSSContext, s: MssSavestate): void {
+export async function restoreMss(ctx: MSSContext, s: MssSavestate): Promise<void> {
     const c = ctx as unknown as Record<string, unknown>;
     for (const [k, v] of Object.entries(s.scalars)) c[k] = v;
     ctx.samples = new Map();
@@ -99,10 +104,13 @@ export function restoreMss(ctx: MSSContext, s: MssSavestate): void {
     }
     ctx.streams = new Map();
     ctx.streamsById = new Map();
+    const resumes: Array<{ stream: MSSStream; position: number }> = [];
     for (const raw of s.streams) {
-        const stream = { ...raw, source: null } as unknown as MSSStream;
+        const { resume, ...rest } = raw as Record<string, unknown> & { resume?: { position: number } | null };
+        const stream = { ...rest, source: null } as unknown as MSSStream;
         ctx.streams.set(stream.handle, stream);
         ctx.streamsById.set(stream.id, stream);
+        if (resume) resumes.push({ stream, position: resume.position });
     }
     ctx.waveOuts = new Map(s.waveOuts.map(w => [w.handle, { handle: w.handle, deviceId: w.deviceId, preparedHeaders: new Map(w.headers) }]));
     ctx.redbookHandles = new Map(s.redbook.map(r => [r.id, { id: r.id, volume: r.volume, playToken: r.playToken }]));
@@ -134,5 +142,13 @@ export function restoreMss(ctx: MSSContext, s: MssSavestate): void {
     ctx.pendingStreamCallbacks = [];
     for (const sample of ctx.samples.values()) {
         if (sample.isPlaying) playSample(ctx, sample);
+    }
+    for (const { stream, position } of resumes) {
+        const playing = stream.isPlaying && !stream.isPaused;
+        if (!stream.filename || !(await openVfsStreamSource(ctx, stream, stream.filename))) {
+            throw new Error(`mss32: stream ${stream.filename ?? '?'} cannot be reopened`);
+        }
+        seekIncrementalStream(stream, position);
+        if (playing) startIncrementalStream(ctx, stream);
     }
 }

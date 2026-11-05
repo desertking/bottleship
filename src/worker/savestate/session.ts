@@ -76,6 +76,6 @@ export async function restoreSession(target: SavestateTarget, state: Savestate, 
     for (const p of savestateParticipants.all()) {
         const value = state.sections.get(p.id);
         if (value === undefined) throw new Error(`savestate: no section for participant ${p.id}`);
-        p.restore(value, ctx);
+        await p.restore(value, ctx);
     }
 }
