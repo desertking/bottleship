@@ -15,6 +15,7 @@ import { registerFileIoAttributeExports } from './file-io-attributes';
 import { readStringA, readStringW, encodeFileApiString, setFileApisAnsi, areFileApisAnsi } from './file-io-strings';
 import { MemoryGuard } from '../../core/memory/mem-guard';
 import { Mem } from '../../core/memory/mem-accessor';
+import { objectCodecs } from '../../savestate/object-codecs';
 import { System } from '../../core/system';
 import { Process } from '../../core/process';
 import { VfsFileHandle, VirtualFileSystem } from '../../runtime/filesystem/vfs';
@@ -199,6 +200,27 @@ function handleFileTime(fileHandle: { vfsHandle?: VfsFileHandle } | null | undef
 /** Record the caller's declared access pattern on the file object. NT takes this at
  *  face value and reads ahead on it; below us it is what tells the block cache that a
  *  read run is a scan through one file rather than two adjacent unrelated reads. */
+objectCodecs.add({
+    tag: 'kernel32-file',
+    matches: (o: unknown): o is FileHandleWrapper => o instanceof FileHandleWrapper,
+    capture: (o: FileHandleWrapper) => {
+        const h = o.vfsHandle;
+        return { path: h.path, position: h.position, access: h.access, source: h.source, sequential: h.sequentialFlag ?? false };
+    },
+    restore: (d: { path: string; position: number; access: number; source: 'rom' | 'overlay'; sequential: boolean }) => {
+        const handle: VfsFileHandle = { kind: 'file', path: d.path, position: d.position, access: d.access, source: d.source };
+        if (d.sequential) handle.sequentialFlag = true;
+        return new FileHandleWrapper(handle, System.getInstance().fileSystem);
+    },
+});
+
+objectCodecs.add({
+    tag: 'kernel32-console',
+    matches: (o: unknown): o is ConsoleDeviceHandle => o instanceof ConsoleDeviceHandle,
+    capture: (o: ConsoleDeviceHandle) => ({ deviceType: o.deviceType }),
+    restore: (d: { deviceType: 'CONOUT' | 'CONIN' | 'NUL' }) => new ConsoleDeviceHandle(d.deviceType),
+});
+
 function applyOpenFlags(handle: VfsFileHandle, dwFlagsAndAttributes: number): void {
     if ((dwFlagsAndAttributes & FILE_FLAG_SEQUENTIAL_SCAN) !== 0) handle.sequentialFlag = true;
 }

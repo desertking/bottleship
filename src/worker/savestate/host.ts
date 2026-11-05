@@ -21,14 +21,25 @@ let boot: BootIdentity | null = null;
 
 const text = (s: string) => new TextEncoder().encode(s);
 
+/** @transient(diagnostic text of the last entry-point failure, reported by the census) */
+let bootError = '';
+
+export function noteBootError(message: string): void { bootError = message; }
+
+export function bootState(): { identity: boolean; error: string } { return { identity: boot !== null, error: bootError }; }
+
+const safeJson = (v: unknown): string => {
+    try { return JSON.stringify(v, (_k, x) => (typeof x === 'bigint' ? x.toString() : x)) ?? ''; } catch { return ''; }
+};
+
 export async function noteBootIdentity(input: {
     gameId: string; manifest: unknown; bundleSize: number; config: unknown; layout: unknown;
 }): Promise<BootIdentity> {
     boot = {
         gameId: input.gameId,
-        bundleHash: await sha256Hex(text(JSON.stringify([input.manifest, input.bundleSize]))),
-        configHash: await sha256Hex(text(JSON.stringify(input.config))),
-        bootLayout: await sha256Hex(text(JSON.stringify(input.layout))),
+        bundleHash: await sha256Hex(text(safeJson([input.manifest, input.bundleSize]))),
+        configHash: await sha256Hex(text(safeJson(input.config))),
+        bootLayout: await sha256Hex(text(safeJson(input.layout))),
     };
     return boot;
 }
