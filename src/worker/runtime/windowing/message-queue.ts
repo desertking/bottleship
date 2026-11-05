@@ -70,6 +70,7 @@ export interface MessageQueueState {
 }
 
 class RingBuffer {
+    public rawInputDiscard: ((handle: number) => void) | null = null;
     private capacity: number;
     private mask: number;
     private head = 0;
@@ -163,6 +164,7 @@ class RingBuffer {
         extraInfo = 0
     ): void {
         if (this.count === this.capacity) {
+            if (this.messages[this.head] === 0x00ff) this.rawInputDiscard?.(this.lParams[this.head]);
             this.head = (this.head + 1) & this.mask;
             this.count--;
         }
@@ -409,6 +411,11 @@ export class MessageQueue {
     // character overtakes the WM_KEYUP already waiting in the input queue.
     private postedQueue = new RingBuffer(QUEUE_SIZE);
     private inputQueue = new RingBuffer(QUEUE_SIZE);  // hardware: mouse, keyboard
+
+    setRawInputDiscardCallback(callback: (handle: number) => void): void {
+        this.postedQueue.rawInputDiscard = callback;
+        this.inputQueue.rawInputDiscard = callback;
+    }
     private paintPending: Map<number, PendingMessage> = new Map(); // hwnd -> pending paint
     // USER synthesizes at most one pending WM_TIMER per (thread, window, id).
     // Keeping ticks as ordinary posts can permanently starve a modal loop's idle path.
@@ -994,6 +1001,8 @@ export class MessageQueue {
             while ((msg = queue.dequeue()) !== null) {
                 if (msg.hwnd !== hwnd) {
                     kept.push(msg);
+                } else if (msg.message === 0x00ff) {
+                    queue.rawInputDiscard?.(msg.lParam);
                 }
             }
             for (const m of kept) {
@@ -1022,11 +1031,11 @@ export class MessageQueue {
     }
 
     clear(): void {
-        while (this.postedQueue.dequeue()) {
-            // drain
-        }
-        while (this.inputQueue.dequeue()) {
-            // drain
+        for (const queue of [this.postedQueue, this.inputQueue]) {
+            let msg: Message | null;
+            while ((msg = queue.dequeue()) !== null) {
+                if (msg.message === 0x00ff) queue.rawInputDiscard?.(msg.lParam);
+            }
         }
         this.lastMouseMove.clear();
         this.moveSetCursor.clear();
