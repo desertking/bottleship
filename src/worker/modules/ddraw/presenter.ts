@@ -22,6 +22,8 @@ import {
     getSurfaceFormatLayout,
 } from "../../backends/webgpu/shared/texture-formats";
 import { DDSCAPS_TEXTURE } from "./constants";
+import { ensureGpuTextureForBlt } from "./surface-blt-flip";
+import type { DDrawContext } from "./context";
 import { getOverlayCompositePlan } from "../user32/dialog-overlay";
 import { getVideoPlanePlan, notifyVideoPlaneComposited } from "../../video/video-plane-policy";
 import { markGpuSyncedFromCpu, surfaceSyncManager } from "./surface-sync";
@@ -510,6 +512,9 @@ export class DDrawPresenter implements RenderActive {
                             this.uploadPalette8SurfaceToGPU(surface, mem, device, queue);
                             profiler.end("present:palette8Upload");
                         }
+                    } else if (isRenderSurface(surface) && !surface.gpuTexture) {
+                        const ddrawContext = (system.process?.getModule("ddraw") as { context?: DDrawContext } | undefined)?.context;
+                        if (ddrawContext) ensureGpuTextureForBlt(surface, ddrawContext, mem, webgpu.getFormat() ?? "bgra8unorm");
                     }
 
                     // DEFERRED UPLOAD: Batch upload all dirty surfaces accumulated during frame

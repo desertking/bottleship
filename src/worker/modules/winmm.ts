@@ -441,6 +441,7 @@ export class WinMM implements IModule {
                 this.timerThreadHandle = st.timerThreadHandle;
                 this.timerWakeEvent = st.timerWakeEvent;
                 this.nextWaveOutId = st.nextWaveOutId;
+                System.getInstance().scheduler?.notifyWinmmTimerThread(this.timerThreadId, this.timerWakeEvent);
             },
         });
         setTimerHandler(TimerKind.WINMM_TIMER, (_owner, _arg, wheelId) => {
