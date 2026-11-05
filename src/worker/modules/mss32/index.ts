@@ -5,6 +5,9 @@ import { Logger, LogCategory } from "../../core/logger";
 import { System } from "../../core/system";
 import { TimerKind } from "../../core/scheduler/types";
 import { setTimerHandler } from "../../core/scheduler/timer-wheel";
+import { savestateParticipants } from "../../savestate/participant";
+import type { SaveValue } from "../../savestate/value-codec";
+import { captureMss, restoreMss, type MssSavestate } from "./savestate";
 import { TimeService } from "../../runtime/time";
 import { MSSContext, createMSSContext, SMP_DONE, SMP_PLAYING } from "./context";
 import { finishSamplePlayback, getBytesPerSecond, getPlaybackLengthBytes, setSampleStatus, setStreamStatus, writeSamplePosition, writeStreamPosition, startHeartbeat, stopHeartbeat } from "./helpers";
@@ -65,6 +68,11 @@ export class MSS32 implements IModule {
         this.ctx.heartbeatTick = () => { pumpVfsStreams(this.ctx); updateEmulatorState(this.ctx); };
         const ctx = this.ctx;
         setTimerHandler(TimerKind.MSS_HEARTBEAT, () => ctx.heartbeatTick?.());
+        savestateParticipants.add({
+            id: 'mss32', version: 1, order: 64,
+            capture: () => captureMss(ctx) as unknown as SaveValue,
+            restore: (saved) => restoreMss(ctx, saved as unknown as MssSavestate),
+        });
         startHeartbeat(this.ctx);
 
         // Merge all domain exports
