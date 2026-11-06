@@ -116,6 +116,7 @@ interface PreparedDrawData {
     topology: OpenGLTopology;
     vertexCount: number;
     data: Float32Array;
+    first: number;
     byteLength: number;
 }
 
@@ -129,6 +130,31 @@ interface SelectedVertices {
 
 const VERTEX_FLOAT_STRIDE = 13; // clip.xyzw + color.rgba + uv0.xy + uv1.xy + eye-space fog distance
 const VERTEX_BYTE_STRIDE = VERTEX_FLOAT_STRIDE * 4;
+const ARENA_BYTE_STRIDE = VERT_FLOATS * 4;
+
+export function openglVertexLayout(direct: boolean): GPUVertexBufferLayout {
+    return direct
+        ? {
+            arrayStride: ARENA_BYTE_STRIDE,
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x4" },
+                { shaderLocation: 1, offset: 16, format: "float32x4" },
+                { shaderLocation: 2, offset: 44, format: "float32x2" },
+                { shaderLocation: 3, offset: 52, format: "float32x2" },
+                { shaderLocation: 4, offset: VERT_FOG_DIST * 4, format: "float32" },
+            ],
+        }
+        : {
+            arrayStride: VERTEX_BYTE_STRIDE,
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x4" },
+                { shaderLocation: 1, offset: 16, format: "float32x4" },
+                { shaderLocation: 2, offset: 32, format: "float32x2" },
+                { shaderLocation: 3, offset: 40, format: "float32x2" },
+                { shaderLocation: 4, offset: 48, format: "float32" },
+            ],
+        };
+}
 const UNIFORM_BLOCK_SIZE = 144;
 
 export class OpenGLBackendExecutor {
@@ -180,6 +206,8 @@ export class OpenGLBackendExecutor {
     private vertexBufferSize = 0;
     private vertexUploadCursor = 0;
     private vertexScratch = new Float32Array(0);
+    private readonly directVertices = !(globalThis as { __noGlDirectVertexUpload?: boolean }).__noGlDirectVertexUpload;
+    private readonly vertexLayout = openglVertexLayout(this.directVertices);
     /** Staging for polygon-mode wireframe / line-loop closing expansions. */
     private expandScratch = new Float32Array(0);
 
@@ -413,7 +441,7 @@ export class OpenGLBackendExecutor {
                         I[i + CI_MODE] >>> 0, I[i + CI_POLYGON_MODE] >>> 0);
                     if (!prepared || prepared.vertexCount <= 0) break;
 
-                    const vertexOffset = this.uploadVertices(queue, prepared.data, prepared.byteLength);
+                    const vertexOffset = this.uploadVertices(queue, prepared.data, prepared.first, prepared.byteLength);
                     if (vertexOffset < 0) break;
 
                     const tex0 = this.resolveTexture(device, queue, input.textures, I[i + CI_TEX_ID0]);
@@ -839,7 +867,7 @@ export class OpenGLBackendExecutor {
             }
             totalVertices += count;
         }
-        return Math.max(1, totalVertices * VERTEX_BYTE_STRIDE);
+        return Math.max(1, totalVertices * (this.directVertices ? ARENA_BYTE_STRIDE : VERTEX_BYTE_STRIDE));
     }
 
     private summarizeCommands(stream: GLCommandStream): string {
@@ -911,12 +939,12 @@ export class OpenGLBackendExecutor {
         return offset;
     }
 
-    private uploadVertices(queue: GPUQueue, vertices: Float32Array, byteLength: number): number {
+    private uploadVertices(queue: GPUQueue, vertices: Float32Array, first: number, byteLength: number): number {
         if (!this.vertexBuffer) return -1;
         const offset = this.vertexUploadCursor;
         this.vertexUploadCursor += byteLength;
         if (this.vertexUploadCursor > this.vertexBufferSize) return -1;
-        queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, vertices.byteOffset, byteLength);
+        queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, vertices.byteOffset + first * 4, byteLength);
         return offset;
     }
 
@@ -931,6 +959,15 @@ export class OpenGLBackendExecutor {
         if (!selected || selected.count <= 0) return null;
 
         const count = selected.count;
+        if (this.directVertices) {
+            return {
+                topology: selected.topology,
+                vertexCount: count,
+                data: selected.data,
+                first: selected.first,
+                byteLength: count * ARENA_BYTE_STRIDE,
+            };
+        }
         const floatCount = count * VERTEX_FLOAT_STRIDE;
         if (this.vertexScratch.length < floatCount) {
             this.vertexScratch = new Float32Array(this.nextPow2(floatCount));
@@ -961,6 +998,7 @@ export class OpenGLBackendExecutor {
             topology: selected.topology,
             vertexCount: count,
             data: out,
+            first: 0,
             byteLength: count * VERTEX_BYTE_STRIDE,
         };
     }
@@ -1255,16 +1293,7 @@ export class OpenGLBackendExecutor {
             vertex: {
                 module: this.shaderModule!,
                 entryPoint: "vs_main",
-                buffers: [{
-                    arrayStride: VERTEX_BYTE_STRIDE,
-                    attributes: [
-                        { shaderLocation: 0, offset: 0, format: "float32x4" },
-                        { shaderLocation: 1, offset: 16, format: "float32x4" },
-                        { shaderLocation: 2, offset: 32, format: "float32x2" },
-                        { shaderLocation: 3, offset: 40, format: "float32x2" },
-                        { shaderLocation: 4, offset: 48, format: "float32" },
-                    ],
-                }],
+                buffers: [this.vertexLayout],
             },
             fragment: {
                 module: this.shaderModule!,
@@ -1757,7 +1786,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
     let zHalf = input.pos.z * 0.5 + input.pos.w * 0.5;
     let zOut = select(zHalf, input.pos.w - zHalf, uniforms.depthFlip != 0u);
     out.position = vec4f(input.pos.x, input.pos.y, zOut, input.pos.w);
-    out.color = input.color;
+    out.color = clamp(input.color, vec4f(0.0), vec4f(1.0));
     out.uv0 = input.uv0;
     out.uv1 = input.uv1;
     out.fogCoord = input.fogDist;
