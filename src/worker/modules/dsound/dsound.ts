@@ -273,6 +273,7 @@ type ApiCursorCache = {
     writeCursor: number;
 };
 
+// @transient(the last GetCurrentPosition answer per live buffer, answered again from the ring after a load)
 const apiCursorCaches = new WeakMap<object, ApiCursorCache>();
 
 function apiDebugFlags(): number {
