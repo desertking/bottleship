@@ -110,6 +110,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_fwait_inline", 1],        // FWAIT is an inline CR0 test, not a spilling block boundary
     ["jit_multi_entry_loop_safety", 1], // multi-entry wasm loops get the LOOP_COUNTER exit too
     ["jit_sse_scalar_inline", 1],   // scalar SSE memory/compare/convert forms as wasm float ops
+    ["jit_x87_lean", 1],            // one CR0 test per block; PC rounding only when PC=24
 ]));
 
 /** The all-off reference for the switches. */
