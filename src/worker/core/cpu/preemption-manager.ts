@@ -115,6 +115,7 @@ export class PreemptionManager {
     private fist64InlineEnabled = true;
     private flagLocalsAutoEnabled = true;
     private ftolCallFusionEnabled = true;
+    private smcExitEnabled = true;
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -355,7 +356,8 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_fist64_inline", this.fist64InlineEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_flag_locals_auto", this.flagLocalsAutoEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_ftol_call_fusion", this.ftolCallFusionEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"} carry8Inline=${this.carry8InlineEnabled ? "on" : "off"} sseConvertInline=${this.sseConvertInlineEnabled ? "on" : "off"} pageFallthrough=${this.pageFallthroughEnabled ? "on" : "off"} fist64Inline=${this.fist64InlineEnabled ? "on" : "off"} flagLocalsAuto=${this.flagLocalsAutoEnabled ? "on" : "off"} ftolCallFusion=${this.ftolCallFusionEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_smc_exit", this.smcExitEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"} carry8Inline=${this.carry8InlineEnabled ? "on" : "off"} sseConvertInline=${this.sseConvertInlineEnabled ? "on" : "off"} pageFallthrough=${this.pageFallthroughEnabled ? "on" : "off"} fist64Inline=${this.fist64InlineEnabled ? "on" : "off"} flagLocalsAuto=${this.flagLocalsAutoEnabled ? "on" : "off"} ftolCallFusion=${this.ftolCallFusionEnabled ? "on" : "off"} smcExit=${this.smcExitEnabled ? "on" : "off"}`);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
