@@ -22,6 +22,8 @@ import { resolveHleExportAddress } from '../../../core/thunking/export-resolver'
 import { shippedExportNames } from '../../../core/pe-export-names';
 import { processCrtBinding } from '../../../core/crt-binding';
 
+const DLL_PROCESS_DETACH = 0;
+
 export const exports: Record<string, ThunkImplementation> = {};
 
 const DEFAULT_EXE_BASE = 0x00400000;
@@ -1278,7 +1280,23 @@ function initModuleFunctions(): void {
         }
         Logger.log(LogCategory.KERNEL32,
             `FreeLibrary(0x${hModule.toString(16)}): unloaded "${mod.name}" (image left mapped; next LoadLibrary maps fresh)`);
-        return { value: 1, stackCleanup: 4 };
+        const system = System.getInstance();
+        const callbackManager = system.process?.dispatcher?.callbackManager;
+        if (!mod.isRealDll || !mod.initialized || !mod.entryPoint || !callbackManager || system.isExiting) {
+            return { value: 1, stackCleanup: 4 };
+        }
+        mod.initialized = false;
+        const frameId = callbackManager.saveSuspendedThunkContext(ctx as never, 4, 'FreeLibrary DllMain');
+        if (!frameId) return { value: 1, stackCleanup: 4 };
+        const { callbackId } = callbackManager.invokeCallback(
+            (hModule + mod.entryPoint) >>> 0, [hModule, DLL_PROCESS_DETACH, 0], 0, () => 1,
+            false, 'FreeLibrary DllMain', frameId,
+        );
+        if (!callbackId) {
+            callbackManager.abandonSuspendedFrame(frameId);
+            return { value: 1, stackCleanup: 4 };
+        }
+        return { value: 1, suspendedForCallback: true, callbackId, stackCleanup: 4 };
     };
 
     exports['FreeLibraryAndExitThread'] = (ctx, mem, args) => {
