@@ -597,6 +597,9 @@
     "WBUF_NO_FENCE_MODULES",
     "WBUF_TRANSPORT_SAFE_MODULES"
   ],
+  "src/worker/core/thunking/wbuf-run.ts": [
+    "bindings"
+  ],
   "src/worker/core/thunking/winapi-call-ring.ts": [
     "NOISY_NAMES"
   ],
@@ -1250,6 +1253,9 @@
   ],
   "src/worker/modules/msvfw32.ts": [
     "nextDrawDibHandle"
+  ],
+  "src/worker/modules/ole32-mlang-font-link.ts": [
+    "runtimes"
   ],
   "src/worker/modules/ole32.ts": [
     "BF_P_INIT",
