@@ -18,6 +18,7 @@ const GL_RUN_TRANSLATE = 12;
 const GL_RUN_ENABLE = 13;
 const GL_RUN_DISABLE = 14;
 const GL_RUN_FIRST_CALL = 16;
+const GL_TEXTURE_2D_CAP = 0x0DE1;
 const NOOP: ThunkImplementation = () => 0;
 const DEDICATED: Record<string, number> = {
     glEnd: GL_RUN_END, glPushMatrix: GL_RUN_PUSH, glPopMatrix: GL_RUN_POP,
@@ -38,6 +39,8 @@ export class GLRingRun implements WriteBufRunConsumer {
     private translate: ThunkImplementation = NOOP;
     private enable: ThunkImplementation = NOOP;
     private disable: ThunkImplementation = NOOP;
+    private memo = -1;
+    private readonly memoOff = !!(globalThis as { __noGlMergeMemo?: boolean }).__noGlMergeMemo;
 
     constructor(private readonly ctx: OpenGLContext) {}
 
@@ -70,6 +73,7 @@ export class GLRingRun implements WriteBufRunConsumer {
         }
         const owners = t.owners, ops = t.ops, argCounts = t.argCounts;
         const color = ctx.currentColor, normal = ctx.currentNormal;
+        this.memo = -1;
         while (offset < head) {
             const p = (base + offset) >> 2;
             const id = mem32[p]!;
@@ -122,7 +126,17 @@ export class GLRingRun implements WriteBufRunConsumer {
                     }
                     break;
                 case GL_RUN_END:
-                    this.end(this.noCtx, mem8, this.none);
+                    if (this.memoOff) {
+                        this.end(this.noCtx, mem8, this.none);
+                        break;
+                    }
+                    ctx.drawMergeHint = this.memo;
+                    try {
+                        this.end(this.noCtx, mem8, this.none);
+                        this.memo = ctx.drawMergeHint;
+                    } finally {
+                        ctx.drawMergeHint = -2;
+                    }
                     break;
                 case GL_RUN_PUSH:
                     this.push(this.noCtx, mem8, this.none);
@@ -140,13 +154,16 @@ export class GLRingRun implements WriteBufRunConsumer {
                 }
                 case GL_RUN_ENABLE:
                     this.one[0] = mem32[a]! >>> 0;
+                    if (this.one[0] === GL_TEXTURE_2D_CAP) this.memo = -1;
                     this.enable(this.noCtx, mem8, this.one);
                     break;
                 case GL_RUN_DISABLE:
                     this.one[0] = mem32[a]! >>> 0;
+                    if (this.one[0] === GL_TEXTURE_2D_CAP) this.memo = -1;
                     this.disable(this.noCtx, mem8, this.one);
                     break;
                 default: {
+                    this.memo = -1;
                     const k = op - GL_RUN_FIRST_CALL;
                     const impl = this.calls[k];
                     if (impl === undefined) return offset;

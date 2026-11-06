@@ -407,17 +407,21 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
     ctx.frameSnapshot.vertexCount += vertCount;
 
     const last = stream.count - 1;
+    const hint = ctx.drawMergeHint;
     if (last >= 0 && isMergeableMode(mode) && stream.typeAt(last) === GLDrawCommandType.DRAW) {
         const p = last * CMD_I32;
         if (I[p + CI_VERT_OFFSET] + I[p + CI_VERT_COUNT] * VERT_FLOATS === vertOffset &&
             I[p + CI_VERT_COUNT] % mergePrimStride(mode) === 0 &&
-            drawRecordMatches(ctx, I, F, p, last * CMD_F32, mode, flags)) {
+            (hint === last && I[p + CI_MODE] === mode && I[p + CI_FLAGS] === flags
+                || drawRecordMatches(ctx, I, F, p, last * CMD_F32, mode, flags))) {
             I[p + CI_VERT_COUNT] += vertCount;
+            if (hint !== -2) ctx.drawMergeHint = last;
             return;
         }
     }
 
     const idx = stream.alloc(GLDrawCommandType.DRAW);
+    if (hint !== -2) ctx.drawMergeHint = idx;
     writeDrawRecord(ctx, stream.i32, stream.f32, idx * CMD_I32, idx * CMD_F32, mode, flags);
     stream.i32[idx * CMD_I32 + CI_VERT_OFFSET] = vertOffset;
     stream.i32[idx * CMD_I32 + CI_VERT_COUNT] = vertCount;
