@@ -122,6 +122,8 @@ type RingBufferSource = {
   fadeIn: number;
   tail0?: number;
   tail1?: number;
+  staleLap?: boolean;
+  staleLapWrite?: number;
 };
 
 class BottleShipAudioProcessor extends AudioWorkletProcessor {
@@ -697,6 +699,14 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
         continue;
       }
 
+      const staleLapWatch = isStreaming && !streamingHold && loopMode === -1;
+      let staleLap = staleLapWatch && !!rb.staleLap;
+      let prevLapAvail = -1;
+      if (staleLap && writeCursorBytes !== rb.staleLapWrite) {
+        staleLap = false;
+        fadeIn = CONCEAL_FADE_FRAMES;
+      }
+
       for (let i = 0; i < frames; i++) {
         while (loopEnd < totalFrames && pos >= loopEnd
                && (loopMode === -1 || (loopMode > 1 && loopsCompleted + 1 < loopMode))) {
@@ -761,6 +771,30 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
             }
             break;
           }
+        }
+
+        const lapAvail = staleLapWatch
+          ? (writeCursorFrame - (Math.floor(pos) % totalFrames) + totalFrames) % totalFrames : 0;
+        const crossedFrontier = staleLapWatch && !staleLap
+          && (lapAvail === 0 || (prevLapAvail >= 0 && lapAvail > prevLapAvail + (totalFrames >> 1)));
+        prevLapAvail = lapAvail;
+        if (crossedFrontier) {
+          staleLap = true;
+          rb.staleLapWrite = writeCursorBytes;
+          if (concealLast0 !== 0 || concealLast1 !== 0) {
+            const fade = Math.min(frames - i, CONCEAL_FADE_FRAMES);
+            for (let f = 0; f < fade; f++) {
+              const g = 1 - (f + 1) / fade;
+              output[0][i + f] += concealLast0 * g;
+              if (outChannels > 1) output[1][i + f] += concealLast1 * g;
+            }
+          }
+          concealLast0 = 0;
+          concealLast1 = 0;
+        }
+        if (staleLap) {
+          pos += rate;
+          continue;
         }
 
         const frameIndex = Math.floor(pos);
@@ -828,6 +862,7 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
       rb.fadeIn = fadeIn;
       rb.tail0 = concealLast0;
       rb.tail1 = concealLast1;
+      rb.staleLap = staleLap;
       // TEMP PROBE (ring read diagnosis) — remove after the no-sound regression is closed.
       {
         const d: any = (rb as any).dbg ?? ((rb as any).dbg = {});
