@@ -670,6 +670,20 @@ function isTransformState(state: number): boolean {
         || (state >= D3DTS_TEXTURE0 && state < D3DTS_TEXTURE0 + FFP_TEXTURE_TRANSFORM_COUNT);
 }
 
+export function asyncPipelinesEnabled(): boolean {
+    return (globalThis as { __d3d9AsyncPipelines?: boolean }).__d3d9AsyncPipelines !== false;
+}
+
+export function createRenderPipelineMaybeAsync(
+    gpuDevice: GPUDevice,
+    descriptor: GPURenderPipelineDescriptor,
+): GPURenderPipeline | Promise<GPURenderPipeline> {
+    if (asyncPipelinesEnabled() && typeof gpuDevice.createRenderPipelineAsync === "function") {
+        return gpuDevice.createRenderPipelineAsync(descriptor);
+    }
+    return gpuDevice.createRenderPipeline(descriptor);
+}
+
 export class D3D9Device {
     /** Set when the parent interface is IDirect3D9Ex; Ex reset/pool rules follow the parent. */
     public isExtended = false;
@@ -10495,11 +10509,11 @@ export class D3D9Device {
 
         // A throw here (an unsupported format, a layout the shader disagrees with) must cost
         // this draw alone — uncaught it unwinds through the recorder and the whole frame dies.
-        let pipeline: GPURenderPipeline;
+        let pipeline: GPURenderPipeline | Promise<GPURenderPipeline>;
         let countingDescriptor: GPURenderPipelineDescriptor;
         gpuDevice.pushErrorScope("validation");
         try {
-            pipeline = gpuDevice.createRenderPipeline(countingDescriptor = {
+            pipeline = createRenderPipelineMaybeAsync(gpuDevice, countingDescriptor = {
                 // Shared explicit layout when the FFP dynamic-offset shape is on (one cached bind
                 // group serves every FFP draw); WebGPU's implicit per-pipeline layout otherwise.
                 layout: this.backendExecutor.getFfpPipelineLayout(cubeMask),
@@ -10975,10 +10989,10 @@ export class D3D9Device {
             const depthStencil = buildDepthStencilState(this.activeDepthTargetFormat(), this.getRS);
             pair.pipelineState = { colorTargets, vertexBuffers: buffers, depthStencil };
             gpuDevice.pushErrorScope("validation");
-            let pipeline: GPURenderPipeline;
+            let pipeline: GPURenderPipeline | Promise<GPURenderPipeline>;
             let countingDescriptor: GPURenderPipelineDescriptor;
             try {
-                pipeline = gpuDevice.createRenderPipeline(countingDescriptor = {
+                pipeline = createRenderPipelineMaybeAsync(gpuDevice, countingDescriptor = {
                     layout: pipelineLayout,
                     vertex: {
                         module,
@@ -11027,7 +11041,7 @@ export class D3D9Device {
                             megaLink.volumeMask, megaLink.vertexVolumeMask, true,
                         );
                         gpuDevice.pushErrorScope("validation");
-                        const megaPipeline = gpuDevice.createRenderPipeline({
+                        const megaPipeline = createRenderPipelineMaybeAsync(gpuDevice, {
                             layout: megaLayout.pipelineLayout,
                             vertex: { module: megaModule, entryPoint: "vs_main", buffers },
                             fragment: { module: megaModule, entryPoint: "fs_main", targets: colorTargets },

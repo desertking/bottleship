@@ -1078,6 +1078,8 @@ export class D3D9BackendExecutor {
         this.renderBundlePsBuffer = null;
         this.pipelines = [];
         this.pipelineInfo = [];
+        this.pendingPipelines.clear();
+        this.pipelineEpoch++;
         this.countingRecipes.clear();
         this.countingPipelines.clear();
         this.preciseOcclusion?.destroy();
@@ -1172,7 +1174,7 @@ export class D3D9BackendExecutor {
      * Register a pipeline and return its ID
      */
     registerPipeline(
-        pipeline: GPURenderPipeline,
+        pipeline: GPURenderPipeline | Promise<GPURenderPipeline>,
         hasTexture: boolean,
         programmable = false,
         ffpStageCount = 1,
@@ -1183,13 +1185,70 @@ export class D3D9BackendExecutor {
         countingRecipe?: { descriptor: GPURenderPipelineDescriptor; source: string },
     ): number {
         const id = this.pipelines.length;
-        this.pipelines.push(pipeline);
+        const pending = pipeline instanceof Promise;
+        const ready = pending ? undefined as unknown as GPURenderPipeline : pipeline;
+        this.pipelines.push(ready);
         if (countingRecipe) this.countingRecipes.set(id, countingRecipe);
-        this.pipelineInfo.push({ pipeline, hasTexture, programmable, ffpStageCount, ffpCubeMask, strides, attrEnds });
+        this.pipelineInfo.push({ pipeline: ready, hasTexture, programmable, ffpStageCount, ffpCubeMask, strides, attrEnds });
         if (programmable && arenaIdentity !== undefined) {
             this.arenaPipelinesByIdentity.set(arenaIdentity, id);
         }
+        if (pending) this.trackPendingPipeline(id, pipeline);
         return id;
+    }
+
+    private pendingPipelines = new Map<number, number>();
+    private pipelineEpoch = 0;
+    readonly asyncPipelineStats = { requested: 0, resolved: 0, failed: 0, materialized: 0, pendingRunSkips: 0 };
+
+    hasPendingPipelines(): boolean {
+        return this.pendingPipelines.size > 0;
+    }
+
+    isPipelinePending(id: number): boolean {
+        return this.pendingPipelines.has(id);
+    }
+
+    private trackPendingPipeline(id: number, promise: Promise<GPURenderPipeline>): void {
+        const epoch = this.pipelineEpoch;
+        this.pendingPipelines.set(id, epoch);
+        this.asyncPipelineStats.requested++;
+        promise.then((pipeline) => {
+            if (this.pipelineEpoch !== epoch || this.pendingPipelines.get(id) !== epoch) return;
+            this.pendingPipelines.delete(id);
+            this.installPipeline(id, pipeline);
+            this.asyncPipelineStats.resolved++;
+        }, (error) => {
+            if (this.pipelineEpoch !== epoch || this.pendingPipelines.get(id) !== epoch) return;
+            this.pendingPipelines.delete(id);
+            this.asyncPipelineStats.failed++;
+            recordGpuError("throw", "d3d9Executor.asyncPipeline", String(error));
+            Logger.error(LogCategory.D3D9, `[D3D9] async pipeline ${id} failed: ${error}`);
+        });
+    }
+
+    private installPipeline(id: number, pipeline: GPURenderPipeline): void {
+        this.pipelines[id] = pipeline;
+        const info = this.pipelineInfo[id];
+        if (info) info.pipeline = pipeline;
+        this.autoLayouts[id] = null;
+    }
+
+    private materializePipeline(id: number, device: GPUDevice): void {
+        if (!this.pendingPipelines.has(id)) return;
+        const recipe = this.countingRecipes.get(id);
+        if (!recipe) return;
+        this.pendingPipelines.delete(id);
+        this.installPipeline(id, device.createRenderPipeline(recipe.descriptor));
+        this.asyncPipelineStats.materialized++;
+    }
+
+    private materializeFramePipelines(frame: RenderFrame, device: GPUDevice): void {
+        for (let i = 0; i < frame.commandCount; i++) {
+            if (frame.commandTypes[i] === RenderCommandType.SetPipeline) this.materializePipeline(frame.commandA[i]! >>> 0, device);
+        }
+        for (const binding of frame.arenaDrawBindings) this.materializePipeline(binding.pipelineId, device);
+        for (const run of frame.arenaIndexedRuns) this.materializePipeline(run.pipelineId, device);
     }
 
     /** Attach a canonical arena identity to a pipeline that was first built through the
@@ -1203,7 +1262,16 @@ export class D3D9BackendExecutor {
         }
     }
 
-    attachMegaBatchPipeline(pipelineId: number, pipeline: GPURenderPipeline, vsSlotBytes: number): void {
+    attachMegaBatchPipeline(pipelineId: number, pipeline: GPURenderPipeline | Promise<GPURenderPipeline>, vsSlotBytes: number): void {
+        if (pipeline instanceof Promise) {
+            const epoch = this.pipelineEpoch;
+            pipeline.then((ready) => {
+                if (this.pipelineEpoch === epoch) this.attachMegaBatchPipeline(pipelineId, ready, vsSlotBytes);
+            }, (error) => {
+                Logger.warn(LogCategory.D3D9, `[D3D9] async MegaBatch pipeline ${pipelineId} failed: ${error}`);
+            });
+            return;
+        }
         const info = this.pipelineInfo[pipelineId];
         if (!info?.programmable || vsSlotBytes <= 0 || (vsSlotBytes & 15) !== 0) return;
         info.megaBatch = { pipeline, vsSlotBytes };
@@ -3272,6 +3340,7 @@ export class D3D9BackendExecutor {
             this.renderBundlePsBuffer = null;
         }
         this.notePass(frame, target, present, viewport);
+        if (target && !target.backbuffer && this.pendingPipelines.size > 0) this.materializeFramePipelines(frame, device);
         this.activeQueryManager = queryManager ?? null;
         // frameCount is a D3D9 bookkeeping value, not a queue-submit count: helper paths can
         // submit additional command buffers between two execute() calls. Allocate the serial
@@ -4068,6 +4137,11 @@ export class D3D9BackendExecutor {
                                 // Never let its integer-id memo suppress that rebind.
                                 this.currentPipelineId = null;
                             }
+                            break;
+                        }
+                        if (this.pendingPipelines.has(run.pipelineId)) {
+                            this.asyncPipelineStats.pendingRunSkips++;
+                            this.currentPipelineId = null;
                             break;
                         }
                         const runPipeline = this.pipelines[countingTexture ? this.countingPipeline(run.pipelineId,countingLocation,device) : run.pipelineId];
