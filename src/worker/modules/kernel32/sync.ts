@@ -2074,7 +2074,10 @@ const syncModule = (() => {
         // present. Fall to slow path for SetEvent + proper ownership transfer.
         const lockSem = mem32[ptr32 + 4]; // offset 16: LockSemaphore
         if (lockSem !== 0) {
-            return null; // Slow path handles release + SetEvent
+            if (typeof (sched as any).hasWaitersForHandle !== 'function' ||
+                !isValidSyncHandle(lockSem) || (sched as any).hasWaitersForHandle(lockSem)) {
+                return null; // Slow path handles release + SetEvent
+            }
         }
 
         // Release fully (no waiters — LockSemaphore == 0)
