@@ -11,12 +11,13 @@ import {
     CF_DEPTH_RANGE_NEAR, CF_DEPTH_RANGE_FAR,
     DF_DEPTH_TEST, DF_DEPTH_MASK, DF_BLEND, DF_ALPHA_TEST, DF_CULL, DF_FOG,
     DF_COLOR_MASK_R, DF_COLOR_MASK_G, DF_COLOR_MASK_B, DF_COLOR_MASK_A, DF_STENCIL_TEST, DF_SCISSOR,
+    DF_QUADS_INDEXED,
     writeTexEnvSlots, texEnvSlotsEqual, boundTextureStorageId,
 } from "./context";
 import {
     GL_TRIANGLES, GL_TRIANGLE_STRIP, GL_TRIANGLE_FAN, GL_QUADS, GL_QUAD_STRIP,
     GL_POLYGON, GL_POINTS, GL_LINES, GL_LINE_STRIP, GL_LINE_LOOP,
-    GL_INVALID_OPERATION,
+    GL_INVALID_OPERATION, GL_FILL,
     GL_TEXTURE_GEN_S, GL_TEXTURE_GEN_T,
     GL_OBJECT_LINEAR, GL_EYE_LINEAR, GL_SPHERE_MAP, GL_STENCIL_TEST, GL_RENDER, GL_FOG,
 } from "./constants";
@@ -277,7 +278,8 @@ function isMergeableMode(mode: number): boolean {
  * primitive boundary — an odd-length GL_LINES range would otherwise gain a segment
  * joining its dangling vertex to the next range's first.
  */
-function mergePrimStride(mode: number): number {
+function mergePrimStride(mode: number, flags: number): number {
+    if ((flags & DF_QUADS_INDEXED) !== 0) return 4;
     if (mode === GL_POINTS) return 1;
     if (mode === GL_LINES) return 2;
     return 3; // every triangle-ish mode has been expanded to a triangle list
@@ -397,10 +399,10 @@ export function writeDrawRecord(ctx: OpenGLContext, I: Int32Array, F: Float32Arr
     F[f + CF_DEPTH_RANGE_FAR] = ctx.depthRangeFar;
 }
 
-function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number, vertCount: number): void {
+function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number, vertCount: number, extraFlags = 0): void {
     if (ctx.renderMode !== GL_RENDER) return;
 
-    const flags = drawFlags(ctx);
+    const flags = drawFlags(ctx) | extraFlags;
     const stream = ctx.commands;
     const I = stream.i32, F = stream.f32;
 
@@ -411,7 +413,7 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
     if (last >= 0 && isMergeableMode(mode) && stream.typeAt(last) === GLDrawCommandType.DRAW) {
         const p = last * CMD_I32;
         if (I[p + CI_VERT_OFFSET] + I[p + CI_VERT_COUNT] * VERT_FLOATS === vertOffset &&
-            I[p + CI_VERT_COUNT] % mergePrimStride(mode) === 0 &&
+            I[p + CI_VERT_COUNT] % mergePrimStride(mode, flags) === 0 &&
             (hint === last && I[p + CI_MODE] === mode && I[p + CI_FLAGS] === flags
                 || drawRecordMatches(ctx, I, F, p, last * CMD_F32, mode, flags))) {
             I[p + CI_VERT_COUNT] += vertCount;
@@ -428,10 +430,26 @@ function pushGLDrawCommand(ctx: OpenGLContext, mode: number, vertOffset: number,
     ctx.frameSnapshot.drawCalls++;
 }
 
+export function quadsIndexed(ctx: OpenGLContext, mode: number): boolean {
+    return mode === GL_QUADS && ctx.polygonModeFront === GL_FILL
+        && !(globalThis as { __noGlQuadIndex?: boolean }).__noGlQuadIndex;
+}
+
 export function emitDrawCommandFlat(
     ctx: OpenGLContext, mode: number, src: Float32Array, srcCount: number, preTransformed = false,
     transformSource = false,
 ): void {
+    if (quadsIndexed(ctx, mode)) {
+        const quadVerts = srcCount - (srcCount & 3);
+        if (quadVerts === 0) return;
+        const arena = ctx.vertArena;
+        arena.reserve(quadVerts);
+        const base = arena.used;
+        const dst = arena.data;
+        for (let i = 0, d = base; i < quadVerts; i++, d += VERT_FLOATS) copyVert(src, i, dst, d);
+        emitArenaDraw(ctx, mode, base, quadVerts, preTransformed, DF_QUADS_INDEXED);
+        return;
+    }
     const expected = assembledVertCount(mode, srcCount);
     if (expected === 0) return;
 
@@ -461,7 +479,7 @@ export function arenaReserve(ctx: OpenGLContext, vertCount: number): number {
  *  positions are already in clip space (compiled vertex arrays), which also implies
  *  texgen is off — the caller only takes that path when nothing needs object space. */
 export function emitArenaDraw(
-    ctx: OpenGLContext, mode: number, base: number, count: number, preTransformed = false,
+    ctx: OpenGLContext, mode: number, base: number, count: number, preTransformed = false, extraFlags = 0,
 ): void {
     if (count === 0) return;
     const arena = ctx.vertArena;
@@ -474,7 +492,7 @@ export function emitArenaDraw(
         transformFlatVerts(ctx, arena.data, base, count);
     }
 
-    pushGLDrawCommand(ctx, mode, base, count);
+    pushGLDrawCommand(ctx, mode, base, count, extraFlags);
 }
 
 /** For pre-baked display list items — data is already triangle-assembled, apply texgen + transform now */

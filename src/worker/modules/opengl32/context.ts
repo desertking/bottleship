@@ -134,6 +134,7 @@ export const DF_COLOR_MASK_B = 1 << 8;
 export const DF_COLOR_MASK_A = 1 << 9;
 export const DF_STENCIL_TEST = 1 << 10;
 export const DF_SCISSOR = 1 << 11;
+export const DF_QUADS_INDEXED = 1 << 12;
 
 /** The enable set, with a byte table in front of it for the capability range the draw
  *  path probes on every glEnd. Still a Set for every other consumer. */

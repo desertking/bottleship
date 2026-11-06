@@ -99,6 +99,6 @@ test("a run stops at an entry the consumer does not own and resumes after it", (
     ]];
     const a = play(true, steps);
     expect(a).toEqual(play(false, steps));
-    expect(a.verts.length).toBe(6 * 15);
+    expect(a.verts.length).toBe(4 * 15);
     expect(a.foreign).toEqual([77, 1]);
 });
