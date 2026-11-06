@@ -27,6 +27,7 @@ import {
     CTRL_3D_ROLLOFF, CTRL_3D_MIN_GAIN, CTRL_3D_MAX_GAIN,
     CTRL_LOOP_START_FRAME, CTRL_LOOP_END_FRAME,
     FLAG3D_HAS_3D, FLAG3D_SOURCE_ROLLOFF,
+    LCTRL_EMULATION_BEAT,
     LCTRL_POS_X, LCTRL_POS_Y, LCTRL_POS_Z,
     LCTRL_VEL_X, LCTRL_VEL_Y, LCTRL_VEL_Z,
     LCTRL_FRONT_X, LCTRL_FRONT_Y, LCTRL_FRONT_Z,
@@ -94,6 +95,7 @@ const DISC_THRESHOLD = 0.5;
 // Pure consumer-side; does NOT touch the guest-visible cursors. EAR-VERIFY before
 // committing — set to 0 to disable.
 const CONCEAL_FADE_FRAMES = 64;
+const EMULATION_STALL_SECONDS = 0.25;
 
 // DS3D mode constants
 const DS3DMODE_NORMAL = 0;
@@ -118,6 +120,8 @@ type RingBufferSource = {
   /** Frames of fade-in left after a starved stretch: data resumes mid-waveform, and a
    *  step from the silence the starve faded to is a click of its own. */
   fadeIn: number;
+  tail0?: number;
+  tail1?: number;
 };
 
 class BottleShipAudioProcessor extends AudioWorkletProcessor {
@@ -149,6 +153,8 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
 
   // Listener SAB (global singleton; whichever audio API the guest uses owns it)
   private listenerCtrl: Int32Array | null = null;
+  private lastEmulationBeat = 0;
+  private framesSinceEmulationBeat = 0;
 
   // Spatializer scratch — reused for every source of every block (no allocation
   // inside the render quantum).
@@ -444,6 +450,15 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
 
     // Per-block stats accumulators (flushed to the stats SAB once per block)
     let activeRing = 0;
+    const beatCtrl = this.listenerCtrl;
+    const beat = beatCtrl ? Atomics.load(beatCtrl, LCTRL_EMULATION_BEAT) : 0;
+    if (beat !== this.lastEmulationBeat) {
+      this.lastEmulationBeat = beat;
+      this.framesSinceEmulationBeat = 0;
+    } else {
+      this.framesSinceEmulationBeat += frames;
+    }
+    const emulationStalled = beat !== 0 && this.framesSinceEmulationBeat >= sampleRate * EMULATION_STALL_SECONDS;
     let underrunMid = 0;
     let starvedBlocks = 0;
 
@@ -666,6 +681,22 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
       // and write cursors and has no notion of how far the app has written, so there is
       // no drained-queue silence to imitate and no legitimate pump cadence to misjudge.
 
+      if (emulationStalled) {
+        const tail0 = rb.tail0 ?? 0, tail1 = rb.tail1 ?? 0;
+        if (tail0 !== 0 || tail1 !== 0) {
+          const fade = Math.min(frames, CONCEAL_FADE_FRAMES);
+          for (let f = 0; f < fade; f++) {
+            const g = 1 - (f + 1) / fade;
+            output[0][f] += tail0 * g;
+            if (outChannels > 1) output[1][f] += tail1 * g;
+          }
+        }
+        rb.tail0 = 0;
+        rb.tail1 = 0;
+        rb.fadeIn = CONCEAL_FADE_FRAMES;
+        continue;
+      }
+
       for (let i = 0; i < frames; i++) {
         while (loopEnd < totalFrames && pos >= loopEnd
                && (loopMode === -1 || (loopMode > 1 && loopsCompleted + 1 < loopMode))) {
@@ -795,6 +826,8 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
       rb.position = pos;
       rb.loopsCompleted = loopsCompleted;
       rb.fadeIn = fadeIn;
+      rb.tail0 = concealLast0;
+      rb.tail1 = concealLast1;
       // TEMP PROBE (ring read diagnosis) — remove after the no-sound regression is closed.
       {
         const d: any = (rb as any).dbg ?? ((rb as any).dbg = {});
