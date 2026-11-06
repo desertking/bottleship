@@ -108,6 +108,7 @@ export class PreemptionManager {
     private sseScalarInlineEnabled = true;      // switch jit_sse_scalar_inline
     private x87LeanEnabled = true;              // switch jit_x87_lean
     private fld80ExactFastEnabled = true;       // switch fpu_fld80_exact_fast
+    private x87RunsEnabled = true;
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -341,7 +342,8 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_sse_scalar_inline", this.sseScalarInlineEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_x87_lean", this.x87LeanEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "fpu_fld80_exact_fast", this.fld80ExactFastEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_runs", this.x87RunsEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"}`);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
