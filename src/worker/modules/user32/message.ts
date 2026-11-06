@@ -60,6 +60,7 @@ const ERROR_INVALID_PARAMETER = 87;
 const WM_TIMER = 0x0113;
 const WM_SETCURSOR_MSG = 0x0020;
 const WM_PAINT = 0x000F;
+const WM_ACTIVATE_MSG = 0x0006;
 const WM_SETTEXT_MSG = 0x000C;
 const WM_GETTEXT_MSG = 0x000D;
 const WM_GETTEXTLENGTH_MSG = 0x000E;
@@ -1298,6 +1299,12 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
             }
             if (message === WM_TIMER) {
                 timerDiag.dispatched++;
+            }
+
+            if (message === WM_ACTIVATE_MSG && (wParam & 0xFFFF) !== 0
+                && System.getInstance().windowManager.getActiveHwnd() !== (hwnd >>> 0)
+                && !(globalThis as { __noStaleActivateDrop?: boolean }).__noStaleActivateDrop) {
+                return { value: 0, stackCleanup: 4 };
             }
 
             // Posted WM_PAINT is suppressed once the window (or an ancestor) is
