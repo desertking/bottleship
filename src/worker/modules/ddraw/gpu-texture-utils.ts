@@ -1916,59 +1916,15 @@ export function uploadRGB565ToGPU(
     height: number,
     pitch: number
 ): void {
-    const pixels = width * height;
-    const isPacked = pitch === width * 2; // RGB565 is 2 bytes per pixel
-
-    let data: Uint16Array;
-
-    if (isPacked) {
-        // Fast path: direct Uint16Array view (zero-copy!)
-        data = new Uint16Array(mem.buffer, mem.byteOffset + surfacePtr, pixels);
-    } else {
-        // Slow path: need to copy row-by-row due to pitch padding
-        const temp = new Uint16Array(pixels);
-        const src16Base = new Uint16Array(mem.buffer, mem.byteOffset);
-
-        for (let y = 0; y < height; y++) {
-            const srcOffset = (surfacePtr + y * pitch) / 2; // Divide by 2 for Uint16 indexing
-            const dstOffset = y * width;
-            temp.set(src16Base.subarray(srcOffset, srcOffset + width), dstOffset);
-        }
-        data = temp;
-    }
-
-    // Upload RGB565 as-is (no conversion!)
-    const bytesPerRow = width * 2; // r16uint = 2 bytes per pixel
-    const alignedBPR = (bytesPerRow + 255) & ~255;
-    const needsPadding = alignedBPR !== bytesPerRow && height > 1;
-
-    if (needsPadding) {
-        // Add row padding for WebGPU alignment
-        const padded = new Uint16Array(alignedBPR / 2 * height);
-        for (let y = 0; y < height; y++) {
-            padded.set(
-                data.subarray(y * width, (y + 1) * width),
-                y * (alignedBPR / 2)
-            );
-        }
-        queue.writeTexture(
-            { texture },
-            padded as unknown as GPUAllowSharedBufferSource,
-            { bytesPerRow: alignedBPR, rowsPerImage: height },
-            { width, height }
-        );
-    } else {
-        queue.writeTexture(
-            { texture },
-            data as unknown as GPUAllowSharedBufferSource,
-            { bytesPerRow, rowsPerImage: height },
-            { width, height }
-        );
-    }
-
-    const sizeKB = (pixels * 2) / 1024;
-    Logger.verbose(LogCategory.DDRAW,
-        `⚡ uploadRGB565ToGPU: ${width}x${height} (${sizeKB.toFixed(1)}KB) packed=${isPacked} padded=${needsPadding}`
+    const rowBytes = width * 2;
+    const bytesPerRow = pitch >= rowBytes && (pitch & 1) === 0 ? pitch : rowBytes;
+    const byteLength = height > 0 ? bytesPerRow * (height - 1) + rowBytes : 0;
+    const source = new Uint8Array(mem.buffer, mem.byteOffset + surfacePtr, byteLength);
+    queue.writeTexture(
+        { texture },
+        source as unknown as GPUAllowSharedBufferSource,
+        { bytesPerRow, rowsPerImage: height },
+        { width, height }
     );
 }
 
