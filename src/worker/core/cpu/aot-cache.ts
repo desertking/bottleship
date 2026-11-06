@@ -159,6 +159,8 @@ const AOT_ABI = 6;
 const ENGINE_SHA_WAIT_STEPS = 200;
 const ENGINE_SHA_WAIT_MS = 25;
 const PACK_MAGIC = "BSAOT1\0\0";
+const RETRY_INTERVAL_MS = 500;
+const RETRY_WINDOW_MS = 120_000;
 
 /** A unit pack: magic, u32 index length, the index JSON, then every unit's bytes in index order. */
 export function encodeAotPack(version: unknown, units: ReadonlyArray<Pick<AotUnit, "entryPage" | "tableIndex" | "pages" | "bytes">>): Uint8Array {
@@ -413,10 +415,92 @@ export class AotCache {
 
     getUnits(): AotUnit[] { return this.units; }
 
+    private pending: AotUnit[] = [];
+    private retryTimer: ReturnType<typeof setTimeout> | null = null;
+    private retryDeadline = 0;
+    readonly retryStats = { passes: 0, published: 0, dropped: 0 };
+
+    pendingRetries(): number { return this.pending.length; }
+
+    private scheduleRetry(): void {
+        if (this.retryTimer !== null || this.pending.length === 0) return;
+        if ((globalThis as { __aotNoRetry?: boolean }).__aotNoRetry) { this.pending = []; return; }
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            void this.retryPending().catch((e) => Logger.warn(LogCategory.SYSTEM, `[AOT] retry failed: ${e}`));
+        }, RETRY_INTERVAL_MS);
+    }
+
+    /**
+     * Units whose pages did not match at boot hold code that arrives later (a DLL mapped
+     * after the entry point, an unpacked section). Each pass re-hashes their pages; a unit
+     * whose pages all match is published if the JIT has not claimed them meanwhile. The
+     * hash runs on a copy, and the copy is compared against live memory again right before
+     * the synchronous publish, so a page rewritten in between is not published.
+     */
+    private async retryPending(): Promise<void> {
+        this.retryStats.passes++;
+        const mem: Uint8Array | undefined = this.cpu()?.mem8;
+        if (!mem || performance.now() > this.retryDeadline || !this.loadedVersion) {
+            this.retryStats.dropped += this.pending.length;
+            this.pending = [];
+            return;
+        }
+        const matched: Array<{ unit: AotUnit; copies: Array<{ addr: number; bytes: Uint8Array }> }> = [];
+        const still: AotUnit[] = [];
+        for (const u of this.pending) {
+            const copies: Array<{ addr: number; bytes: Uint8Array }> = [];
+            let ok = true;
+            for (const p of u.pages) {
+                const addr = p.physPage * PAGE_SIZE;
+                if (addr + PAGE_SIZE > mem.length) { ok = false; break; }
+                const bytes = new Uint8Array(PAGE_SIZE);
+                bytes.set(mem.subarray(addr, addr + PAGE_SIZE));
+                if (hex(await crypto.subtle.digest("SHA-256", bytes)) !== p.sha) { ok = false; break; }
+                copies.push({ addr, bytes });
+            }
+            if (ok) matched.push({ unit: u, copies });
+            else still.push(u);
+        }
+        this.pending = still;
+        if (matched.length) {
+            let same = false;
+            try { same = this.sameVersion(this.loadedVersion, await this.version()); } catch { same = false; }
+            const live: Uint8Array | undefined = this.cpu()?.mem8;
+            const imports = this.cpu()?.["jit_imports"];
+            const candidates: Array<{ unit: AotUnit; fn: unknown }> = [];
+            for (const { unit, copies } of matched) {
+                if (!same || !live || !imports) { this.retryStats.dropped++; continue; }
+                let unchanged = true;
+                for (const c of copies) {
+                    const cur = live.subarray(c.addr, c.addr + PAGE_SIZE);
+                    for (let i = 0; i < PAGE_SIZE; i++) if (cur[i] !== c.bytes[i]) { unchanged = false; break; }
+                    if (!unchanged) break;
+                }
+                if (!unchanged) { this.pending.push(unit); continue; }
+                try {
+                    const inst = new WebAssembly.Instance(unit.module ?? new WebAssembly.Module(unit.bytes), { "e": imports });
+                    const fn = (inst.exports as any)["f"];
+                    if (typeof fn === "function") candidates.push({ unit, fn });
+                    else this.retryStats.dropped++;
+                } catch { this.retryStats.dropped++; }
+            }
+            let refusedHere = 0;
+            const published = this.publishCandidates(candidates, () => { refusedHere++; });
+            this.retryStats.published += published;
+            this.retryStats.dropped += refusedHere;
+            const w = this.wasm();
+            if (published > 0 && w?.jit_aot_flush_tlb) w.jit_aot_flush_tlb();
+            if (published > 0) Logger.log(LogCategory.SYSTEM, `[AOT] late publish: ${published} unit(s), ${this.pending.length} still pending`);
+        }
+        this.scheduleRetry();
+    }
     clear(): void {
         this.units = [];
         this.live = [];
         this.loadedVersion = null;
+        this.pending = [];
+        if (this.retryTimer !== null) { clearTimeout(this.retryTimer); this.retryTimer = null; }
         // Forgetting the units means no longer knowing what the store holds, so a later
         // save() must not prune it either — otherwise `clear()` followed by a short
         // recording deletes every unit an earlier session saved.
@@ -798,6 +882,7 @@ export class AotCache {
         // into for code that no longer matches it. Kept separate from publication because
         // sha256 awaits, and the guest must not run in the middle of the second pass.
         const candidates: Array<{ unit: AotUnit; fn: unknown }> = [];
+        const lateCandidates: AotUnit[] = [];
         for (const u of this.units) {
             noUnit = u;
             // With no pages the publication loop would publish nothing and still count as a
@@ -812,7 +897,7 @@ export class AotCache {
                 }
                 if ((await sha256Page(mem, p.physPage * PAGE_SIZE)) !== p.sha) { contentOk = false; break; }
             }
-            if (!contentOk) { no("content-mismatch"); continue; }
+            if (!contentOk) { no("content-mismatch"); lateCandidates.push(u); continue; }
             try {
                 // This is intentionally before transaction begin: WebAssembly.Module/Instance
                 // construction may fail, but once Rust owns a slot pass 2 contains no await.
@@ -841,7 +926,10 @@ export class AotCache {
         this.live = [];
         const registered = this.publishCandidates(candidates, no);
         if (registered > 0 && w.jit_aot_flush_tlb) w.jit_aot_flush_tlb();
-        Logger.log(LogCategory.SYSTEM, `[AOT] replay: registered=${registered} refused=${JSON.stringify(refused)}`);
+        this.pending = lateCandidates;
+        this.retryDeadline = performance.now() + RETRY_WINDOW_MS;
+        this.scheduleRetry();
+        Logger.log(LogCategory.SYSTEM, `[AOT] replay: registered=${registered} refused=${JSON.stringify(refused)} retrying=${lateCandidates.length}`);
         return { registered, refused, ...(refusedUnits.length ? { refusedUnits } : {}) };
     }
 }
