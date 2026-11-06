@@ -97,7 +97,7 @@ const PINNED = new Map<string, number>([
     ["core/thunking/callback-manager.ts", 19],
     ["core/thunking/dispatcher-forensics.ts", 9],
     ["core/thunking/exception-context-dumper.ts", 2],
-    ["core/thunking/thunk-dispatcher.ts", 65],
+    ["core/thunking/thunk-dispatcher.ts", 67],
     ["emulator.worker.ts", 24],
     ["harness/cmds/breakpoints.ts", 4],
     ["harness/cmds/fpu.ts", 3],
