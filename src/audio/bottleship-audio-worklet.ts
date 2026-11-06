@@ -17,7 +17,7 @@ import {
     CTRL_SAMPLE_RATE, CTRL_BITS_PER_SAMPLE, CTRL_BLOCK_ALIGN, CTRL_STATE,
     CTRL_LOOP_MODE, CTRL_VOLUME, CTRL_PAN, CTRL_FREQUENCY, CTRL_DATA_LENGTH,
     CTRL_STOP_REQUESTED, CTRL_FLAGS, CTRL_RESERVED, CTRL_BLOCK_BYTES, CTRL_SLOTS,
-    STATE_PLAYING, FLAG_CIRCULAR, FLAG_STREAMING,
+    STATE_PLAYING, FLAG_CIRCULAR, FLAG_STREAMING, FLAG_LAP_MUTE,
     CTRL_3D_POS_X, CTRL_3D_POS_Y, CTRL_3D_POS_Z,
     CTRL_3D_VEL_X, CTRL_3D_VEL_Y, CTRL_3D_VEL_Z,
     CTRL_3D_MIN_DIST, CTRL_3D_MAX_DIST, CTRL_3D_MODE,
@@ -699,7 +699,7 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
         continue;
       }
 
-      const staleLapWatch = isStreaming && !streamingHold && loopMode === -1;
+      const staleLapWatch = isStreaming && (flags & FLAG_LAP_MUTE) !== 0 && !streamingHold && loopMode === -1;
       let staleLap = staleLapWatch && !!rb.staleLap;
       let prevLapAvail = -1;
       if (staleLap && writeCursorBytes !== rb.staleLapWrite) {

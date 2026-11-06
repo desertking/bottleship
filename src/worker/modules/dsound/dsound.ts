@@ -35,6 +35,7 @@ import {
     CTRL_BLOCK_BYTES,
     FLAG_CIRCULAR,
     FLAG_STREAMING,
+    FLAG_LAP_MUTE,
     STATE_STOPPED,
     STATE_PLAYING,
     STATE_PAUSED,
@@ -2922,10 +2923,10 @@ export class DSound implements IModule {
             const raw = getCtrl(sab, CTRL_PLAY_CURSOR) % ring;
             if ((flags & FLAG_STREAMING) === 0) {
                 setCtrl(sab, CTRL_WRITE_CURSOR, (raw + ring - blockAlign) % ring);
-                setCtrl(sab, CTRL_FLAGS, flags | FLAG_STREAMING);
+                setCtrl(sab, CTRL_FLAGS, flags | FLAG_STREAMING | FLAG_LAP_MUTE);
             }
         } else if (flags & FLAG_STREAMING) {
-            setCtrl(sab, CTRL_FLAGS, flags & ~FLAG_STREAMING);
+            setCtrl(sab, CTRL_FLAGS, flags & ~(FLAG_STREAMING | FLAG_LAP_MUTE));
         }
     }
 
@@ -3107,7 +3108,7 @@ export class DSound implements IModule {
         const src = mem.subarray(buffer.ptr, buffer.ptr + buffer.bytes);
         for (let at = 0; at < ring; at += buffer.bytes) writeRingData(buffer.sab, at, src, buffer.bytes);
         // Every lap is now written: re-arm the hold from a full ring.
-        setCtrl(buffer.sab, CTRL_FLAGS, getCtrl(buffer.sab, CTRL_FLAGS) & ~FLAG_STREAMING);
+        setCtrl(buffer.sab, CTRL_FLAGS, getCtrl(buffer.sab, CTRL_FLAGS) & ~(FLAG_STREAMING | FLAG_LAP_MUTE));
     }
 
     /**

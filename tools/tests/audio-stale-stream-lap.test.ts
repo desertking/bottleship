@@ -2,7 +2,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
     createAudioRingBuffer, getCtrl, setCtrl, writeRingData,
     CTRL_DATA_LENGTH, CTRL_FLAGS, CTRL_LOOP_MODE, CTRL_PLAY_CURSOR, CTRL_STATE, CTRL_WRITE_CURSOR,
-    FLAG_CIRCULAR, FLAG_STREAMING, STATE_PLAYING,
+    FLAG_CIRCULAR, FLAG_LAP_MUTE, FLAG_STREAMING, STATE_PLAYING,
 } from "../../src/audio/audio-ring-buffer";
 
 let Processor: any;
@@ -36,13 +36,13 @@ afterAll(() => {
 const QUANTUM = 128;
 const FRAMES = 1000;
 
-function loopingStream(streaming: boolean) {
+function loopingStream(streaming: boolean, lapMute = true) {
     const processor = new Processor();
     const sab = createAudioRingBuffer(FRAMES * 4, { channels: 1, sampleRate: 48000, bitsPerSample: 32 }, true);
     writeRingData(sab, 0, new Uint8Array(new Float32Array(FRAMES).fill(0.25).buffer), FRAMES * 4);
     setCtrl(sab, CTRL_DATA_LENGTH, FRAMES * 4);
     setCtrl(sab, CTRL_LOOP_MODE, -1);
-    setCtrl(sab, CTRL_FLAGS, FLAG_CIRCULAR | (streaming ? FLAG_STREAMING : 0));
+    setCtrl(sab, CTRL_FLAGS, FLAG_CIRCULAR | (streaming ? FLAG_STREAMING : 0) | (streaming && lapMute ? FLAG_LAP_MUTE : 0));
     setCtrl(sab, CTRL_WRITE_CURSOR, (FRAMES - 1) * 4);
     setCtrl(sab, CTRL_STATE, STATE_PLAYING);
     processor.port.onmessage({ data: { type: "register", id: 7, sab } });
@@ -68,6 +68,11 @@ describe("a looping stream whose producer stopped refilling it", () => {
         setCtrl(v.sab, CTRL_WRITE_CURSOR, ((play + 600) % FRAMES) * 4);
         v.quantum();
         expect(v.quantum().some((s) => s > 0.1)).toBe(true);
+    });
+
+    test("a looping stream whose producer did not ask for lap muting keeps playing past its frontier", () => {
+        const v = loopingStream(true, false);
+        for (let i = 0; i < 30; i++) expect(v.quantum().every((s) => s > 0.1)).toBe(true);
     });
 
     test("negative control: a looping buffer that is not a stream keeps repeating its content", () => {

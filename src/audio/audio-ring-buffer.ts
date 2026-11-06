@@ -116,6 +116,7 @@ export const STATE_PAUSED = 2;
 export const FLAG_CIRCULAR = 1;
 /** Streaming flag: worklet outputs silence when caught up to write cursor instead of wrapping */
 export const FLAG_STREAMING = 2;
+export const FLAG_LAP_MUTE = 4;
 
 // ─── Listener SAB field indices (Int32Array element offsets) ─────────────────
 
