@@ -2040,6 +2040,10 @@ export function registerFastPathMessageFunctions(dispatcher: HleDispatcher): voi
             }
         }
 
+        if (system.windowManager.hasPendingMoveSetCursor(wMsgFilterMin, wMsgFilterMax, callerThreadId)) {
+            return null;
+        }
+
         const msg = system.windowManager.peekMessage((wRemoveMsg & 1) !== 0, wMsgFilterMin, wMsgFilterMax, callerThreadId);
 
         // dbg.peekstats() diagnostic: histogram of dequeued message ids + empty-return count
@@ -2138,6 +2142,9 @@ export function registerFastPathMessageFunctions(dispatcher: HleDispatcher): voi
             }
         }
 
+        if (system.windowManager.hasPendingMoveSetCursor(wMsgFilterMin, wMsgFilterMax, callerThreadId)) {
+            return null;
+        }
         const msg = system.windowManager.peekMessage(true, wMsgFilterMin, wMsgFilterMax, callerThreadId);
         if (!msg) {
             // Queue empty — check per-thread quit flag before falling to async
