@@ -111,6 +111,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_multi_entry_loop_safety", 1], // multi-entry wasm loops get the LOOP_COUNTER exit too
     ["jit_sse_scalar_inline", 1],   // scalar SSE memory/compare/convert forms as wasm float ops
     ["jit_x87_lean", 1],            // one CR0 test per block; PC rounding only when PC=24
+    ["fpu_fld80_exact_fast", 1],    // FLD m80 as relaxed f64 only when the conversion is exact
 ]));
 
 /** The all-off reference for the switches. */
