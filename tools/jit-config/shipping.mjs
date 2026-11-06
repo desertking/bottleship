@@ -116,6 +116,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_carry8_inline", 1],
     ["jit_sse_convert_inline", 1],
     ["jit_page_fallthrough", 1],
+    ["jit_fist64_inline", 1],
 ]));
 
 /** The all-off reference for the switches. */
