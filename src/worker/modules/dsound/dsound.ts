@@ -1,4 +1,5 @@
 import { IModule } from "../../core/module";
+import { startEmulationBeat } from './emulation-beat';
 import { Process } from "../../core/process";
 import { ThunkImplementation, ThunkResult, X86Context } from "../../core/thunking/thunk-dispatcher";
 import { Logger, LogCategory } from "../../core/logger";
@@ -536,6 +537,7 @@ export class DSound implements IModule {
         // Create listener SAB and share with audio worklet
         this.listenerSab = createListenerSab();
         self.postMessage({ type: "audio_listener_sab", payload: { sab: this.listenerSab } });
+        startEmulationBeat(this.listenerSab);
         ensureAudioStatsSab();
         Logger.log(LogCategory.SYSTEM, `DirectSound: Created 3D listener SAB`);
 
