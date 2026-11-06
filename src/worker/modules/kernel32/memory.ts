@@ -2491,6 +2491,13 @@ export const exports: Record<string, ThunkImplementation> = (() => {
                     address = process.memory.alloc(alignedSize, 'HEAP', perms, ALLOC_GRANULARITY);
                 }
             } else {
+                const blocker = process.memory.liveBlockOverlapping?.(address, alignedSize,
+                    (base) => virtualAllocRegions.has(base));
+                if (blocker) {
+                    profiler.end("VirtualAlloc:alloc");
+                    System.getInstance().scheduler.setLastError(ERROR_INVALID_ADDRESS);
+                    return fail(`range holds the heap block 0x${blocker.addr.toString(16)}+0x${blocker.size.toString(16)}`);
+                }
                 process.memory.allocAt(address, alignedSize, 'HEAP', perms);
             }
         } catch (error) {
