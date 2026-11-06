@@ -659,6 +659,17 @@ export class GDIContext {
         return true;
     }
 
+    private readonly glOwnedWindows = new Set<number>();
+
+    setGLOwnedWindow(hwnd: number, owned: boolean): void {
+        if (owned) this.glOwnedWindows.add(hwnd >>> 0);
+        else this.glOwnedWindows.delete(hwnd >>> 0);
+    }
+
+    skipsPaintSeed(hwnd: number): boolean {
+        return this.glOwnedWindows.has(hwnd >>> 0) && !(globalThis as { __noGlPaintSeedSkip?: boolean }).__noGlPaintSeedSkip;
+    }
+
     dropWindowClientBacking(hwnd: number): void {
         this.windowClientBacking.delete(hwnd);
     }
@@ -2559,6 +2570,7 @@ export class GDIContext {
         this.bitmapVersions.clear();
         this.dcBitmapSyncState.clear();
         this.windowClientBacking.clear();
+        this.glOwnedWindows.clear();
         this.nextHdc = 0x20000;
         this.nextHgdiobj = 0x30000;
         this.systemPaletteUse = 1;

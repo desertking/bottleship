@@ -439,11 +439,11 @@ function createWindowClientDC(gdi: GDIContext, hWnd: number): number {
             // GetDC→BitBlt "background snapshot" (menu slide transitions) permanently
             // accumulate every page that was ever shown. Own backing first, then an
             // ancestor's, then overlay only when nothing was retained yet.
-            const seeded = shouldSeedPaintFromParent(window)
+            const seeded = !!gdi.skipsPaintSeed?.(hWnd) || (shouldSeedPaintFromParent(window)
                 ? (restoreSeedFromAncestors(gdi, hdc, window)
                     || !!gdi.seedMemoryDCFromClientBacking?.(hdc, window.handle))
                 : (!!gdi.seedMemoryDCFromClientBacking?.(hdc, window.handle)
-                    || restoreSeedFromAncestors(gdi, hdc, window));
+                    || restoreSeedFromAncestors(gdi, hdc, window)));
             if (!seeded) {
                 gdi.seedMemoryDCFromOverlay(hdc);
             }

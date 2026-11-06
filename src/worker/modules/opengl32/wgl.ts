@@ -37,6 +37,12 @@ function resolveImplementedEntryPoint(dispatcher: any, name: string): number {
     return addr;
 }
 
+function setWindowGLOwned(hdc: number, owned: boolean): void {
+    const gdi = System.getInstance().gdiContext;
+    const hwnd = gdi?.getDCWindow?.(hdc) ?? 0;
+    if (gdi && hwnd) gdi.setGLOwnedWindow?.(hwnd, owned);
+}
+
 export function createWglExports(ctx: OpenGLContext): Record<string, ThunkImplementation> {
     const exports: Record<string, ThunkImplementation> = {};
 
@@ -65,7 +71,9 @@ export function createWglExports(ctx: OpenGLContext): Record<string, ThunkImplem
                 system.services.render.setActive(null);
             }
         }
+        const deleted = contexts.get(hglrc);
         contexts.delete(hglrc);
+        if (deleted) setWindowGLOwned(deleted.hdc, false);
         Logger.log(LogCategory.GDI32, `wglDeleteContext(0x${hglrc.toString(16)}) -> TRUE`);
         return 1;
     };
@@ -88,7 +96,10 @@ export function createWglExports(ctx: OpenGLContext): Record<string, ThunkImplem
         }
         currentHglrc = hglrc;
         currentHdc = hdc;
-        if (hdc) ctx.drawableDC = hdc;
+        if (hdc) {
+            ctx.drawableDC = hdc;
+            setWindowGLOwned(hdc, true);
+        }
 
         // Lazily initialize OpenGL executor once WebGPU backend is available.
         if (!ctx.executor && ctx.backend) {
