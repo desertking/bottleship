@@ -130,16 +130,20 @@ export class ZipStoreWriter {
     }
 
     addDeflated(name: string, parts: readonly Uint8Array[], size: number, crc: number, dosStamp = 0): number {
+        return this.addEncoded(name, parts, size, crc, dosStamp, 8);
+    }
+
+    addEncoded(name: string, parts: readonly Uint8Array[], size: number, crc: number, dosStamp: number, method: number): number {
         const nameBuf = Buffer.from(name, "utf8");
         const entryOffset = this.offset;
         let compressedSize = 0;
         for (const part of parts) compressedSize += part.byteLength;
-        this.raw(lfhFor(nameBuf, size, crc, dosStamp, 8, compressedSize));
+        this.raw(lfhFor(nameBuf, size, crc, dosStamp, method, compressedSize));
         for (const part of parts) {
             writeSync(this.fd, part, 0, part.byteLength);
             this.offset += part.byteLength;
         }
-        this.cd.push({ nameBuf, size, crc, offset: entryOffset, dosStamp, method: 8, compressedSize });
+        this.cd.push({ nameBuf, size, crc, offset: entryOffset, dosStamp, method, compressedSize });
         return entryOffset;
     }
 
