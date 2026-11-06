@@ -663,6 +663,7 @@ export interface OpenGLContext {
     immediateFlatBuf: Float32Array;
     immediateFlatCount: number;
     immediatePrimMode: number;
+    drawMergeHint: number;
     currentColor: Float32Array;
     currentNormal: Float32Array;
     currentTexCoord: Float32Array[]; // per texture unit
@@ -913,6 +914,7 @@ export function createOpenGLContext(process: Process): OpenGLContext {
         immediateFlatBuf: new Float32Array(65536 * 15),
         immediateFlatCount: 0,
         immediatePrimMode: 0,
+        drawMergeHint: -2,
         currentColor: new Float32Array([1, 1, 1, 1]),
         currentNormal: new Float32Array([0, 0, 1]),
         currentTexCoord: [new Float32Array([0, 0, 0, 1]), new Float32Array([0, 0, 0, 1])],
