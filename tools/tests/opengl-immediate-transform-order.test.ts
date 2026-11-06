@@ -30,9 +30,10 @@ test("glEnd transforms before assembling and produces the same clip-space vertic
     for (const [x, y, z] of src) gl.glVertex3f(null, null, [bits(x!), bits(y!), bits(z!)]);
     const flat = new Float32Array(ctx.immediateFlatBuf.subarray(0, 4 * VERT_FLOATS));
     gl.glEnd(null, null, []);
-    const expected = new Float32Array(6 * VERT_FLOATS);
-    assembleFlatVerts(flat, 4, 7, expected, 0);
-    transformFlatVerts(ctx, expected, 0, 6);
-    expect(Array.from(ctx.vertArena.data.subarray(0, 6 * VERT_FLOATS))).toEqual(Array.from(expected));
+    const expected = new Float32Array(4 * VERT_FLOATS);
+    assembleFlatVerts(flat, 4, 0x0004, expected, 0);
+    expected.set(flat.subarray(3 * VERT_FLOATS, 4 * VERT_FLOATS), 3 * VERT_FLOATS);
+    transformFlatVerts(ctx, expected, 0, 4);
+    expect(Array.from(ctx.vertArena.data.subarray(0, 4 * VERT_FLOATS))).toEqual(Array.from(expected));
     expect(ctx.commands.count).toBe(1);
 });

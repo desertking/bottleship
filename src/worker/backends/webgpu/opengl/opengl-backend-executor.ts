@@ -36,6 +36,7 @@ import {
     CF_CLEAR_R, CF_CLEAR_G, CF_CLEAR_B, CF_CLEAR_A, CF_CLEAR_DEPTH,
     DF_DEPTH_TEST, DF_DEPTH_MASK, DF_BLEND, DF_ALPHA_TEST, DF_CULL, DF_FOG,
     DF_COLOR_MASK_R, DF_COLOR_MASK_G, DF_COLOR_MASK_B, DF_COLOR_MASK_A, DF_STENCIL_TEST, DF_SCISSOR,
+    DF_QUADS_INDEXED,
 } from "../../../modules/opengl32/context";
 import {
     GL_ADD,
@@ -157,6 +158,15 @@ export function openglVertexLayout(direct: boolean): GPUVertexBufferLayout {
 }
 const UNIFORM_BLOCK_SIZE = 144;
 
+export function quadIndexPattern(quads: number): Uint32Array {
+    const out = new Uint32Array(quads * 6);
+    for (let q = 0, o = 0, v = 0; q < quads; q++, o += 6, v += 4) {
+        out[o] = v; out[o + 1] = v + 1; out[o + 2] = v + 2;
+        out[o + 3] = v; out[o + 4] = v + 2; out[o + 5] = v + 3;
+    }
+    return out;
+}
+
 export class OpenGLBackendExecutor {
     private readonly backend: WebGPUBackend;
 
@@ -204,6 +214,8 @@ export class OpenGLBackendExecutor {
 
     private vertexBuffer: GPUBuffer | null = null;
     private vertexBufferSize = 0;
+    private quadIndexBuffer: GPUBuffer | null = null;
+    private quadIndexCapacity = 0;
     private vertexUploadCursor = 0;
     private vertexScratch = new Float32Array(0);
     private readonly directVertices = !(globalThis as { __noGlDirectVertexUpload?: boolean }).__noGlDirectVertexUpload;
@@ -252,6 +264,8 @@ export class OpenGLBackendExecutor {
                 this.defaultSampler = null;
                 this.vertexBuffer = null;
                 this.vertexBufferSize = 0;
+                this.quadIndexBuffer = null;
+                this.quadIndexCapacity = 0;
                 this.vertexUploadCursor = 0;
                 this.uniformBuffer = null;
                 this.uniformCapacity = 0;
@@ -354,6 +368,7 @@ export class OpenGLBackendExecutor {
         const drawCount = this.countDrawCommands(input.commands);
         this.ensureUniformCapacity(device, drawCount);
         this.ensureVertexBufferCapacity(device, this.estimateVertexBytes(input.commands));
+        this.ensureQuadIndexCapacity(device, queue, this.maxIndexedQuads(input.commands));
 
         if (!this.offscreenView || !this.depthView || !this.uniformBuffer || !this.vertexBuffer) {
             Logger.warn(LogCategory.SYSTEM,
@@ -515,7 +530,14 @@ export class OpenGLBackendExecutor {
                     }
                     pass.setBindGroup(0, bindGroup, [uniformOffset]);
                     pass.setVertexBuffer(0, this.vertexBuffer!, vertexOffset, prepared.byteLength);
-                    pass.draw(prepared.vertexCount, 1, 0, 0);
+                    if ((flags & DF_QUADS_INDEXED) !== 0) {
+                        const quads = prepared.vertexCount >> 2;
+                        if (quads === 0 || quads > this.quadIndexCapacity) break;
+                        pass.setIndexBuffer(this.quadIndexBuffer!, "uint32");
+                        pass.drawIndexed(quads * 6, 1, 0, 0, 0);
+                    } else {
+                        pass.draw(prepared.vertexCount, 1, 0, 0);
+                    }
                     drawsIssued++;
                     break;
                 }
@@ -677,6 +699,12 @@ export class OpenGLBackendExecutor {
             this.vertexBuffer.destroy();
             this.vertexBuffer = null;
             this.vertexBufferSize = 0;
+        }
+
+        if (this.quadIndexBuffer) {
+            this.quadIndexBuffer.destroy();
+            this.quadIndexBuffer = null;
+            this.quadIndexCapacity = 0;
         }
 
         if (this.uniformBuffer) {
@@ -914,6 +942,31 @@ export class OpenGLBackendExecutor {
         });
         this.uniformCapacity = nextCapacity;
         this.bindGroupCache.clear();
+    }
+
+    private maxIndexedQuads(stream: GLCommandStream): number {
+        const I = stream.i32;
+        let max = 0;
+        for (let c = 0; c < stream.count; c++) {
+            const i = c * CMD_I32;
+            if (I[i + CI_TYPE] !== GLDrawCommandType.DRAW || (I[i + CI_FLAGS] & DF_QUADS_INDEXED) === 0) continue;
+            const quads = I[i + CI_VERT_COUNT] >> 2;
+            if (quads > max) max = quads;
+        }
+        return max;
+    }
+
+    private ensureQuadIndexCapacity(device: GPUDevice, queue: GPUQueue, quads: number): void {
+        if (quads <= this.quadIndexCapacity) return;
+        const capacity = this.nextPow2(Math.max(quads, 1024));
+        const indices = quadIndexPattern(capacity);
+        if (this.quadIndexBuffer) this.quadIndexBuffer.destroy();
+        this.quadIndexBuffer = device.createBuffer({
+            size: indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        queue.writeBuffer(this.quadIndexBuffer, 0, indices.buffer, indices.byteOffset, indices.byteLength);
+        this.quadIndexCapacity = capacity;
     }
 
     private ensureVertexBufferCapacity(device: GPUDevice, requiredBytes: number): void {
