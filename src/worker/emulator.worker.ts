@@ -3593,6 +3593,13 @@ const handleWorkerMessage = (event: MessageEvent): void => {
   }
   const message = event.data;
 
+  if (message?.type === "liveness_ping") {
+    let presents = 0;
+    try { presents = System.getInstance().services.render.getGuestPresentSerial(); } catch { presents = 0; }
+    self.postMessage({ type: "liveness_pong", seq: message.seq, presents, busyMs: workerTime.snapshot().inTickMs });
+    return;
+  }
+
   if (message?.type === "dbg") {
     // Guest debugger bridge: window.dbg.<cmd>(...args) on the page -> here.
     handleDbgCommand(message.cmd, message.args);

@@ -1,5 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionWorker } from './session-worker';
+import { createStallWatch } from './stall-watch';
 import { ChildSessionSurface } from './child-session-surface';
 import { hardwareKeyVk } from "./hardware-key-vk";
 import { cx } from "../ui/cx";
@@ -190,6 +191,7 @@ const POINTER_LOCK_EXIT_COOLDOWN_MS = 1300;
 /** Bundle URL a pending re-exec must re-open once window.loadApp exists (dev/harness boots). */
 let reExecBundleUrl: string | null = null;
 let globalWorker: Worker | null = null;
+const STALL_HINT_ENABLED = typeof window === "undefined" || new URLSearchParams(window.location.search).get("stallHint") !== "0";
 let globalSab: SharedArrayBuffer | null = null;
 let globalInputView: Int32Array | null = null;
 let globalOffscreen: OffscreenCanvas | null = null;
@@ -2833,6 +2835,30 @@ export default function App() {
     }
   }, [isPaused]);
 
+  const [emulationStalled, setEmulationStalled] = useState(false);
+  useEffect(() => {
+    if (workerStatus !== "ready" || loadingProgress || exitInfo || isPaused) { setEmulationStalled(false); return; }
+    if (!STALL_HINT_ENABLED) return;
+    const worker = globalWorker;
+    if (!worker) return;
+    const watch = createStallWatch(
+      (seq) => worker.postMessage({ type: "liveness_ping", seq }),
+      setEmulationStalled,
+    );
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "liveness_pong") {
+        watch.pong(event.data.seq, event.data.presents, event.data.busyMs, performance.now());
+      }
+    };
+    worker.addEventListener("message", onMessage);
+    const timer = window.setInterval(() => watch.tick(performance.now()), 250);
+    return () => {
+      window.clearInterval(timer);
+      worker.removeEventListener("message", onMessage);
+      setEmulationStalled(false);
+    };
+  }, [workerStatus, loadingProgress, exitInfo, isPaused]);
+
   // A running game is not user activity as far as the OS is concerned, so the screen
   // dims mid-session on a phone or tablet. The lock is dropped by the browser on tab
   // hide and must be re-taken when we come back.
@@ -3414,6 +3440,12 @@ export default function App() {
         {/* The HUD's keyboard action only exists on this screen, so the sheet has to be
             mounted here too — not only in the library return. */}
         <VirtualKeyboardSheet open={oskOpen} onClose={() => setOskOpen(false)} />
+        {emulationStalled && !loadingProgress && !errorMessage && !exitInfo && (
+          <div className={s["stall-hint"]} role="status" aria-live="polite">
+            <span className={s["stall-hint__spinner"]} aria-hidden />
+            Loading…
+          </div>
+        )}
         {loadingProgress && !errorMessage && !exitInfo && (() => {
           const activeStage = loadPhaseStageIndex(loadingProgress.phase);
           const status = loadPhaseStatus(loadingProgress.phase, gameDisplayName);
