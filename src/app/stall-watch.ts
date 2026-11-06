@@ -77,3 +77,10 @@ export function createStallWatch(
         },
     };
 }
+
+const STALL_HINT_LABELS: Record<string, string> = { de: "Lädt …", en: "Loading…", es: "Cargando…" };
+
+export function stallHintLabel(lang: string | null | undefined): string {
+    const primary = (lang ?? "").trim().toLowerCase().split(/[-_]/)[0] ?? "";
+    return STALL_HINT_LABELS[primary] ?? STALL_HINT_LABELS.en!;
+}

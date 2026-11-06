@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { createStallWatch, DEFAULT_STALL_WATCH } from "../../src/app/stall-watch";
+import { createStallWatch, DEFAULT_STALL_WATCH, stallHintLabel } from "../../src/app/stall-watch";
 
 function harness() {
     const pings: number[] = [];
@@ -58,5 +58,17 @@ describe("emulation stall hint", () => {
         let t = 0;
         for (; t < 6000; t += 250) step(t, { frames: t % 2000 === 0 ? 1 : 0, busyPerStep: 250 });
         expect(changes).toEqual([]);
+    });
+});
+
+describe("stall hint label", () => {
+    it("follows the page language and falls back to English", () => {
+        expect(stallHintLabel("de")).toBe("Lädt …");
+        expect(stallHintLabel("de-DE")).toBe("Lädt …");
+        expect(stallHintLabel("es")).toBe("Cargando…");
+        expect(stallHintLabel("en")).toBe("Loading…");
+        expect(stallHintLabel("fr")).toBe("Loading…");
+        expect(stallHintLabel("")).toBe("Loading…");
+        expect(stallHintLabel(null)).toBe("Loading…");
     });
 });

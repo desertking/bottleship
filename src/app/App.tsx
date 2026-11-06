@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionWorker } from './session-worker';
-import { createStallWatch } from './stall-watch';
+import { createStallWatch, stallHintLabel } from './stall-watch';
 import { ChildSessionSurface } from './child-session-surface';
 import { hardwareKeyVk } from "./hardware-key-vk";
 import { cx } from "../ui/cx";
@@ -3443,7 +3443,7 @@ export default function App() {
         {emulationStalled && !loadingProgress && !errorMessage && !exitInfo && (
           <div className={s["stall-hint"]} role="status" aria-live="polite">
             <span className={s["stall-hint__spinner"]} aria-hidden />
-            Loading…
+            {stallHintLabel(document.documentElement.lang || new URLSearchParams(window.location.search).get("lang"))}
           </div>
         )}
         {loadingProgress && !errorMessage && !exitInfo && (() => {
