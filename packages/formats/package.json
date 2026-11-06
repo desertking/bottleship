@@ -9,6 +9,7 @@
     "./inno/entries/*": "./src/inno/entries/*.ts",
     "./inno/check-lang": "./src/inno/check-lang.ts",
     "./unpack/source": "./src/unpack/source.ts",
+    "./audio/vorbis-decoder": "./src/audio/vorbis-decoder.ts",
     "./wgb/*": "./src/wgb/*.ts"
   },
   "dependencies": {
