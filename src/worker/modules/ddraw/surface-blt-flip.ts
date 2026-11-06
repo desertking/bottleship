@@ -959,14 +959,6 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
             (isRenderSurface(srcState) && srcState.gpuDirty)
         );
 
-        if (needsResync) {
-            // Just mark dirty - upload will happen later in batch
-            context.deferredUploadManager.markDirty(srcState);
-            Logger.verbose(LogCategory.DDRAW,
-                `Blt: Deferring upload for src=0x${srcState.surfacePtr.toString(16)} until present`);
-        }
-        // ----------------------------
-
         // CPU-First: Deterministic GPU fast path decision
         const srcMode = isRenderSurface(srcState) ? srcState.mode : "bitmap";
         const dstMode = isRenderSurface(dstState) ? dstState.mode : "bitmap";
