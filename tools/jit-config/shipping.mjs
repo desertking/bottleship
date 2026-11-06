@@ -114,6 +114,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["fpu_fld80_exact_fast", 1],    // FLD m80 as relaxed f64 only when the conversion is exact
     ["jit_x87_runs", 1],
     ["jit_carry8_inline", 1],
+    ["jit_sse_convert_inline", 1],
 ]));
 
 /** The all-off reference for the switches. */
