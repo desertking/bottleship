@@ -1,3 +1,4 @@
+import { registerFastPathGLFunctions } from "./fast-draw";
 import { IModule } from "../../core/module";
 import { Process } from "../../core/process";
 import { ThunkImplementation } from "../../core/thunking/thunk-dispatcher";
@@ -84,6 +85,7 @@ export class OpenGL32 implements IModule {
         // State / bind / array-pointer entrypoints drain through the table above, so this
         // must run AFTER the display-list wrapper has replaced every entry.
         registerWriteBufferGLStateFunctions(process.dispatcher, this.exports, raw, this.context, runner);
+        registerFastPathGLFunctions(process.dispatcher, this.exports);
     }
 
     setBackend(backend: WebGPUBackend): void {
