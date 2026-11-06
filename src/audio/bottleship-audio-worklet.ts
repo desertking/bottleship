@@ -83,7 +83,7 @@ const LIMIT_K = 1 - LIMIT_T;
 // audio-engine.ts verifies the echo and logs loudly on a mismatch or timeout,
 // because a cache hit that silently skips this whole file is worse than a version
 // bump you forgot: the failure otherwise looks identical to "nothing is wrong".
-const WORKLET_MODULE_VERSION = 12;
+const WORKLET_MODULE_VERSION = 15;
 
 // Discontinuity detector threshold: |s[n]−s[n−1]| above this between adjacent
 // output samples counts as a click/splice candidate.
