@@ -1015,6 +1015,7 @@ export const dbg = {
                 return { reset: true };
             }
             case "bootStats": return (globalThis as Record<string, any>).__aotBoot ?? null;
+            case "retry": return { pending: aotCache.pendingRetries(), ...aotCache.retryStats };
             case "pack": {
                 const bytes = aotCache.pack();
                 if (!bytes) return { error: "no units" };
