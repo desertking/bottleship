@@ -80,6 +80,8 @@ import { PF_HALT_TARGET } from '../bootloader';
 import { grantSrwOnWake, ensureSrwWaitEvent } from '../../modules/kernel32/srw-lock';
 import type { WinMM, PendingTimerCallback as PostedTimerCallback } from '../../modules/winmm';
 
+const POLL_SPIN_YIELD_MS = 2;
+
 // Max virtual-time advance per idle pollTimeouts() pump. Bounds the jump when the
 // idle anchor is stale after a pause / background-throttle gap. See pollTimeouts().
 const IDLE_PUMP_MAX_MS = 250;
@@ -4505,6 +4507,21 @@ export class Scheduler {
     requestSwitchToThread(threadId: number): void {
         // Simple: just request a switch. Round-robin will get there.
         this.switchRequested = true;
+    }
+
+    yieldForPollSpin(wallClock: boolean): boolean {
+        const thread = this.getCurrentThread();
+        if (!thread || thread.state !== ThreadState.RUNNING) return false;
+        if (this.hasOtherRunnableThreads(thread.id)) {
+            if (wallClock || this.insnQuantumFraction(thread, 0.5)) this.requestSwitch();
+            return false;
+        }
+        if (!wallClock) return false;
+        const ms = this.computeYieldMs(POLL_SPIN_YIELD_MS);
+        if (!(ms > 0)) return false;
+        this.creditVirtualTimeForSoleRunnableSleep(ms);
+        this.requestYieldToHost(ms, "pollSpin");
+        return true;
     }
 
     requestYieldToHost(ms: number = 1, source: string = "req"): void {

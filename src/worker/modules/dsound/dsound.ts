@@ -76,6 +76,7 @@ import {
 import { ensureAudioStatsSab } from "../audio-stats-sab";
 import { Mem } from "../../core/memory/mem-accessor";
 import { isValidAddress } from "../../core/memory/address-guard";
+import { PollKind } from "../../core/thunking/poll-spin-detector";
 
 const DS_OK = 0;
 const DSERR_INVALIDPARAM = 0x88780007;
@@ -2269,7 +2270,7 @@ export class DSound implements IModule {
         // They MUST stay traps (guest consumes the out-params immediately after RET).
         {
             const dispatcher = this.process.dispatcher as unknown as {
-                registerFastPath?: (dll: string, fn: string, impl: unknown, opts?: { trivial?: boolean }) => void;
+                registerFastPath?: (dll: string, fn: string, impl: unknown, opts?: { trivial?: boolean; poll?: PollKind }) => void;
             };
             if (dispatcher?.registerFastPath) {
                 dispatcher.registerFastPath('dsound', 'idirectsoundbuffer8_getstatus',
@@ -2296,7 +2297,7 @@ export class DSound implements IModule {
                             view.setUint32(statusPtr, status, true);
                         }
                         return DS_OK;
-                    }, { trivial: true });
+                    }, { trivial: true, poll: PollKind.WallClock });
 
                 dispatcher.registerFastPath('dsound', 'idirectsoundbuffer8_getcurrentposition',
                     (esp: number, view: DataView): number => {
@@ -2311,7 +2312,7 @@ export class DSound implements IModule {
                         this.dbgAudioCalls.lastPlay = playCursor;
                         this.dbgAudioCalls.lastWrite = writeCursor;
                         return DS_OK;
-                    }, { trivial: true });
+                    }, { trivial: true, poll: PollKind.WallClock });
             }
         }
 

@@ -20,6 +20,7 @@ import { sehOnCatchCompletion, dispatchCxxException } from '../seh-dispatch';
 import { JMP_REL8, JMP_LOOP, HLT } from './thunk-constants';
 import { parseStdcallCleanup, normalizeApiName } from './thunk-utils';
 import { BusyWaitDetector } from './busy-wait-detector';
+import { PollKind, PollSpinDetector } from './poll-spin-detector';
 import { WinApiCallRing } from './winapi-call-ring';
 import { dumpExceptionContext } from './exception-context-dumper';
 import { guardStackWrite } from '../memory/stack-write-guard';
@@ -106,7 +107,7 @@ export interface FastPathRegistrar {
         dllName: string,
         functionName: string,
         impl: FastPathImplementation,
-        options?: { trivial?: boolean },
+        options?: { trivial?: boolean; poll?: PollKind },
     ): void;
 }
 
@@ -416,6 +417,8 @@ export class ThunkDispatcher {
     // Trivial fast-path flag: 1 = skip scheduler boundary (state-setting thunks like SetRenderState).
     // Boundary still fires every TRIVIAL_BOUNDARY_INTERVAL calls or on Draw*/async thunks.
     private trivialFastPathTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
+    private pollFastPathTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
+    private pollSpin = new PollSpinDetector();
     private fastPathSinceLastBoundary = 0;
 
     // --- Tier-0 Write-Buffer Tables (parallel to fastPathTable) ---
@@ -789,7 +792,7 @@ export class ThunkDispatcher {
 
     // Pending registrations for stubs that aren't created yet
     private pendingRegistrations: Map<string, { impl: ThunkImplementation; dllName: string; functionName: string }> = new Map();
-    private pendingFastPathRegistrations: Map<string, { impl: FastPathImplementation; dllName: string; functionName: string; trivial?: boolean }> = new Map();
+    private pendingFastPathRegistrations: Map<string, { impl: FastPathImplementation; dllName: string; functionName: string; trivial?: boolean; poll?: PollKind }> = new Map();
     private pendingWriteBufRegistrations: Map<string, { handler: WriteBufHandler; dllName: string; functionName: string; argCount: number; isStdcall: boolean; zeroArg?: boolean; ptrDeref?: boolean; floatCount?: number; shaderConstant?: boolean; coalesceArgMask?: number; shadowSpec?: ShadowTrampolineSpec; barrier?: boolean; structCapture?: { ptrArgIndex: number; payloadDwords: number }; multiStructCapture?: { ptrArgIndices: number[]; payloadDwords: number }; upDraw?: boolean; ownerDisarm?: boolean }> = new Map();
     private pendingConstStubRegistrations: Map<string, { dllName: string; functionName: string; value: number; popBytes: number }> = new Map();
     private pendingIncRefStubRegistrations: Map<string, { dllName: string; functionName: string; spec: IncRefStubSpec }> = new Map();
@@ -1306,6 +1309,9 @@ export class ThunkDispatcher {
         this.recordShadowStackAtEntry(functionId, espAtEntry);
         this.boundaryKind = ThunkBoundaryKind.THUNK_STUB;
         this.boundaryCleanup = cleanupBytes;
+        const pollKind = this.pollFastPathTable[functionId];
+        if (pollKind !== PollKind.None) this.notePollFastPath(pollKind, cpu);
+        else this.pollSpin.other();
 
         // Deferred boundary: trivial state-setting thunks skip the scheduler boundary
         // unless we've accumulated enough calls. Draw* and async thunks always notify.
@@ -1314,6 +1320,14 @@ export class ThunkDispatcher {
         }
         this.fastPathSinceLastBoundary = 0;
         this.notifySchedulerBoundary(cpu);
+    }
+
+    private notePollFastPath(kind: number, cpu: any): void {
+        if (!this.pollSpin.poll(readRetiredInsns(cpu))) return;
+        if ((globalThis as { __noPollSpinYield?: boolean }).__noPollSpinYield) return;
+        if (this.ensureScheduler().yieldForPollSpin(kind === PollKind.WallClock)) {
+            preemptionManager.requestImmediateExit();
+        }
     }
 
     /**
@@ -2774,6 +2788,7 @@ export class ThunkDispatcher {
      */
     private _handlePortWriteSlow(functionId: number, schedulerEnterAlreadyCalled: boolean): void {
         const system = System.getInstance();
+        this.pollSpin.other();
 
         // 0. Exit check (a pause is handled in handlePortWrite: the call completes)
         if (system.isExiting) {
@@ -4801,12 +4816,12 @@ export class ThunkDispatcher {
         }
     }
 
-    registerFastPath(dllName: string, functionName: string, impl: FastPathImplementation, options?: { trivial?: boolean }): void {
+    registerFastPath(dllName: string, functionName: string, impl: FastPathImplementation, options?: { trivial?: boolean; poll?: PollKind }): void {
         // Always record in pendingFastPathRegistrations so applyPendingRegistrations can
         // re-bind this to the new stub IDs after Process.reset() regenerates stubs.
         // Without this, fast-paths registered once at worker boot are lost on game load.
         const key = `${dllName}:${functionName}`.toLowerCase();
-        this.pendingFastPathRegistrations.set(key, { impl, dllName, functionName, trivial: options?.trivial });
+        this.pendingFastPathRegistrations.set(key, { impl, dllName, functionName, trivial: options?.trivial, poll: options?.poll });
 
         const matchingStubs = this.findStubsByName(dllName, functionName);
         if (matchingStubs.length === 0) {
@@ -4817,6 +4832,7 @@ export class ThunkDispatcher {
             if (stub.functionId < MAX_THUNK_ID) {
                 this.fastPathTable[stub.functionId] = impl;
                 if (options?.trivial) this.trivialFastPathTable[stub.functionId] = 1;
+                this.pollFastPathTable[stub.functionId] = options?.poll ?? PollKind.None;
                 Logger.verbose(LogCategory.THUNK, `Registered fast-path [${stub.functionId}] ${dllName}:${functionName}${options?.trivial ? ' (trivial)' : ''}`);
             }
         }
@@ -8675,6 +8691,7 @@ export class ThunkDispatcher {
                 if (this.trivialFastPathTable[s.functionId]) {
                     this.trivialFastPathTable[functionId] = 1;
                 }
+                this.pollFastPathTable[functionId] = this.pollFastPathTable[s.functionId];
 
                 hypercallDataManager.registerFunction(stub.dllName, funcName, functionId);
 
@@ -8722,6 +8739,7 @@ export class ThunkDispatcher {
                     const targetFastPath = this.fastPathTable[s.functionId];
                     if (targetFastPath) {
                         this.fastPathTable[functionId] = targetFastPath;
+                        this.pollFastPathTable[functionId] = this.pollFastPathTable[s.functionId];
                     }
                     // Register with WASM hypercall dispatch
                     hypercallDataManager.registerFunction(stub.dllName, funcName, functionId);
@@ -8784,6 +8802,7 @@ export class ThunkDispatcher {
 
         this.fastPathTable[functionId] = pending.impl;
         if (pending.trivial) this.trivialFastPathTable[functionId] = 1;
+        this.pollFastPathTable[functionId] = pending.poll ?? PollKind.None;
     }
 
     private applyPendingConstStubForStub(stub: ThunkStub): void {
@@ -9152,6 +9171,7 @@ export class ThunkDispatcher {
                 if (stub.functionId < MAX_THUNK_ID) {
                     this.fastPathTable[stub.functionId] = pending.impl;
                     if (pending.trivial) this.trivialFastPathTable[stub.functionId] = 1;
+                    this.pollFastPathTable[stub.functionId] = pending.poll ?? PollKind.None;
                     Logger.verbose(LogCategory.THUNK, `Applied pending fast-path [${stub.functionId}] ${pending.dllName}:${pending.functionName}${pending.trivial ? ' (trivial)' : ''}`);
                     applied++;
                 }
@@ -9372,6 +9392,7 @@ export class ThunkDispatcher {
         // first time the user loads a game — slow-path hits soar for D3D state setters.
         this.dispatchTable.fill(null);
         this.fastPathTable.fill(null);
+        this.pollFastPathTable.fill(PollKind.None);
         this.writeBufHandlerTable.fill(null);
         this.writeBufArgCountTable.fill(0);
         this.writeBufRunTables.owners.fill(null);
