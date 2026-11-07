@@ -2993,7 +2993,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
  * GetAttachedSurface is called ~972K times in UT99 demo (3.6s total).
  * The result is deterministic per surface: source → attached is fixed for a flipping chain.
  */
-export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, context: DDrawContext): void {
+export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, context: DDrawContext, exports?: Record<string, ThunkImplementation>): void {
     if (!dispatcher || typeof dispatcher.registerFastPath !== 'function') return;
 
     const resourceProvider = context.resourceProvider;
@@ -3068,5 +3068,30 @@ export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, cont
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface7_GetAttachedSurface', fastPathGetAttachedSurface);
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_GetAttachedSurface', fastPathGetAttachedSurface);
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface4_GetAttachedSurface', fastPathGetAttachedSurface);
+
+    if (!exports) return;
+    const fastPathLockV1: FastPathImplementation = (esp, view, mem8) => {
+        if (esp + 24 > mem8.length) return null;
+        const thisPtr = view.getUint32(esp + 4, true);
+        const obj = resourceProvider.getComObjectByAddressFast(thisPtr) as DirectDrawSurfaceObject | null;
+        if (!(obj instanceof DirectDrawSurfaceObject)) return null;
+        const state = obj.getState();
+        if (isZBufferSurface(state) || surfaceSyncManager.needsCPUSync(state).needed) return null;
+        const impl = exports["IDirectDrawSurface_Lock"];
+        if (!impl) return null;
+        const args = [thisPtr, view.getUint32(esp + 8, true), view.getUint32(esp + 12, true),
+            view.getUint32(esp + 16, true), view.getUint32(esp + 20, true)];
+        const result = impl({ esp } as never, mem8, args);
+        return typeof result === "number" ? result : null;
+    };
+    const fastPathUnlockV1: FastPathImplementation = (esp, view, mem8) => {
+        if (esp + 12 > mem8.length) return null;
+        const impl = exports["IDirectDrawSurface_Unlock"];
+        if (!impl) return null;
+        const result = impl({ esp } as never, mem8, [view.getUint32(esp + 4, true), view.getUint32(esp + 8, true)]);
+        return typeof result === "number" ? result : null;
+    };
+    dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_Lock', fastPathLockV1);
+    dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_Unlock', fastPathUnlockV1);
 
 }
