@@ -204,31 +204,6 @@ export function transformFlatVerts(ctx: OpenGLContext, buf: Float32Array, offset
     }
 }
 
-function fusedQuadTransformAllowed(ctx: OpenGLContext): boolean {
-    if ((globalThis as { __glFusedQuadTransform?: boolean }).__glFusedQuadTransform === false) return false;
-    if (transformDiagCount < 2) return false;
-    return !ctx.enableFlags.has(GL_TEXTURE_GEN_S) && !ctx.enableFlags.has(GL_TEXTURE_GEN_T);
-}
-
-export function copyTransformFlatVerts(ctx: OpenGLContext, src: Float32Array, dst: Float32Array, base: number, count: number): void {
-    const mv = ctx.modelviewStack.stack[ctx.modelviewStack.top];
-    const proj = ctx.projectionStack.stack[ctx.projectionStack.top];
-    mat4Multiply(_mvpScratch, proj, mv);
-    const m = _mvpScratch;
-    const fog = ctx.enableFlags.has(GL_FOG);
-    for (let i = 0, s = 0, d = base; i < count; i++, s += VERT_FLOATS, d += VERT_FLOATS) {
-        const x = src[s], y = src[s+1], z = src[s+2], w = src[s+3];
-        dst[d]   = m[0]*x + m[4]*y + m[8]*z  + m[12]*w;
-        dst[d+1] = m[1]*x + m[5]*y + m[9]*z  + m[13]*w;
-        dst[d+2] = m[2]*x + m[6]*y + m[10]*z + m[14]*w;
-        dst[d+3] = m[3]*x + m[7]*y + m[11]*z + m[15]*w;
-        dst[d+4]  = src[s+4];  dst[d+5]  = src[s+5];  dst[d+6]  = src[s+6];  dst[d+7]  = src[s+7];
-        dst[d+8]  = src[s+8];  dst[d+9]  = src[s+9];  dst[d+10] = src[s+10];
-        dst[d+11] = src[s+11]; dst[d+12] = src[s+12]; dst[d+13] = src[s+13]; dst[d+14] = src[s+14];
-        if (fog) dst[d+VERT_FOG_DIST] = Math.abs(mv[2]*x + mv[6]*y + mv[10]*z + mv[14]*w);
-    }
-}
-
 function computeTexGenCoordFlat(
     mode: number, objPlane: Float32Array, eyePlane: Float32Array,
     coordIndex: number,
@@ -471,11 +446,6 @@ export function emitDrawCommandFlat(
         arena.reserve(quadVerts);
         const base = arena.used;
         const dst = arena.data;
-        if (!preTransformed && fusedQuadTransformAllowed(ctx)) {
-            copyTransformFlatVerts(ctx, src, dst, base, quadVerts);
-            emitArenaDraw(ctx, mode, base, quadVerts, true, DF_QUADS_INDEXED);
-            return;
-        }
         for (let i = 0, d = base; i < quadVerts; i++, d += VERT_FLOATS) copyVert(src, i, dst, d);
         emitArenaDraw(ctx, mode, base, quadVerts, preTransformed, DF_QUADS_INDEXED);
         return;
