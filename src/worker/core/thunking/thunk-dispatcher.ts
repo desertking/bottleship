@@ -1310,8 +1310,8 @@ export class ThunkDispatcher {
         this.boundaryKind = ThunkBoundaryKind.THUNK_STUB;
         this.boundaryCleanup = cleanupBytes;
         const pollKind = this.pollFastPathTable[functionId];
-        if (pollKind !== PollKind.None) this.notePollFastPath(pollKind, cpu);
-        else this.pollSpin.other();
+        if (pollKind === PollKind.None) this.pollSpin.other();
+        else if (pollKind !== PollKind.Neutral) this.notePollFastPath(pollKind, cpu);
 
         // Deferred boundary: trivial state-setting thunks skip the scheduler boundary
         // unless we've accumulated enough calls. Draw* and async thunks always notify.

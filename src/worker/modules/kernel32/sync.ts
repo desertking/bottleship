@@ -6,6 +6,7 @@
 
 import { type HleDispatcher, ThunkImplementation, ThunkResult, X86Context } from '../../core/thunking/thunk-dispatcher';
 import type { DeferredWrite, FastPathImplementation } from '../../core/thunking/thunk-dispatcher';
+import { PollKind } from '../../core/thunking/poll-spin-detector';
 import { Logger, LogCategory } from '../../core/logger';
 import { recordSyncEvent } from '../../core/scheduler/sync-objects';
 import { System } from '../../core/system';
@@ -2177,8 +2178,8 @@ const syncModule = (() => {
         reset,
         registerFastPathSyncFunctions: (dispatcher: HleDispatcher) => {
             if (dispatcher && typeof dispatcher.registerFastPath === 'function') {
-                dispatcher.registerFastPath('kernel32', 'EnterCriticalSection', fastPathEnterCriticalSection);
-                dispatcher.registerFastPath('kernel32', 'LeaveCriticalSection', fastPathLeaveCriticalSection);
+                dispatcher.registerFastPath('kernel32', 'EnterCriticalSection', fastPathEnterCriticalSection, { poll: PollKind.Neutral });
+                dispatcher.registerFastPath('kernel32', 'LeaveCriticalSection', fastPathLeaveCriticalSection, { poll: PollKind.Neutral });
                 dispatcher.registerFastPath('kernel32', 'AcquireSRWLockExclusive', makeFastPathAcquireSrw(true));
                 dispatcher.registerFastPath('kernel32', 'AcquireSRWLockShared', makeFastPathAcquireSrw(false));
                 dispatcher.registerFastPath('kernel32', 'ReleaseSRWLockExclusive', makeFastPathReleaseSrw(true));

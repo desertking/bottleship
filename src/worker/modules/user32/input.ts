@@ -7,6 +7,7 @@
 import { type HleDispatcher, FastPathImplementation, ThunkImplementation } from '../../core/thunking/thunk-dispatcher';
 import { Logger, LogCategory } from '../../core/logger';
 import { Mem } from '../../core/memory/mem-accessor';
+import { PollKind } from '../../core/thunking/poll-spin-detector';
 import { Marshaler } from '../../core/memory/marshaler';
 import { System } from '../../core/system';
 import {
@@ -770,7 +771,7 @@ export function registerFastPathInputFunctions(dispatcher: HleDispatcher): void 
         if (esp + 8 > mem8.length) return null;
         return readAsyncKeyState(view.getUint32(esp + 4, true) & 0xFF);
     };
-    dispatcher.registerFastPath('user32', 'GetAsyncKeyState', asyncKeyState, { trivial: true });
+    dispatcher.registerFastPath('user32', 'GetAsyncKeyState', asyncKeyState, { trivial: true, poll: PollKind.WallClock });
 
     const keyState: FastPathImplementation = (esp: number, view: DataView, mem8: Uint8Array) => {
         if (esp + 8 > mem8.length) return null;

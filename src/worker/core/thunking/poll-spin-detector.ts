@@ -3,7 +3,7 @@ import { TARGET_INSN_PER_MS } from '../scheduler/timing';
 export const POLL_SPIN_MAX_GAP_INSNS = TARGET_INSN_PER_MS / 50;
 export const POLL_SPIN_STREAK = 256;
 
-export const PollKind = { None: 0, VirtualClock: 1, WallClock: 2 } as const;
+export const PollKind = { None: 0, VirtualClock: 1, WallClock: 2, Neutral: 3 } as const;
 export type PollKind = typeof PollKind[keyof typeof PollKind];
 
 export class PollSpinDetector {
