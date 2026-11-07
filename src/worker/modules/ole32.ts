@@ -19,6 +19,7 @@ import { windows, registerWindowDestroyObserver } from "./user32/shared-state";
 import { DragDropRegistry } from "./ole32-dragdrop";
 import { comApartments, ComApartments } from "../core/com/apartment";
 import { coCreateMlang } from './ole32-mlang-font-link';
+import { coCreateWebBrowser } from './ole32-webbrowser';
 
 // COM error codes
 const REGDB_E_CLASSNOTREG = 0x80040154;
@@ -937,6 +938,8 @@ export class Ole32 implements IModule {
     ): number {
         const mlang = coCreateMlang(this.process, clsidNormalized, iidNormalized, ppv);
         if (mlang !== null) return mlang;
+        const webBrowser = coCreateWebBrowser(this.process, clsidNormalized, iidNormalized, ppv);
+        if (webBrowser !== null) return webBrowser;
         const registered = lookupHleComClass(this.process, clsidNormalized);
         if (registered) {
             if (!registered.server.acquireLoaderReference()) {
