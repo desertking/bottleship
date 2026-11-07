@@ -1,4 +1,5 @@
 import { RenderBackend } from "../../runtime/runtime-services";
+import { requestAdapterWithRetry } from "../../../gpu-adapter-retry";
 import { Logger, LogCategory } from "../../core/logger";
 import { recordGpuError } from "../../core/gpu-error-log";
 import { gpuDeviceLifecycle } from "../../core/gpu/gpu-device-lifecycle";
@@ -106,7 +107,7 @@ export class WebGPUBackend implements RenderBackend {
 
     /** requestAdapter + requestDevice. Throws with the reason a caller can act on. */
     private async requestDevice(): Promise<GPUDevice> {
-        const adapter = await navigator.gpu.requestAdapter();
+        const adapter = await requestAdapterWithRetry(navigator.gpu);
         if (!adapter) {
             throw new Error("WebGPU unavailable: requestAdapter() returned no adapter — no usable GPU (hardware acceleration disabled, GPU blocklisted, or VM/Remote Desktop with no GPU).");
         }
