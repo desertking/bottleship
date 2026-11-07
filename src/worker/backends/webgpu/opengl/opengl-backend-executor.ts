@@ -240,6 +240,7 @@ export class OpenGLBackendExecutor {
     private uniformStaging = new Uint8Array(0);
     private uniformStagingHi = 0;
     private uniformStagingActive = false;
+    private readonly trimPassState = (globalThis as { __glTrimPassState?: boolean }).__glTrimPassState !== false;
     private readonly coalesceUniformUploads = (globalThis as { __glCoalesceUniformUploads?: boolean }).__glCoalesceUniformUploads !== false;
 
     /** Current draw's glDepthRange, as WebGPU takes it (see readDepthRange). */
@@ -407,8 +408,19 @@ export class OpenGLBackendExecutor {
             renderPass = null;
         };
 
+        const trimState = this.trimPassState;
+        const stride = this.directVertices ? ARENA_BYTE_STRIDE : VERTEX_BYTE_STRIDE;
+        let passPipeline: GPURenderPipeline | null = null;
+        let passVertexBound = false;
+        let passIndexBound = false;
+        let vpX = NaN, vpY = NaN, vpWl = NaN, vpHl = NaN, vpMin = NaN, vpMax = NaN;
+
         const beginDrawPass = (): GPURenderPassEncoder => {
             if (renderPass) return renderPass;
+            passPipeline = null;
+            passVertexBound = false;
+            passIndexBound = false;
+            vpX = NaN;
             renderPass = encoder.beginRenderPass({
                 colorAttachments: [{
                     view: this.offscreenView!,
@@ -538,6 +550,40 @@ export class OpenGLBackendExecutor {
                     const vp = viewportRect(
                         I[i + CI_VP_X], I[i + CI_VP_Y], vpW, vpH, guestW, guestH, scale, renderW, renderH);
                     if (!vp) break;
+                    if (trimState) {
+                        if (vp.x !== vpX || vp.y !== vpY || vp.w !== vpWl || vp.h !== vpHl
+                            || this.depthRangeMin !== vpMin || this.depthRangeMax !== vpMax) {
+                            pass.setViewport(vp.x, vp.y, vp.w, vp.h, this.depthRangeMin, this.depthRangeMax);
+                            vpX = vp.x; vpY = vp.y; vpWl = vp.w; vpHl = vp.h;
+                            vpMin = this.depthRangeMin; vpMax = this.depthRangeMax;
+                        }
+                        if (passPipeline !== pipeline) {
+                            pass.setPipeline(pipeline);
+                            passPipeline = pipeline;
+                        }
+                        if (stencilTest) {
+                            pass.setStencilReference(I[i + CI_STENCIL_REF] >>> 0);
+                        }
+                        pass.setBindGroup(0, bindGroup, [uniformOffset]);
+                        if (!passVertexBound) {
+                            pass.setVertexBuffer(0, this.vertexBuffer!);
+                            passVertexBound = true;
+                        }
+                        const firstVertex = vertexOffset / stride;
+                        if ((flags & DF_QUADS_INDEXED) !== 0) {
+                            const quads = prepared.vertexCount >> 2;
+                            if (quads === 0 || quads > this.quadIndexCapacity) break;
+                            if (!passIndexBound) {
+                                pass.setIndexBuffer(this.quadIndexBuffer!, "uint32");
+                                passIndexBound = true;
+                            }
+                            pass.drawIndexed(quads * 6, 1, 0, firstVertex, 0);
+                        } else {
+                            pass.draw(prepared.vertexCount, 1, firstVertex, 0);
+                        }
+                        drawsIssued++;
+                        break;
+                    }
                     pass.setViewport(vp.x, vp.y, vp.w, vp.h, this.depthRangeMin, this.depthRangeMax);
 
                     pass.setPipeline(pipeline);
