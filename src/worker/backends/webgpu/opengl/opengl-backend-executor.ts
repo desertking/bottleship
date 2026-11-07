@@ -217,6 +217,12 @@ export class OpenGLBackendExecutor {
     private quadIndexBuffer: GPUBuffer | null = null;
     private quadIndexCapacity = 0;
     private vertexUploadCursor = 0;
+    private frameArena: Float32Array | null = null;
+    private pendingVertexSrc: Float32Array | null = null;
+    private pendingVertexSrcByte = 0;
+    private pendingVertexDst = 0;
+    private pendingVertexBytes = 0;
+    private readonly coalesceVertexUploads = (globalThis as { __glCoalesceVertexUploads?: boolean }).__glCoalesceVertexUploads !== false;
     private vertexScratch = new Float32Array(0);
     private readonly directVertices = !(globalThis as { __noGlDirectVertexUpload?: boolean }).__noGlDirectVertexUpload;
     private readonly vertexLayout = openglVertexLayout(this.directVertices);
@@ -378,6 +384,9 @@ export class OpenGLBackendExecutor {
 
         this.uniformCursor = 0;
         this.vertexUploadCursor = 0;
+        this.frameArena = input.vertArena;
+        this.pendingVertexSrc = null;
+        this.pendingVertexBytes = 0;
 
         const encoder = device.createCommandEncoder();
         let renderPass: GPURenderPassEncoder | null = null;
@@ -549,6 +558,8 @@ export class OpenGLBackendExecutor {
         }
 
         endPass();
+        this.flushVertexUploads(queue);
+        this.frameArena = null;
 
         // Compatibility path:
         // some legacy GL apps update textures every frame but geometry command stream
@@ -997,8 +1008,36 @@ export class OpenGLBackendExecutor {
         const offset = this.vertexUploadCursor;
         this.vertexUploadCursor += byteLength;
         if (this.vertexUploadCursor > this.vertexBufferSize) return -1;
-        queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, vertices.byteOffset + first * 4, byteLength);
+        const srcByte = vertices.byteOffset + first * 4;
+        if (!this.coalesceVertexUploads || vertices !== this.frameArena) {
+            this.flushVertexUploads(queue);
+            queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, srcByte, byteLength);
+            return offset;
+        }
+        if (this.pendingVertexSrc === vertices
+            && this.pendingVertexSrcByte + this.pendingVertexBytes === srcByte
+            && this.pendingVertexDst + this.pendingVertexBytes === offset) {
+            this.pendingVertexBytes += byteLength;
+            return offset;
+        }
+        this.flushVertexUploads(queue);
+        this.pendingVertexSrc = vertices;
+        this.pendingVertexSrcByte = srcByte;
+        this.pendingVertexDst = offset;
+        this.pendingVertexBytes = byteLength;
         return offset;
+    }
+
+    private flushVertexUploads(queue: GPUQueue): void {
+        const src = this.pendingVertexSrc;
+        if (!src || this.pendingVertexBytes <= 0 || !this.vertexBuffer) {
+            this.pendingVertexSrc = null;
+            this.pendingVertexBytes = 0;
+            return;
+        }
+        queue.writeBuffer(this.vertexBuffer, this.pendingVertexDst, src.buffer, this.pendingVertexSrcByte, this.pendingVertexBytes);
+        this.pendingVertexSrc = null;
+        this.pendingVertexBytes = 0;
     }
 
     private prepareDrawData(
