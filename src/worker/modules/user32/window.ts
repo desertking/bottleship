@@ -25,6 +25,7 @@ import {
     removeWindowUpdate,
     readClientRectFromMem,
     writeClientRectToMem,
+    paintClipNeeded,
     type ClientRect,
 } from './paint-region';
 import { WH_CBT, HCBT_CREATEWND, getHooksOfType } from './hooks';
@@ -2437,7 +2438,7 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
 
         if (updateBounds && hdc) {
             const paintCtx = gdi.getDC(hdc);
-            if (paintCtx) {
+            if (paintCtx && paintClipNeeded(updateBounds, paintCtx.canvas.width, paintCtx.canvas.height)) {
                 paintCtx.save();
                 paintCtx.beginPath();
                 paintCtx.rect(
