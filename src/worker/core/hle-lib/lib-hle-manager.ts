@@ -74,9 +74,6 @@ class LibHleManager {
      *  there is no hit count, only where they were replaced. */
     private nativeLeafSites: NativeLeafSite[] = [];
 
-    private detectionCache = new Map<string, Map<string, LibMatch | null>>();
-    readonly detectionCacheStats = { hits: 0, misses: 0 };
-
     initialize(init: ManagerInit): void {
         this.init = init;
     }
@@ -104,48 +101,6 @@ class LibHleManager {
         const clr = base + clrRva;
         if (clr + 0x14 > limit) return false;
         return (u32(clr + 0x10) & 0x1) !== 0;
-    }
-
-    private imageIdentity(module: LoadedPEModule): string | null {
-        if ((globalThis as { __hleDetectCache?: boolean }).__hleDetectCache === false) return null;
-        const imageBytes = this.init?.getMemory();
-        if (!imageBytes) return null;
-        const start = module.baseAddress >>> 0;
-        const end = start + (module.size >>> 0);
-        if (module.size <= 0 || end > imageBytes.length) return null;
-        let h1 = 0x811c9dc5 | 0;
-        let h2 = 0x9e3779b9 | 0;
-        const words = (end - start) >>> 2;
-        if ((imageBytes.byteOffset + start) % 4 === 0) {
-            const w = new Int32Array(imageBytes.buffer, imageBytes.byteOffset + start, words);
-            for (let i = 0; i < words; i++) {
-                const v = w[i]!;
-                h1 = Math.imul(h1 ^ v, 0x01000193);
-                h2 = (Math.imul(h2, 31) + v) | 0;
-            }
-        } else {
-            for (let i = 0; i < words; i++) {
-                const o = start + i * 4;
-                const v = imageBytes[o]! | (imageBytes[o + 1]! << 8) | (imageBytes[o + 2]! << 16) | (imageBytes[o + 3]! << 24);
-                h1 = Math.imul(h1 ^ v, 0x01000193);
-                h2 = (Math.imul(h2, 31) + v) | 0;
-            }
-        }
-        for (let o = start + words * 4; o < end; o++) h1 = Math.imul(h1 ^ imageBytes[o]!, 0x01000193);
-        return `${module.name}|${start}|${module.size}|${h1 >>> 0}|${h2 >>> 0}`;
-    }
-
-    private detect(desc: Parameters<typeof runDetector>[0], module: LoadedPEModule, cached: Map<string, LibMatch | null> | undefined): LibMatch | null {
-        if (!cached || desc.resolveAdditionalFunctions) return runDetector(desc, module);
-        if (cached.has(desc.id)) {
-            this.detectionCacheStats.hits++;
-            const prior = cached.get(desc.id)!;
-            return prior ? { ...prior, module } : null;
-        }
-        this.detectionCacheStats.misses++;
-        const match = runDetector(desc, module);
-        cached.set(desc.id, match);
-        return match;
     }
 
     isInitialized(): boolean {
@@ -252,24 +207,13 @@ class LibHleManager {
             `${s.name}(${s.virtualSize}B@0x${s.virtualAddress.toString(16)})`).join(', ');
         Logger.log(LogCategory.SYSTEM, `[HLE-lib] onModuleLoaded ${module.name} base=0x${module.baseAddress.toString(16)} size=${module.size} sections=[${sectionSummary}]`);
 
-        const identity = this.imageIdentity(module);
-        let cached: Map<string, LibMatch | null> | undefined;
-        if (identity !== null) {
-            cached = this.detectionCache.get(identity);
-            if (!cached) {
-                if (this.detectionCache.size >= 64) this.detectionCache.clear();
-                cached = new Map();
-                this.detectionCache.set(identity, cached);
-            }
-        }
-
         for (const desc of descriptors) {
             // Per-library opt-out.
             const libCfg = (cfg as any)[desc.id] as { enable?: boolean } | undefined;
             if (libCfg && libCfg.enable === false) continue;
 
             const threshold = cfg.minConfidence ?? desc.minConfidence;
-            const match = this.detect(desc, module, cached);
+            const match = runDetector(desc, module);
             if (!match) {
                 Logger.log(LogCategory.SYSTEM, `[HLE-lib] ${desc.id} in ${module.name}: no detection (0 hits or required function missing)`);
                 continue;
