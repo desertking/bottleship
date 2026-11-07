@@ -29,6 +29,8 @@ function baseNameKey(dll: string, fullName: string): string {
     return `${dll}:${base}`;
 }
 
+const CRT_DLL = /^(msvcrt(d|20|40)?|msvcr\d+d?|ucrtbased?|crtdll|api-ms-win-crt-[a-z0-9-]+)$/;
+
 export class APIRegistry {
     private static instance: APIRegistry;
     private modules: Map<string, ModuleDescriptor> = new Map();
@@ -333,6 +335,8 @@ export class APIRegistry {
                 if (cc !== undefined) return cc;
             }
         }
+
+        if (CRT_DLL.test(dll)) return "cdecl";
 
         // 3. Fallback: Check if function exists in any module
         for (const [modName, mod] of this.modules) {
