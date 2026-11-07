@@ -236,6 +236,11 @@ export class OpenGLBackendExecutor {
     private readonly uniformScratchBuffer = new ArrayBuffer(UNIFORM_BLOCK_SIZE);
     private readonly uniformScratchF32 = new Float32Array(this.uniformScratchBuffer);
     private readonly uniformScratchU32 = new Uint32Array(this.uniformScratchBuffer);
+    private readonly uniformScratchU8 = new Uint8Array(this.uniformScratchBuffer);
+    private uniformStaging = new Uint8Array(0);
+    private uniformStagingHi = 0;
+    private uniformStagingActive = false;
+    private readonly coalesceUniformUploads = (globalThis as { __glCoalesceUniformUploads?: boolean }).__glCoalesceUniformUploads !== false;
 
     /** Current draw's glDepthRange, as WebGPU takes it (see readDepthRange). */
     private depthRangeMin = 0;
@@ -387,6 +392,8 @@ export class OpenGLBackendExecutor {
         this.frameArena = input.vertArena;
         this.pendingVertexSrc = null;
         this.pendingVertexBytes = 0;
+        this.uniformStagingHi = 0;
+        this.uniformStagingActive = this.coalesceUniformUploads;
 
         const encoder = device.createCommandEncoder();
         let renderPass: GPURenderPassEncoder | null = null;
@@ -559,6 +566,7 @@ export class OpenGLBackendExecutor {
 
         endPass();
         this.flushVertexUploads(queue);
+        this.flushUniformUploads(queue);
         this.frameArena = null;
 
         // Compatibility path:
@@ -1488,7 +1496,26 @@ export class OpenGLBackendExecutor {
             this.uniformScratchF32[32 + k] = this.clamp01(F[f + CF_ENV_COLOR1 + k]);
         }
 
+        if (this.uniformStagingActive) {
+            const end = offset + UNIFORM_BLOCK_SIZE;
+            if (this.uniformStaging.length < end) {
+                const grown = new Uint8Array(Math.max(end, this.uniformCapacity * this.uniformStride));
+                grown.set(this.uniformStaging.subarray(0, this.uniformStagingHi));
+                this.uniformStaging = grown;
+            }
+            this.uniformStaging.set(this.uniformScratchU8, offset);
+            if (end > this.uniformStagingHi) this.uniformStagingHi = end;
+            return;
+        }
         queue.writeBuffer(this.uniformBuffer!, offset, this.uniformScratchBuffer, 0, UNIFORM_BLOCK_SIZE);
+    }
+
+    private flushUniformUploads(queue: GPUQueue): void {
+        this.uniformStagingActive = false;
+        const hi = this.uniformStagingHi;
+        this.uniformStagingHi = 0;
+        if (hi <= 0 || !this.uniformBuffer) return;
+        queue.writeBuffer(this.uniformBuffer, 0, this.uniformStaging.buffer, this.uniformStaging.byteOffset, hi);
     }
 
     /** The guest's scissor box (guest pixels, GL lower-left) placed in the scaled render target. */
