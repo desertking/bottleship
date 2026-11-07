@@ -98,6 +98,7 @@ const clearActiveLeaseSnapshot = (state: DirectDrawSurfaceState): void => {
     state.activeLeaseSnapshotSize = undefined;
 };
 
+// @transient(scratch copy buffers keyed by live surface objects; refilled on the next Lock)
 const leaseSnapshotBuffers = new WeakMap<DirectDrawSurfaceState, Uint8Array>();
 
 const captureActiveLeaseSnapshot = (
