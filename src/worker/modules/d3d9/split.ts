@@ -135,7 +135,14 @@ const f32 = (mem: Uint8Array, ptr: number, count: number): Float32Array =>
 const i32 = (mem: Uint8Array, ptr: number, count: number): Int32Array =>
     new Int32Array(mem.slice(ptr, ptr + count * 4).buffer);
 
+const skipRedundant = (): boolean => !(globalThis as { __noSplitRedundantSkip?: boolean }).__noSplitRedundantSkip;
+
 const TRANSFORMS: Record<string, Transform> = {
+    setStreamSource: (front, args) =>
+        skipRedundant() && front.streamSourceUnchanged(args[0] as number, args[1] as number, args[2] as number, args[3] as number)
+            ? null : ["setStreamSource", args],
+    setIndices: (front, args) =>
+        skipRedundant() && front.indicesUnchanged(args[0] as number) ? null : ["setIndices", args],
     unlockVertexBuffer: (front, [vbPtr]) =>
         ["unlockVertexBufferBytes", [vbPtr, front.captureLockedVertexBytes(vbPtr as number)]],
     unlockIndexBuffer: (front, [ibPtr]) =>

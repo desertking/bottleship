@@ -1995,6 +1995,8 @@ export class D3D9Device {
     private activeVertexShaderComPtr: number = 0;
     private activePixelShaderComPtr: number = 0;
     private boundIndexPtr: number = 0;
+    private boundIndexSlot = -1;
+    private boundIndexFormat = 0;
 
     // Fixed-function state commonly touched by older D3D9 games
     private textureStageStates = new Map<number, number>();
@@ -4599,6 +4601,25 @@ export class D3D9Device {
         return 0;
     }
 
+    streamSourceUnchanged(streamNumber: number, vbPtr: number, offset: number, stride: number): boolean {
+        if (this.recordingStateBlock || !(streamNumber >= 0 && streamNumber < D3D9Device.MAX_STREAMS)) return false;
+        const ptr = vbPtr >>> 0;
+        const index = ptr === 0 ? -1 : (this.vertexBuffers.getIndex(ptr) ?? -2);
+        if (index === -2) return false;
+        return this.streams.ptr[streamNumber] === ptr && this.streams.bufferIndex[streamNumber] === index
+            && this.streams.offsetBytes[streamNumber] === offset >>> 0
+            && this.streams.strideBytes[streamNumber] === stride >>> 0;
+    }
+
+    indicesUnchanged(ibPtr: number): boolean {
+        if (this.recordingStateBlock) return false;
+        const ptr = ibPtr >>> 0;
+        const index = ptr === 0 ? -1 : (this.indexBuffers.getIndex(ptr) ?? -2);
+        if (index === -2) return false;
+        return this.boundIndexPtr === ptr && this.boundIndexSlot === index
+            && (index < 0 || this.boundIndexFormat === this.indexBuffers.getFormat(index));
+    }
+
     setIndices(ibPtr: number): number {
         d3d9PerfInc("setIndices");
         const index = ibPtr === 0 ? null : this.indexBuffers.getIndex(ibPtr);
@@ -4611,6 +4632,8 @@ export class D3D9Device {
             return D3D_OK;
         }
         this.boundIndexPtr = this.replaceHeldComRef(this.boundIndexPtr, unknown ? 0 : ibPtr);
+        this.boundIndexSlot = index === null ? -1 : index;
+        this.boundIndexFormat = index === null ? 0 : this.indexBuffers.getFormat(index);
         if (index === null) {
             if (d3d9WasmArena.isInitialized()) d3d9WasmArena.setIndices(0, 0);
             if (!this.stateTracker.setIndexSource(null)) d3d9PerfSkip("setIndices");
