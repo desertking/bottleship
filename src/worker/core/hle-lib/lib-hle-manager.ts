@@ -81,6 +81,31 @@ class LibHleManager {
         this.init = init;
     }
 
+    private isIlOnlyImage(module: LoadedPEModule): boolean {
+        if ((globalThis as { __hleScanIlOnly?: boolean }).__hleScanIlOnly === true) return false;
+        const imageBytes = this.init?.getMemory();
+        if (!imageBytes) return false;
+        const base = module.baseAddress >>> 0;
+        const limit = Math.min(imageBytes.length, base + (module.size >>> 0));
+        const u16 = (a: number): number => imageBytes[a]! | (imageBytes[a + 1]! << 8);
+        const u32 = (a: number): number => (imageBytes[a]! | (imageBytes[a + 1]! << 8) | (imageBytes[a + 2]! << 16) | (imageBytes[a + 3]! << 24)) >>> 0;
+        if (base + 0x40 > limit || u16(base) !== 0x5a4d) return false;
+        const nt = base + u32(base + 0x3c);
+        if (nt + 0x18 + 0x70 > limit || u32(nt) !== 0x00004550) return false;
+        const opt = nt + 0x18;
+        const magic = u16(opt);
+        const dirs = magic === 0x10b ? opt + 0x60 : magic === 0x20b ? opt + 0x70 : 0;
+        if (!dirs) return false;
+        const count = u32(dirs - 4);
+        if (count <= 14 || dirs + 15 * 8 > limit) return false;
+        const clrRva = u32(dirs + 14 * 8);
+        const clrSize = u32(dirs + 14 * 8 + 4);
+        if (!clrRva || clrSize < 0x48) return false;
+        const clr = base + clrRva;
+        if (clr + 0x14 > limit) return false;
+        return (u32(clr + 0x10) & 0x1) !== 0;
+    }
+
     private imageIdentity(module: LoadedPEModule): string | null {
         if ((globalThis as { __hleDetectCache?: boolean }).__hleDetectCache === false) return null;
         const imageBytes = this.init?.getMemory();
@@ -209,6 +234,11 @@ class LibHleManager {
         }
         const cfg = EmulatorConfig.getInstance().hleLibs;
         if (!cfg.enable) return;
+
+        if (this.isIlOnlyImage(module)) {
+            Logger.log(LogCategory.SYSTEM, `[HLE-lib] onModuleLoaded ${module.name}: IL-only managed image, no native code to scan`);
+            return;
+        }
 
         this.replaceNativeLeaves(module, cfg.logOnly);
 
