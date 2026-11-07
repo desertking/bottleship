@@ -231,8 +231,14 @@ export function createMatrixExports(ctx: OpenGLContext): Record<string, ThunkImp
             stack.top++;
             if (stack.top >= stack.stack.length) {
                 stack.stack.push(new Float32Array(src));
-            } else {
+            } else if ((globalThis as { __glPushMatrixSet?: boolean }).__glPushMatrixSet === true) {
                 stack.stack[stack.top].set(src);
+            } else {
+                const d = stack.stack[stack.top];
+                d[0] = src[0]; d[1] = src[1]; d[2] = src[2]; d[3] = src[3];
+                d[4] = src[4]; d[5] = src[5]; d[6] = src[6]; d[7] = src[7];
+                d[8] = src[8]; d[9] = src[9]; d[10] = src[10]; d[11] = src[11];
+                d[12] = src[12]; d[13] = src[13]; d[14] = src[14]; d[15] = src[15];
             }
             return 0;
         },
