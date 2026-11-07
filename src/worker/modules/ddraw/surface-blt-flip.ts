@@ -507,7 +507,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
         // Diagnostic: log flip resolution
         {
             const s = srcState as any;
-            Logger.log(LogCategory.DDRAW,
+            Logger.verboseLazy(LogCategory.DDRAW, () =>
                 `IDirectDrawSurface7_Flip: chain=${chain.length} src=0x${srcState.surfacePtr.toString(16)} dst=0x${dstState.surfacePtr.toString(16)} srcMode=${s.mode ?? '?'} srcGpuTex=${!!srcState.gpuTexture} dstGpuTex=${!!dstState.gpuTexture} srcGpuDirty=${s.gpuDirty ?? '?'} srcVer=${s.version ?? '?'} srcGpuWriteVer=${s.gpuWrittenVersion ?? '?'}`);
         }
 
@@ -967,7 +967,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
         const noRop = rop3 === undefined;
         const willUseGpu = shouldUseGpu && hasBackend && noRop;
 
-        Logger.verbose(LogCategory.DDRAW,
+        Logger.verboseLazy(LogCategory.DDRAW, () =>
             `IDirectDrawSurface7_Blt: src=0x${srcState.surfacePtr.toString(16)}(mode=${srcMode}) ` +
             `dst=0x${dstState.surfacePtr.toString(16)}(mode=${dstMode}) ` +
             `srcRect=(${effSrcRect.left},${effSrcRect.top},${effSrcRect.right},${effSrcRect.bottom}) ` +
@@ -1011,7 +1011,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
             }
             const srcModeStr = isRenderSurface(srcState) ? srcState.mode : "bitmap";
             const dstModeStr = isRenderSurface(dstState) ? dstState.mode : "bitmap";
-            Logger.verbose(LogCategory.DDRAW,
+            Logger.verboseLazy(LogCategory.DDRAW, () =>
                 `IDirectDrawSurface7_Blt: Using CPU DEFAULT PATH (src mode=${srcModeStr} dst mode=${dstModeStr} ` +
                 `useColorKey=${useColorKey} isStretch=${isStretch})`);
 

@@ -1028,8 +1028,8 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             const estimatedSize = state.pitch * state.height;
 
             const regions = getRegions();
-            Logger.verbose(
-                LogCategory.DDRAW,
+            Logger.verboseLazy(
+                LogCategory.DDRAW, () =>
                 `IDirectDrawSurface_Lock: surface=0x${thisPtr.toString(16)} surfacePtr=0x${state.surfacePtr.toString(16)} ` +
                 `range=0x${state.surfacePtr.toString(16)}..0x${(state.surfacePtr + estimatedSize).toString(16)} ` +
                 `size=${state.width}x${state.height} pitch=${state.pitch} estimatedSize=0x${estimatedSize.toString(16)} ` +
