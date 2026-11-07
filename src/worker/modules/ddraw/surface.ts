@@ -98,6 +98,8 @@ const clearActiveLeaseSnapshot = (state: DirectDrawSurfaceState): void => {
     state.activeLeaseSnapshotSize = undefined;
 };
 
+const leaseSnapshotBuffers = new WeakMap<DirectDrawSurfaceState, Uint8Array>();
+
 const captureActiveLeaseSnapshot = (
     mem: Uint8Array,
     state: DirectDrawSurfaceState,
@@ -113,7 +115,12 @@ const captureActiveLeaseSnapshot = (
     mem = toPlainGuestMemory(mem);
     if (lease.base < 0 || lease.size <= 0 || lease.base + lease.size > mem.length) return;
 
-    const snapshot = new Uint8Array(lease.size);
+    let buffer = leaseSnapshotBuffers.get(state);
+    if (!buffer || buffer.length < lease.size) {
+        buffer = new Uint8Array(lease.size);
+        leaseSnapshotBuffers.set(state, buffer);
+    }
+    const snapshot = buffer.length === lease.size ? buffer : buffer.subarray(0, lease.size);
     snapshot.set(mem.subarray(lease.base, lease.base + lease.size));
     state.activeLeaseSnapshot = snapshot;
     state.activeLeaseSnapshotBase = lease.base;
