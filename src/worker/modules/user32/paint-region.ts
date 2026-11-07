@@ -165,6 +165,11 @@ export function clearWindowUpdate(hwnd: number): void {
     updates.delete(hwnd);
 }
 
+export function paintClipNeeded(bounds: ClientRect, width: number, height: number): boolean {
+    if ((globalThis as { __paintFullClipSkip?: boolean }).__paintFullClipSkip === false) return true;
+    return bounds.left > 0 || bounds.top > 0 || bounds.right < width || bounds.bottom < height;
+}
+
 export function removeWindowUpdate(hwnd: number): void {
     updates.delete(hwnd);
 }
