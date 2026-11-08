@@ -20,6 +20,8 @@ export interface DeploymentConfig {
     registryOnce?: boolean;
     version?: string;
     registry?: { root: string; path: string; values: { name: string; type: string; data: unknown }[] }[];
+    /** Code-shaping switch overrides for this deployment only, e.g. {"fpu_fld80_relaxed": 1}. */
+    codegenSwitches?: Record<string, number>;
 }
 
 let cached: DeploymentConfig | null = null;

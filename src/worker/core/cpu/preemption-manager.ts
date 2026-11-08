@@ -137,6 +137,7 @@ export class PreemptionManager {
     private cvttps2piInlineEnabled = true;
     private frndintInlineEnabled = true;
     private idivInlineEnabled = true;
+    private fld80InlineEnabled = true;
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -399,7 +400,9 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_cvttps2pi_inline", this.cvttps2piInlineEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_frndint_inline", this.frndintInlineEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_idiv_inline", this.idivInlineEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"} carry8Inline=${this.carry8InlineEnabled ? "on" : "off"} sseConvertInline=${this.sseConvertInlineEnabled ? "on" : "off"} pageFallthrough=${this.pageFallthroughEnabled ? "on" : "off"} fist64Inline=${this.fist64InlineEnabled ? "on" : "off"} flagLocalsAuto=${this.flagLocalsAutoEnabled ? "on" : "off"} ftolCallFusion=${this.ftolCallFusionEnabled ? "on" : "off"} smcExit=${this.smcExitEnabled ? "on" : "off"} flagCarryNeutral=${this.flagCarryNeutralEnabled ? "on" : "off"} condSkip=${this.condSkipEnabled ? "on" : "off"} x87EntryState=${this.x87EntryStateEnabled ? "on" : "off"} x87CmpLean=${this.x87CmpLeanEnabled ? "on" : "off"} ggThroughRuns=${this.ggThroughRunsEnabled ? "on" : "off"} adcCfOnly=${this.adcCfOnlyEnabled ? "on" : "off"} incdecCfKeep=${this.incdecCfKeepEnabled ? "on" : "off"} loopEipLazy=${this.loopEipLazyEnabled ? "on" : "off"} flagsFaultMat=${this.flagsFaultMatEnabled ? "on" : "off"} reg8Lean=${this.reg8LeanEnabled ? "on" : "off"} smcExitLocal=${this.smcExitLocalEnabled ? "on" : "off"} adc8CfDirect=${this.adc8CfDirectEnabled ? "on" : "off"} pfInline=${this.pfInlineEnabled ? "on" : "off"} ssePackedInline=${this.ssePackedInlineEnabled ? "on" : "off"} alu16Inline=${this.alu16InlineEnabled ? "on" : "off"} fldcwInline=${this.fldcwInlineEnabled ? "on" : "off"} mmxInline=${this.mmxInlineEnabled ? "on" : "off"} ggMemberInlineFallback=${this.ggMemberInlineFallbackEnabled ? "on" : "off"} cvttps2piInline=${this.cvttps2piInlineEnabled ? "on" : "off"} frndintInline=${this.frndintInlineEnabled ? "on" : "off"} idivInline=${this.idivInlineEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fld80_inline", this.fld80InlineEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"} carry8Inline=${this.carry8InlineEnabled ? "on" : "off"} sseConvertInline=${this.sseConvertInlineEnabled ? "on" : "off"} pageFallthrough=${this.pageFallthroughEnabled ? "on" : "off"} fist64Inline=${this.fist64InlineEnabled ? "on" : "off"} flagLocalsAuto=${this.flagLocalsAutoEnabled ? "on" : "off"} ftolCallFusion=${this.ftolCallFusionEnabled ? "on" : "off"} smcExit=${this.smcExitEnabled ? "on" : "off"} flagCarryNeutral=${this.flagCarryNeutralEnabled ? "on" : "off"} condSkip=${this.condSkipEnabled ? "on" : "off"} x87EntryState=${this.x87EntryStateEnabled ? "on" : "off"} x87CmpLean=${this.x87CmpLeanEnabled ? "on" : "off"} ggThroughRuns=${this.ggThroughRunsEnabled ? "on" : "off"} adcCfOnly=${this.adcCfOnlyEnabled ? "on" : "off"} incdecCfKeep=${this.incdecCfKeepEnabled ? "on" : "off"} loopEipLazy=${this.loopEipLazyEnabled ? "on" : "off"} flagsFaultMat=${this.flagsFaultMatEnabled ? "on" : "off"} reg8Lean=${this.reg8LeanEnabled ? "on" : "off"} smcExitLocal=${this.smcExitLocalEnabled ? "on" : "off"} adc8CfDirect=${this.adc8CfDirectEnabled ? "on" : "off"} pfInline=${this.pfInlineEnabled ? "on" : "off"} ssePackedInline=${this.ssePackedInlineEnabled ? "on" : "off"} alu16Inline=${this.alu16InlineEnabled ? "on" : "off"} fldcwInline=${this.fldcwInlineEnabled ? "on" : "off"} mmxInline=${this.mmxInlineEnabled ? "on" : "off"} ggMemberInlineFallback=${this.ggMemberInlineFallbackEnabled ? "on" : "off"} cvttps2piInline=${this.cvttps2piInlineEnabled ? "on" : "off"} frndintInline=${this.frndintInlineEnabled ? "on" : "off"} idivInline=${this.idivInlineEnabled ? "on" : "off"} fld80Inline=${this.fld80InlineEnabled ? "on" : "off"}`);
+            this.applyDeploymentCodegenSwitches(false);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
@@ -458,6 +461,29 @@ export class PreemptionManager {
 
     isInitialized(): boolean {
         return this.initialized;
+    }
+
+    private deploymentCodegenSwitches: Record<string, number> = {};
+
+    /** Per-deployment code-shaping overrides (deployment.json "codegenSwitches"). Applied on top of
+     *  the shipping values at every v86 init; a call after init applies them immediately and drops
+     *  the JIT cache, since the switches change the generated code. */
+    setDeploymentCodegenSwitches(switches: Record<string, number> | undefined): void {
+        this.deploymentCodegenSwitches = {};
+        for (const [name, value] of Object.entries(switches ?? {})) {
+            if (/^(jit|fpu)_[a-z0-9_]+$/.test(name) && Number.isFinite(Number(value))) {
+                this.deploymentCodegenSwitches[name] = Number(value) >>> 0;
+            }
+        }
+        if (this.wasmExports) this.applyDeploymentCodegenSwitches(true);
+    }
+
+    private applyDeploymentCodegenSwitches(clearCache: boolean): void {
+        const entries = Object.entries(this.deploymentCodegenSwitches);
+        if (entries.length === 0 || !this.wasmExports) return;
+        for (const [name, value] of entries) this.applyCodegenSwitch(this.wasmExports, name, value);
+        if (clearCache) this.wasmExports.jit_clear_cache_js?.();
+        console.log(`[PERF] deployment codegen switches: ${entries.map(([n, v]) => `${n}=${v}`).join(" ")}`);
     }
 
     getHypercallPageBase(): number {
