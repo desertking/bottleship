@@ -607,3 +607,56 @@ describe("draw-range validation memo", () => {
     });
 });
 
+
+describe("EXT_compiled_vertex_array cache, direct fill", () => {
+    function scene(seed: number) {
+        const { ctx, mem } = makeCtx();
+        let s = seed >>> 0;
+        const rnd = (k: number) => { s = (s * 1103515245 + 12345) >>> 0; return s % k; };
+        const n = 48;
+        const dv = new DataView(mem.buffer);
+        for (let i = 0; i < n * 4; i++) dv.setFloat32(0x1000 + i * 4, (rnd(2000) - 1000) / 37, true);
+        for (let i = 0; i < n * 4; i++) mem[0x3000 + i] = rnd(256);
+        for (let i = 0; i < n * 4; i++) dv.setFloat32(0x4000 + i * 4, rnd(1000) / 999, true);
+        for (let i = 0; i < n * 3; i++) dv.setFloat32(0x5000 + i * 4, (rnd(200) - 100) / 100, true);
+        for (let i = 0; i < n * 2; i++) dv.setFloat32(0x6000 + i * 4, rnd(512) / 64, true);
+        const posSize = 3 + rnd(2);
+        ctx.vertexArray = { size: posSize, type: GL_FLOAT, stride: posSize === 3 ? 12 : 16, pointer: 0x1000, enabled: true };
+        ctx.colorArray = rnd(2)
+            ? { size: 3 + rnd(2), type: GL_UNSIGNED_BYTE, stride: 4, pointer: 0x3000, enabled: true }
+            : { size: 4, type: GL_FLOAT, stride: 16, pointer: 0x4000, enabled: true };
+        ctx.normalArray = { size: 3, type: GL_FLOAT, stride: 12, pointer: 0x5000, enabled: rnd(2) === 1 };
+        ctx.texCoordArrays[0] = { size: 2, type: GL_FLOAT, stride: 8, pointer: 0x6000, enabled: true };
+        const mv = ctx.modelviewStack.stack[0];
+        for (let i = 0; i < 16; i++) mv[i] = i % 5 === 0 ? 1 : (rnd(100) - 50) / 400;
+        return { ctx, n, rnd };
+    }
+
+    function frame(seed: number, direct: boolean): number[] {
+        (globalThis as { __noCvaDirectFill?: boolean }).__noCvaDirectFill = !direct;
+        const { ctx, n, rnd } = scene(seed);
+        cvaLock(ctx, 0, n);
+        const out: number[] = [];
+        for (let d = 0; d < 12; d++) {
+            const lo = rnd(n), hi = Math.min(n - 1, lo + rnd(16));
+            const count = hi - lo + 1;
+            const dst = new Float32Array(count * VERT_FLOATS);
+            const space = gatherVertices(ctx, sequentialIndices(lo, count), count, dst, 0, true);
+            out.push(space, ...dst);
+        }
+        delete (globalThis as { __noCvaDirectFill?: boolean }).__noCvaDirectFill;
+        return out;
+    }
+
+    it("fills the cache directly with the same vertices the staged fill produced", () => {
+        for (let seed = 1; seed <= 40; seed++) expect(frame(seed, true)).toEqual(frame(seed, false));
+    });
+
+    it("the comparison sees one wrong component", () => {
+        const a = frame(3, true);
+        const b = frame(3, false);
+        b[1 + 5] += 0.5;
+        expect(a).not.toEqual(b);
+    });
+});
+
