@@ -5,7 +5,8 @@
  * an emulator. The load-bearing assertions are the INVALIDATION ones: a lock is a hint,
  * and a cache that outlives the promise behind it renders stale geometry.
  */
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { AddressSpace } from "../../src/worker/core/memory/address-space";
 import {
     gatherVertices, decodeIndices, sequentialIndices, guestViews,
     cvaLock, cvaUnlock, createCvaState, VertexSpace, validateClientArrayRange,
@@ -559,3 +560,50 @@ describe("EXT_compiled_vertex_array cache", () => {
         expect(dst[0]).toBe(6);
     });
 });
+
+describe("draw-range validation memo", () => {
+    function withSpace(perms: "rw" | "noaccess") {
+        const { ctx, mem } = makeCtx(1 << 21);
+        const space = new AddressSpace(() => mem);
+        space.mapRegion(0x140000, 0x1000, "rw", "HEAP" as never, "test");
+        const lookups = { n: 0 };
+        const getRegion = space.getRegion.bind(space);
+        (space as any).getRegion = (a: number) => { lookups.n++; return getRegion(a); };
+        (ctx as any).process = { getCurrentMemory: () => mem, addressSpace: space };
+        ctx.vertexArray = { size: 3, type: GL_FLOAT, stride: 12, pointer: 0x140000, enabled: true };
+        if (perms === "noaccess") space.protect(0x140000, 0x1000, "noaccess");
+        return { ctx, space, lookups };
+    }
+
+    afterEach(() => { delete (globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo; });
+
+    it("looks the region map up once for a repeated span", () => {
+        const { ctx, lookups } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        const first = lookups.n;
+        for (let i = 0; i < 5; i++) expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        expect(lookups.n).toBe(first);
+        expect(validateClientArrayRange(ctx, 1, 9)).toBe(true);
+        expect(lookups.n).toBeGreaterThan(first);
+    });
+
+    it("a protection change after the memo rejects the same span again", () => {
+        const { ctx, space } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        space.protect(0x140000, 0x1000, "noaccess");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(false);
+    });
+
+    it("an unchanged map does not need the generation to move: without it the stale answer would stand", () => {
+        const { ctx, space } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        const gen = space.regionGeneration;
+        space.protect(0x140000, 0x1000, "noaccess");
+        expect(space.regionGeneration).not.toBe(gen);
+        Object.defineProperty(space, "regionGeneration", { get: () => gen });
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        (globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo = true;
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(false);
+    });
+});
+

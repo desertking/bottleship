@@ -132,9 +132,15 @@ function arrayStride(arr: GLArrayPointer, comps: number): number {
  * DataView reads would throw a RangeError the dispatcher swallows: a silently dropped
  * draw with EAX never set, instead of a diagnosable fault.
  */
+type RegionSpace = { getRegion(a: number): { perms: string } | null; regionGeneration?: number };
+
+interface ValidatedSpan { space: RegionSpace; gen: number; start: number; end: number }
+
+const validatedSpans = new WeakMap<GLArrayPointer, ValidatedSpan>();
+
 function arrayOutOfRange(
     arr: GLArrayPointer, comps: number, lo: number, hi: number,
-    limit: number, space: { getRegion(a: number): { perms: string } | null } | undefined,
+    limit: number, space: RegionSpace | undefined,
 ): boolean {
     if (comps <= 0) return true;
     const stride = arrayStride(arr, comps);
@@ -142,10 +148,19 @@ function arrayOutOfRange(
     const end = arr.pointer + hi * stride + comps * elemSize(arr.type);
     if (end > limit) return true;
     if (!space) return false;
+    const gen = space.regionGeneration;
+    const known = validatedSpans.get(arr);
+    if (gen !== undefined && known && known.space === space && known.gen === gen
+        && start === known.start && end === known.end
+        && !(globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo) {
+        return false;
+    }
     // A region the map knows to be unreadable is a hard reject; an address it has no
     // region for is not — plenty of legitimate guest buffers live outside the map.
-    return space.getRegion(start)?.perms === "noaccess"
+    const bad = space.getRegion(start)?.perms === "noaccess"
         || space.getRegion(end - 1)?.perms === "noaccess";
+    if (!bad && gen !== undefined) validatedSpans.set(arr, { space, gen, start, end });
+    return bad;
 }
 
 /**
@@ -156,9 +171,7 @@ export function validateClientArrayRange(ctx: OpenGLContext, lo: number, hi: num
     if (hi < lo) return true;
     if (lo < 0) return false;
     const limit = toPlainGuestMemory(ctx.process.getCurrentMemory()).length;
-    const space = (ctx.process as unknown as {
-        addressSpace?: { getRegion(a: number): { perms: string } | null };
-    }).addressSpace;
+    const space = (ctx.process as unknown as { addressSpace?: RegionSpace }).addressSpace;
 
     let bad = "";
     if (ctx.vertexArray.enabled && ctx.vertexArray.pointer
