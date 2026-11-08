@@ -23,6 +23,7 @@
 import { Logger, LogCategory } from "../logger";
 import { getContainerDir } from "../../runtime/filesystem/container-store";
 import { gameIdToContainerDir } from "@bottleship/formats/wgb/container-id";
+import { gameBaseUrl } from "../../../deployment-config";
 
 /** v86 places JIT slot i at wasm_table[i + WASM_TABLE_OFFSET] (vendor/v86/src/const.js). */
 const WASM_TABLE_OFFSET = 1024;
@@ -680,6 +681,10 @@ export class AotCache {
 
     /** The pack shipped beside the player for this game and engine identity, when there is one. */
     shippedUrl(gameId: string, key: string): string | null {
+        const gameBase = gameBaseUrl();
+        if (gameBase) {
+            try { return new URL(`aot/${gameIdToContainerDir(gameId)}/${key}.bsaot`, gameBase).href; } catch { return null; }
+        }
         const base = (globalThis as { location?: { href?: string } }).location?.href;
         if (!base) return null;
         try { return new URL(`../aot/${gameIdToContainerDir(gameId)}/${key}.bsaot`, base).href; } catch { return null; }

@@ -1854,6 +1854,7 @@ export default function App() {
         worker.postMessage(
           {
             type: "init",
+            gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null,
             canvas: globalOffscreen,
             inputBuffer,
             width,
@@ -1863,13 +1864,14 @@ export default function App() {
         );
       } catch (err) {
         console.warn('BottleShip: Failed to transfer control (maybe already transferred), signaling worker anyway');
-        worker.postMessage({ type: "init" });
+        worker.postMessage({ type: "init", gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null });
       }
     } else {
       console.log('BottleShip: Already have offscreen canvas, signaling worker');
       const { width, height } = resolutionRef.current;
       worker.postMessage({
         type: "init",
+        gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null,
         inputBuffer,
         width,
         height

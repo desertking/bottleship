@@ -3743,6 +3743,9 @@ const handleWorkerMessage = (event: MessageEvent): void => {
   }
 
   if (message?.type === "init") {
+    if (typeof message.gameBase === "string" && message.gameBase) {
+      (globalThis as { __bsGameBase?: string }).__bsGameBase = message.gameBase;
+    }
     // Check if system is already initialized
     if (System.getInstance().process) {
       Logger.log(LogCategory.SYSTEM, "System already initialized, resending ready");

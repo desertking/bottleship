@@ -28,10 +28,23 @@ let cached: DeploymentConfig | null = null;
 
 export const DEPLOYMENT_CONFIG_URL = "/deployment.json";
 
+export function gameBaseUrl(): string | null {
+    const base = (globalThis as { __bsGameBase?: unknown }).__bsGameBase;
+    return typeof base === "string" && base.length > 0 ? base : null;
+}
+
+export function deploymentConfigUrl(): string {
+    const base = gameBaseUrl();
+    if (base) {
+        try { return new URL("deployment.json", base).href; } catch { /* fall back to the build path */ }
+    }
+    return DEPLOYMENT_CONFIG_URL;
+}
+
 export async function loadDeploymentConfig(): Promise<DeploymentConfig> {
     if (cached) return cached;
     try {
-        const resp = await fetch(DEPLOYMENT_CONFIG_URL);
+        const resp = await fetch(deploymentConfigUrl());
         cached = resp.ok ? await resp.json() : {};
     } catch {
         cached = {};
