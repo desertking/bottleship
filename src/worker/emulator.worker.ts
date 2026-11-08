@@ -2372,7 +2372,7 @@ const loadBundle = (payload: { data?: Uint8Array; url?: string; blob?: Blob; blo
  * macrotask, so this is the same proven entry the normal path uses — by then the thunk has
  * returned its SE_ERR_/PROCESS_INFORMATION value and the guest is at a clean boundary.
  */
-const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[]): boolean => {
+const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[], launcherExits = false): boolean => {
   // Every route that can restart the guest funnels through here, so this is where a
   // request is recorded. A restart is a page reload, which wipes the log stream, the
   // CDP session and every in-worker ring — so a re-exec LOOP erases its own evidence
@@ -2422,7 +2422,7 @@ const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches
   // the other pattern — the launcher hands its command line over and exits — so nothing of
   // its namespace outlives it. Snapshot here: this is the CreateProcess call itself, the
   // moment at which the parent provably still holds every handle it opened.
-  pendingInheritedObjects = imagePath ? namedObjects.snapshot() : null;
+  pendingInheritedObjects = imagePath && !launcherExits ? namedObjects.snapshot() : null;
   System.getInstance().isReExecPending = true;
   const payload = lastBundlePayload;
 

@@ -287,7 +287,7 @@ export class Shell32 implements IModule {
             const baseName = imagePath.slice(imagePath.lastIndexOf("\\") + 1).toLowerCase();
             const reExecImages = (await loadDeploymentConfig()).reExecImages ?? [];
             if (reExecImages.some((name) => name.toLowerCase() === baseName)
-                && system.requestReExec(parameters, imagePath)) {
+                && system.requestReExec(parameters, imagePath, undefined, true)) {
                 system.scheduler.setLastError(0);
                 Logger.log(LogCategory.SYSTEM,
                     "[SHELL32] " + apiName + " -> re-exec image=" + imagePath + " (deployment reExecImages)");
