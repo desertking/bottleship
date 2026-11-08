@@ -124,6 +124,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_cond_skip", 1],
     ["jit_x87_entry_state", 1],
     ["jit_x87_cmp_lean", 1],
+    ["jit_gg_through_runs", 1],
 ]));
 
 /** The all-off reference for the switches. */
