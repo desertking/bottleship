@@ -11698,6 +11698,10 @@ export const REFERENCE_ARG_COUNTS: ReferenceArgCountMap = {
     "tapirequestmakecall": 4,
     "tapirequestmakecalla": 4
   },
+  "urlmon": {
+    "cogetclassobjectfromurl": 10,
+    "registerbindstatuscallback": 4
+  },
   "user32": {
     "activatekeyboardlayout": 2,
     "addclipboardformatlistener": 1,
