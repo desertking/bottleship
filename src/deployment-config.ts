@@ -17,6 +17,8 @@ export interface DeploymentConfig {
     blockedMessage?: string;
     soundFonts?: string[];
     reExecImages?: string[];
+    registryOnce?: boolean;
+    version?: string;
     registry?: { root: string; path: string; values: { name: string; type: string; data: unknown }[] }[];
 }
 

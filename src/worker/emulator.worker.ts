@@ -2096,10 +2096,19 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
       Logger.log(LogCategory.SYSTEM, `Restored persisted registry for game "${gameId}"`);
     }
 
-    const deploymentRegistry = (await loadDeploymentConfig()).registry;
+    const deployment = await loadDeploymentConfig();
+    const deploymentRegistry = deployment.registry;
     if (Array.isArray(deploymentRegistry) && deploymentRegistry.length > 0) {
-      system.registry.seed(deploymentRegistry);
-      Logger.log(LogCategory.SYSTEM, `Applied ${deploymentRegistry.length} deployment registry key(s)`);
+      const markerPath = "Software\\BottleShip\\Deployment";
+      const markerName = String(deployment.version ?? "default");
+      const markerKey = deployment.registryOnce ? system.registry.open("HKLM", markerPath) : null;
+      if (markerKey && system.registry.getValue(markerKey, markerName)) {
+        Logger.log(LogCategory.SYSTEM, `Deployment registry "${markerName}" already applied once — keeping the game's own values`);
+      } else {
+        const marker = { root: "HKLM", path: markerPath, values: [{ name: markerName, type: "REG_DWORD", data: 1 }] };
+        system.registry.seed(deployment.registryOnce ? [...deploymentRegistry, marker] : deploymentRegistry);
+        Logger.log(LogCategory.SYSTEM, `Applied ${deploymentRegistry.length} deployment registry key(s)`);
+      }
     }
 
     // Setup auto-save on registry changes (debounced, cancelled on game switch).
