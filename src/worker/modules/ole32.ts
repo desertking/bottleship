@@ -39,6 +39,8 @@ const IID_IMALLOC = "00000002-0000-0000-c000-000000000046";
 // BLOWFISH.DLL IBlockCipher::Submit_Key — stdcall, max 56-byte key (Ghidra @ 0x11002011)
 const BF_MAX_KEY_LEN = 0x38;
 
+const CO_E_IIDSTRING = 0x800401f4;
+
 export class Ole32 implements IModule {
     name = "ole32";
     exports: Record<string, ThunkImplementation> = {};
@@ -299,6 +301,12 @@ export class Ole32 implements IModule {
                 mem[pclsid + 8 + i] = parseInt(tail.slice(i * 2, i * 2 + 2), 16) & 0xff;
             }
             return S_OK;
+        };
+
+        // IIDFromString parses the same braced form; only the failure code differs.
+        this.exports["IIDFromString"] = (ctx, mem, args) => {
+            const hr = this.exports["CLSIDFromString"](ctx, mem, args) as number;
+            return hr === CO_E_CLASSSTRING ? CO_E_IIDSTRING : hr;
         };
 
         // HRESULT CLSIDFromProgID(LPCOLESTR lpszProgID, LPCLSID lpclsid)
