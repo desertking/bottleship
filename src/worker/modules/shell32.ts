@@ -10,6 +10,7 @@ import { System } from "../core/system";
 import { Logger, LogCategory } from "../core/logger";
 import { readAnsiFromGuest, readWideFromGuest, encodeAnsi } from "./codepage-utils";
 import { startProcessRuntime } from "./kernel32/process/runtime-child";
+import { loadDeploymentConfig } from "../../deployment-config";
 import { getVirtualProcessManager } from "./kernel32/process/virtual-process-manager";
 import { Marshaler } from "../core/memory/marshaler";
 import { performShFileOperation, DE_INVALIDFILES } from "./shell32-fileop";
@@ -282,6 +283,15 @@ export class Shell32 implements IModule {
             if (operation.toLowerCase() !== "open" && operation.toLowerCase() !== "runas") {
                 system.scheduler.setLastError(ERROR_ACCESS_DENIED);
                 return { value: SE_ERR_ACCESSDENIED };
+            }
+            const baseName = imagePath.slice(imagePath.lastIndexOf("\\") + 1).toLowerCase();
+            const reExecImages = (await loadDeploymentConfig()).reExecImages ?? [];
+            if (reExecImages.some((name) => name.toLowerCase() === baseName)
+                && system.requestReExec(parameters, imagePath)) {
+                system.scheduler.setLastError(0);
+                Logger.log(LogCategory.SYSTEM,
+                    "[SHELL32] " + apiName + " -> re-exec image=" + imagePath + " (deployment reExecImages)");
+                return { value: SHELL_EXEC_OK };
             }
             const manager = getVirtualProcessManager();
             const currentDirectory = directory || system.fileSystem.currentDir;
