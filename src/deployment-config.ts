@@ -16,6 +16,7 @@ export interface DeploymentConfig {
     /** Shown instead of the app when the browser is not on the list. */
     blockedMessage?: string;
     soundFonts?: string[];
+    registry?: { root: string; path: string; values: { name: string; type: string; data: unknown }[] }[];
 }
 
 let cached: DeploymentConfig | null = null;

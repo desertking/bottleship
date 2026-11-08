@@ -1,3 +1,4 @@
+import { loadDeploymentConfig } from "../deployment-config";
 import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship/formats/wgb/io-profile";
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
@@ -2093,6 +2094,12 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
     if (persistedState) {
       system.registry.restore(persistedState);
       Logger.log(LogCategory.SYSTEM, `Restored persisted registry for game "${gameId}"`);
+    }
+
+    const deploymentRegistry = (await loadDeploymentConfig()).registry;
+    if (Array.isArray(deploymentRegistry) && deploymentRegistry.length > 0) {
+      system.registry.seed(deploymentRegistry);
+      Logger.log(LogCategory.SYSTEM, `Applied ${deploymentRegistry.length} deployment registry key(s)`);
     }
 
     // Setup auto-save on registry changes (debounced, cancelled on game switch).
