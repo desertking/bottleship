@@ -11510,6 +11510,11 @@ export const REFERENCE_ARG_COUNTS: ReferenceArgCountMap = {
     "zonecheckurlexw": 8,
     "zonecomputepanesize": 1
   },
+  "snmpapi": {
+    "snmputiloidcpy": 2,
+    "snmputiloidncmp": 3,
+    "snmputilvarbindfree": 1
+  },
   "tapi32": {
     "lineaccept": 3,
     "lineaddprovider": 3,
