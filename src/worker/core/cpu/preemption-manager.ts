@@ -120,7 +120,7 @@ export class PreemptionManager {
     private condSkipEnabled = true;
     private x87EntryStateEnabled = true;
     private x87CmpLeanEnabled = true;
-    private ggThroughRunsEnabled = true;
+    private ggThroughRunsEnabled = false;
     private adcCfOnlyEnabled = true;
     private incdecCfKeepEnabled = true;
 
