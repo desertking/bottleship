@@ -142,6 +142,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_frndint_inline", 1],
     ["jit_idiv_inline", 1],
     ["jit_fld80_inline", 1],
+    ["fpu_fld80_relaxed", 1],       // FLD m80 always as relaxed f64 (arithmetic is f64-backed anyway)
 ]));
 
 /** The all-off reference for the switches. */
