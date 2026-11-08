@@ -203,6 +203,10 @@ export class OpenGLBackendExecutor {
     private bindGroupLayout: GPUBindGroupLayout | null = null;
     private pipelineLayout: GPUPipelineLayout | null = null;
     private readonly pipelineCache = new Map<string, GPURenderPipeline>();
+    private lastPipeline: GPURenderPipeline | null = null;
+    private lastPipelineTopology = "";
+    private readonly lastPipelineWords = new Uint32Array(13);
+    private readonly pipelineWords = new Uint32Array(13);
 
     private readonly textureCache = new Map<number, CachedTexture>();
     private readonly samplerCache = new Map<string, GPUSampler>();
@@ -268,6 +272,7 @@ export class OpenGLBackendExecutor {
                 this.bindGroupLayout = null;
                 this.pipelineLayout = null;
                 this.pipelineCache.clear();
+        this.lastPipeline = null;
                 this.textureCache.clear();
                 this.samplerCache.clear();
                 this.bindGroupCache.clear();
@@ -511,7 +516,20 @@ export class OpenGLBackendExecutor {
                     this.writeUniforms(queue, uniformOffset, guestW, guestH, I, F, i, f, useTex0, useTex1, format0, format1);
 
                     const stencilTest = (flags & DF_STENCIL_TEST) !== 0;
-                    const pipelineCfg: OpenGLPipelineConfig = {
+                    const pw = this.pipelineWords;
+                    pw[0] = flags & (DF_BLEND | DF_DEPTH_TEST | DF_DEPTH_MASK | DF_COLOR_MASK_R | DF_COLOR_MASK_G
+                        | DF_COLOR_MASK_B | DF_COLOR_MASK_A | DF_STENCIL_TEST);
+                    pw[1] = I[i + CI_BLEND_SRC]; pw[2] = I[i + CI_BLEND_DST]; pw[3] = I[i + CI_DEPTH_FUNC];
+                    pw[4] = cullEnabled ? 1 : 0; pw[5] = cullFace; pw[6] = I[i + CI_FRONT_FACE];
+                    pw[7] = I[i + CI_STENCIL_FUNC]; pw[8] = I[i + CI_STENCIL_MASK]; pw[9] = I[i + CI_STENCIL_WRITE_MASK];
+                    pw[10] = I[i + CI_STENCIL_FAIL]; pw[11] = I[i + CI_STENCIL_ZFAIL]; pw[12] = I[i + CI_STENCIL_ZPASS];
+                    let reuse = this.lastPipeline !== null && this.lastPipelineTopology === prepared.topology
+                        && !(globalThis as { __noGlPipelineMemo?: boolean }).__noGlPipelineMemo;
+                    if (reuse) {
+                        const lw = this.lastPipelineWords;
+                        for (let w = 0; w < 13; w++) if (lw[w] !== pw[w]) { reuse = false; break; }
+                    }
+                    const pipeline = reuse ? this.lastPipeline! : this.getOrCreatePipeline(device, {
                         topology: prepared.topology,
                         blendEnabled: (flags & DF_BLEND) !== 0,
                         blendSrc: I[i + CI_BLEND_SRC] >>> 0,
@@ -533,9 +551,12 @@ export class OpenGLBackendExecutor {
                         stencilFail: I[i + CI_STENCIL_FAIL] >>> 0,
                         stencilZFail: I[i + CI_STENCIL_ZFAIL] >>> 0,
                         stencilZPass: I[i + CI_STENCIL_ZPASS] >>> 0,
-                    };
-
-                    const pipeline = this.getOrCreatePipeline(device, pipelineCfg);
+                    });
+                    if (!reuse) {
+                        this.lastPipeline = pipeline;
+                        this.lastPipelineTopology = prepared.topology;
+                        this.lastPipelineWords.set(pw);
+                    }
                     const bindGroup = this.getOrCreateBindGroup(device, sampler0, view0, sampler1, view1);
                     const pass = beginDrawPass();
                     if (!this.applyScissor(pass, I, i, flags, guestW, guestH, scale, renderW, renderH)) break;
@@ -752,6 +773,7 @@ export class OpenGLBackendExecutor {
         this.samplerCache.clear();
         this.bindGroupCache.clear();
         this.pipelineCache.clear();
+        this.lastPipeline = null;
 
         if (this.whiteTexture) {
             this.whiteTexture.destroy();
@@ -848,6 +870,7 @@ export class OpenGLBackendExecutor {
 
         if (!sameFormat) {
             this.pipelineCache.clear();
+        this.lastPipeline = null;
             this.bindGroupCache.clear();
         }
 
