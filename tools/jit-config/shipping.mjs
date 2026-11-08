@@ -121,6 +121,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_ftol_call_fusion", 1],
     ["jit_smc_exit", 1],
     ["jit_flag_carry_neutral", 1],
+    ["jit_cond_skip", 1],
 ]));
 
 /** The all-off reference for the switches. */
