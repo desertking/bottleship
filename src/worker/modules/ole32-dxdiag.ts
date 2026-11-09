@@ -24,6 +24,7 @@ type Prop = number | string | boolean;
 interface Node { props: [string, Prop][]; children: [string, Node][] }
 interface Instance { addr: number; refs: number; kind: 'provider' | 'container'; node?: Node; initialized?: boolean }
 interface Runtime { generation: number; providerVtable: number; containerVtable: number; instances: Map<number, Instance>; tree: Node | null }
+// @transient(keyed by Process and checked against its resetGeneration; a reset discards the entry)
 const runtimes = new WeakMap<Process, Runtime>();
 
 const PROVIDER_METHODS: [string, number][] = [
