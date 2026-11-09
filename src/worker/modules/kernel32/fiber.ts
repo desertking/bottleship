@@ -25,6 +25,7 @@ import { Mem } from '../../core/memory/mem-accessor';
 import { System } from '../../core/system';
 import { getCPU } from '../../core/thunking/thunk-utils';
 import { cpuViews } from '../../core/cpu/cpu-views';
+import { invalidateGuestCode } from '../../core/memory/guest-code';
 
 const ERROR_ALREADY_FIBER = 1280;
 const ERROR_ALREADY_THREAD = 1281;
@@ -63,18 +64,39 @@ interface FiberRecord {
 const fibers = new Map<number, FiberRecord>();
 // @transient(identity of the owning process object)
 let fiberOwner: unknown = null;
+// @transient(guest code allocated per process)
+let retStub = 0;
 
 function ensureProcessLocal(): void {
     const process = System.getInstance().process;
     if (process !== fiberOwner) {
         fiberOwner = process;
         fibers.clear();
+        retStub = 0;
     }
 }
 
 export function resetFiberState(): void {
     fibers.clear();
     fiberOwner = null;
+    retStub = 0;
+}
+
+/**
+ * A guest `RET 4`. SwitchToFiber leaves ESP at the target's [return address, argument]
+ * pair and points EIP here, so the target resumes the same way whether the dispatcher
+ * continues at the new EIP or runs the thunk stub's own `RET 4` first.
+ */
+function ensureRetStub(): number {
+    if (retStub) return retStub;
+    const process = System.getInstance().process;
+    if (!process) return 0;
+    try { retStub = process.memory.alloc(16, 'THUNK_DATA') >>> 0; } catch { return 0; }
+    Mem.writeUint8(retStub, 0xC2);
+    Mem.writeUint8(retStub + 1, 0x04);
+    Mem.writeUint8(retStub + 2, 0x00);
+    invalidateGuestCode(retStub, 16);
+    return retStub;
 }
 
 function rd(addr: number): number {
@@ -174,6 +196,8 @@ export const exports: Record<string, ThunkImplementation> = {
         }
         const current = rd(teb + TEB_FIBER_DATA);
         if (current === target) return 0;
+        const stub = ensureRetStub();
+        if (!stub) return 0;
         const reg = cpu.reg32;
         if (fibers.has(current)) {
             Mem.writeUint32(current + F_EBX, reg[3] >>> 0);
@@ -195,7 +219,7 @@ export const exports: Record<string, ThunkImplementation> = {
         reg[7] = rd(target + F_EDI) | 0;
         reg[5] = rd(target + F_EBP) | 0;
         reg[4] = esp | 0;
-        cpu.instruction_pointer[0] = rd(esp);
+        cpu.instruction_pointer[0] = stub;
         return { value: 0, skipStackCheck: true };
     },
 
