@@ -297,7 +297,10 @@ export class D3D9StateTracker {
             current = this.getTextureMatrix(type);
         }
         if (!current || matrix.length < 16) return false;
-        return this.setTransform(type, multiplyMatrices(current, matrix));
+        // setTransform answers "changed"; a product equal to the current matrix (an identity
+        // multiply) is still a successful call.
+        this.setTransform(type, multiplyMatrices(current, matrix));
+        return true;
     }
 
     getWorldMatrix(): Float32Array { return this.worldMatrix; }
