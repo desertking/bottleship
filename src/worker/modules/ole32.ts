@@ -3,6 +3,7 @@ import { Process } from "../core/process";
 import { ThunkImplementation, ThunkResult, type X86Context } from "../core/thunking/thunk-dispatcher";
 import { System } from "../core/system";
 import { Logger, LogCategory } from "../core/logger";
+import { TimeService } from "../runtime/time";
 import { InterfaceRegistry, registerStandardDirectXInterfaces } from "../core/com/interface-registry";
 import { ComObjectFactory, BaseComObject } from "../core/com/base-com-object";
 import { lookupHleComClass, releaseHleComServerLoads, leaveComApartment } from "../core/com/hle-com-registry";
@@ -537,7 +538,7 @@ export class Ole32 implements IModule {
             if (!lpFileTime || lpFileTime + 8 > mem.length) return E_POINTER;
 
             const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
-            const now = BigInt(Date.now());
+            const now = BigInt(TimeService.getInstance().nowUnixMs());
             const windowsTicks = (now + 11644473600000n) * 10000n;
             view.setBigUint64(lpFileTime, windowsTicks, true);
             return S_OK;

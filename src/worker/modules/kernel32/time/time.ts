@@ -129,7 +129,7 @@ function initTimeFunctions(): void {
             return { value: 0, stackCleanup: 4 };
         }
 
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
 
         // GetSystemTime returns UTC
@@ -151,7 +151,7 @@ function initTimeFunctions(): void {
             return { value: 0, stackCleanup: 4 };
         }
 
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
 
         view.setUint16(lpSystemTime + 0,  now.getFullYear(), true);

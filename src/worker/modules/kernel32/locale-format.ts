@@ -7,6 +7,7 @@ import { LOCALE_RETURN_GENITIVE_NAMES, localeText } from './locale-data';
 import { localeString } from './locale-db';
 import { LocaleField } from './locale-db-schema';
 import type { LocaleEntry } from './locale-names';
+import { TimeService } from '../../runtime/time';
 
 export const ERROR_INVALID_PARAMETER = 87;
 export const ERROR_INSUFFICIENT_BUFFER = 122;
@@ -53,7 +54,7 @@ export interface SystemTimeFields {
 export type FormatResult = { ok: true; text: string } | { ok: false; error: number };
 
 export function localSystemTimeNow(): SystemTimeFields {
-    const d = new Date();
+    const d = new Date(TimeService.getInstance().nowUnixMs());
     return {
         year: d.getFullYear(), month: d.getMonth() + 1, dayOfWeek: d.getDay(), day: d.getDate(),
         hour: d.getHours(), minute: d.getMinutes(), second: d.getSeconds(), milliseconds: d.getMilliseconds(),
