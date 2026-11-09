@@ -148,6 +148,9 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_rmw_misc_inline", 1],
     ["jit_out_direct", 1],
     ["jit_budget0_exit", 1],
+    ["jit_page_straddle", 1],       // an instruction straddling into a contiguous next page compiles in the module
+    ["jit_x87_run_tail", 1],        // an x87 run may end with a Normal block's last instruction
+    ["jit_x87_run_guard_share", 1], // one TLB guard per same-base operand group inside an x87 run
 ]));
 
 /** The all-off reference for the switches. */
