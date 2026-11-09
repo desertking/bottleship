@@ -159,31 +159,36 @@ export function deformKernel(view: ShadowView, args: number[], scaleAddr: number
 }
 
 /**
- * Magnitude windows inside which single-rounded f32 arithmetic IS the precision-control
- * result. With every vertex component zero or in [2^-32, 2^30] and every matrix entry zero
- * or in [2^-40, 2^30], each product and translation is zero or at least 2^-72, every sum is
- * a multiple of 2^-95, every weighted term (weights are zero or at least 1/255) is at least
- * 2^-103 with a unit in the last place of at least 2^-126 (the weight scale is held to [2^-8, 2^-7]), and so is every accumulator: no
- * intermediate can be subnormal or overflow, which are the only results round24 does not
- * hand to Math.fround. A vertex or matrix outside the windows takes the exact path.
+ * When single-rounded f32 arithmetic IS the precision-control result. round24 hands every
+ * value to Math.fround except a subnormal or overflowing one, so a vertex may take the plain
+ * path when no intermediate can be either. With vmin the smallest nonzero vertex component
+ * and mmin the smallest nonzero entry of a matrix, vmin * mmin >= 2^-72 and mmin >= 2^-72
+ * make every product and translation zero or at least 2^-72, hence every sum a multiple of
+ * 2^-95; a weight is zero or at least 2^-8 (the scale is held to [2^-8, 2^-7]), so every
+ * weighted term is zero or at least 2^-103 with a unit in the last place of at least 2^-126,
+ * and so is every accumulator. Magnitudes up to 2^30 keep everything far below overflow.
+ * A vertex or matrix outside that takes the exact path.
  */
-const VERTEX_LO = 2 ** -32;
-const MATRIX_LO = 2 ** -40;
+const PRODUCT_LO = 2 ** -72;
 const PLAIN_HI = 2 ** 30;
 const WEIGHT_SCALE_LO = 2 ** -8;
 const WEIGHT_SCALE_HI = 2 ** -7;
 const MATRIX_ENTRIES = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
-const MATRIX_UNKNOWN = 0, MATRIX_PLAIN = 1, MATRIX_EXACT = 2;
+const MATRIX_EXACT = -1;
 const matrixSlotAddr = new Int32Array(256);
-const matrixSlotState = new Uint8Array(256);
+const matrixSlotKnown = new Uint8Array(256);
+const matrixSlotMin = new Float64Array(256);
 
-function classifyMatrix(F: Float32Array, i: number): number {
+function smallestMatrixEntry(F: Float32Array, i: number): number {
+    let min = Infinity;
     for (let j = 0; j < MATRIX_ENTRIES.length; j++) {
         const v = F[i + MATRIX_ENTRIES[j]];
+        if (v === 0) continue;
         const m = v < 0 ? -v : v;
-        if (!(m >= MATRIX_LO && m <= PLAIN_HI) && v !== 0) return MATRIX_EXACT;
+        if (!(m <= PLAIN_HI)) return MATRIX_EXACT;
+        if (m < min) min = m;
     }
-    return MATRIX_PLAIN;
+    return min >= PRODUCT_LO ? min : MATRIX_EXACT;
 }
 
 export interface DeformViews {
@@ -224,7 +229,7 @@ export function deformKernelDirect(
     const indices = a.matrixIndices >>> 2;
     const matrixLimit = F.length - 16;
     const tail = a.tail;
-    matrixSlotState.fill(MATRIX_UNKNOWN);
+    matrixSlotKnown.fill(0);
     let s = a.src;
     let d = a.dst;
     let exactCount = 0;
@@ -232,31 +237,32 @@ export function deformKernelDirect(
         const o = s >>> 2;
         const x = F[o], y = F[o + 1], z = F[o + 2];
         const nx = F[o + 5], ny = F[o + 6], nz = F[o + 7];
+        let vmin = Infinity, vmax = 0;
         let g = x < 0 ? -x : x;
-        let plain = (g >= VERTEX_LO && g <= PLAIN_HI) || x === 0;
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
         g = y < 0 ? -y : y;
-        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || y === 0);
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
         g = z < 0 ? -z : z;
-        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || z === 0);
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
         g = nx < 0 ? -nx : nx;
-        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || nx === 0);
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
         g = ny < 0 ? -ny : ny;
-        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || ny === 0);
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
         g = nz < 0 ? -nz : nz;
-        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || nz === 0);
+        if (g !== 0) { if (g < vmin) vmin = g; if (!(g <= vmax)) vmax = g; }
+        let plain = vmax <= PLAIN_HI;
         let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
         for (let k = 0; plain && k < 4; k++) {
             const mi = U[indices + B[s + 0x10 + k]];
             const m = (a.matrices + (mi << 6)) >>> 0;
             const i = m >>> 2;
             const slot = mi & 255;
-            let state = matrixSlotAddr[slot] === (m | 0) ? matrixSlotState[slot] : MATRIX_UNKNOWN;
-            if (state === MATRIX_UNKNOWN) {
-                state = i <= matrixLimit ? classifyMatrix(F, i) : MATRIX_EXACT;
+            if (matrixSlotKnown[slot] === 0 || matrixSlotAddr[slot] !== (m | 0)) {
+                matrixSlotMin[slot] = i <= matrixLimit ? smallestMatrixEntry(F, i) : MATRIX_EXACT;
                 matrixSlotAddr[slot] = m | 0;
-                matrixSlotState[slot] = state;
+                matrixSlotKnown[slot] = 1;
             }
-            if (state !== MATRIX_PLAIN) { plain = false; break; }
+            if (!(vmin * matrixSlotMin[slot] >= PRODUCT_LO)) { plain = false; break; }
             const w = fround(B[s + 0x0c + k] * c);
             const m0 = F[i], m1 = F[i + 1], m2 = F[i + 2];
             const m4 = F[i + 4], m5 = F[i + 5], m6 = F[i + 6];
