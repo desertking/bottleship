@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'bun:test';
 import { LiveShadowView } from '../../src/worker/core/hle-lib/shadow-validator';
-import { deformKernel, dstStride, round24, srcStride } from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
+import {
+    deformCounters, deformKernel, deformKernelDirect, deformViews, dstStride, round24, ShiftedWriteView, srcStride,
+} from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
 import { __test } from '../../src/worker/core/hle-lib/libs/granny-deform/descriptor';
 
 const f = Math.fround;
@@ -155,4 +157,50 @@ describe('granny-deform precision control', () => {
         const px = f(f(f(f(f(x * m[0]) + f(z * m[8])) + f(y * m[4])) + m[12]) * w);
         expect(dv.getFloat32(DST, true)).toBe(px);
     });
+});
+
+describe('granny-deform direct kernel', () => {
+    function fill(expLo: number, expHi: number, seed0: number) {
+        const { mem, dv } = setup();
+        let seed = seed0;
+        const rnd = () => ((seed = (seed * 1103515245 + 12345) >>> 0) / 4294967296);
+        const value = () => {
+            const t = rnd();
+            if (t < 0.08) return t < 0.04 ? 0 : -0;
+            return (rnd() < 0.5 ? -1 : 1) * (1 + rnd()) * 2 ** Math.floor(expLo + rnd() * (expHi - expLo));
+        };
+        const count = 96, tail = 2;
+        for (let i = 0; i < 32; i++) dv.setUint32(IDX + 4 * i, (i * 7) % 24, true);
+        for (let i = 0; i < 24 * 16; i++) dv.setFloat32(MATS + 4 * i, value(), true);
+        for (let v = 0; v < count; v++) {
+            writeVertex(dv, SRC + v * srcStride(tail), [value(), value(), value()],
+                [0, 1, 2, 3].map(() => (rnd() < 0.3 ? 0 : (rnd() * 256) | 0)),
+                [0, 1, 2, 3].map(() => (rnd() * 32) | 0),
+                [value(), value(), value()], [(rnd() * 2 ** 32) >>> 0, v]);
+        }
+        return { mem, args: [count, SRC, DST, IDX, MATS, tail], len: count * dstStride(tail) };
+    }
+
+    for (const [name, lo, hi, allPlain] of [
+        ['ordinary magnitudes', -6, 8, true],
+        ['the full plain windows', -32, 30, false],
+        ['magnitudes far outside the windows', -149, 127, false],
+    ] as const) {
+        it(`is byte-identical to the exact kernel over ${name}`, () => {
+            for (let seed = 1; seed <= 12; seed++) {
+                const a = fill(lo, hi, seed), b = fill(lo, hi, seed), c = fill(lo, hi, seed);
+                const eax = deformKernel(new LiveShadowView(a.mem), a.args, SCALE, true);
+                deformCounters.reset();
+                const views = deformViews(b.mem)!;
+                expect(deformKernelDirect(new LiveShadowView(b.mem), views, views, 0, b.args, SCALE)).toBe(eax);
+                expect(Buffer.compare(a.mem, b.mem)).toBe(0);
+                if (allPlain) expect(deformCounters.exactVertices).toBe(0);
+                const bytes = new Uint8Array(c.len);
+                const shifted = new ShiftedWriteView(new LiveShadowView(c.mem), bytes, -DST);
+                expect(deformKernelDirect(shifted, deformViews(c.mem)!, deformViews(bytes)!, -DST, c.args, SCALE)).toBe(eax);
+                expect(Buffer.compare(bytes, a.mem.subarray(DST, DST + c.len))).toBe(0);
+                expect(c.mem.subarray(DST, DST + c.len).every(v => v === 0)).toBe(true);
+            }
+        });
+    }
 });

@@ -42,13 +42,18 @@ import {
     decodeArgs,
     deformCounters,
     deformKernel,
+    deformKernelDirect,
+    deformViews,
+    type DeformViews,
     dstStride,
     getWeightScale,
     MAX_TAIL_DWORDS,
     MAX_VERTICES,
     setWeightScale,
+    ShiftedWriteView,
     srcStride,
 } from './kernel';
+import { LiveShadowView } from '../../shadow-validator';
 
 const FN = 'granny_deform_pwn343_pn33';
 
@@ -103,6 +108,20 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
 
 const memLength = (): number => Mem.getView()?.length ?? 0;
 
+let liveMem: Uint8Array | null = null;
+let liveMemViews: DeformViews | null = null;
+
+function liveViews(): DeformViews | null {
+    const mem = Mem.getView();
+    if (!mem) return null;
+    if (!liveMem || liveMem.buffer !== mem.buffer || liveMem.byteOffset !== mem.byteOffset
+        || liveMem.byteLength !== mem.byteLength) {
+        liveMem = mem;
+        liveMemViews = deformViews(mem);
+    }
+    return liveMemViews;
+}
+
 /** The calling thread's x87 precision-control field is 00 (single, as Direct3D leaves it). */
 function callerRoundsToSingle(): boolean {
     const cw = getFpuControlWord((System.getInstance() as { process?: { v86?: unknown } }).process?.v86);
@@ -133,7 +152,22 @@ const shadow: ShadowSpec = {
     kernel(view: ShadowView, args: number[], site) {
         const scale = getWeightScale(site.targetAddress);
         if (scale === undefined) throw new Error(`no weight scale for 0x${site.targetAddress.toString(16)}`);
-        return deformKernel(view, args, scale, callerRoundsToSingle());
+        if (!callerRoundsToSingle()) return deformKernel(view, args, scale, false);
+        const live = liveViews();
+        if (!live) return deformKernel(view, args, scale, true);
+        if (view instanceof LiveShadowView) return deformKernelDirect(view, live, live, 0, args, scale);
+        const a = decodeArgs(args);
+        const srcLen = a.count * srcStride(a.tail);
+        const dstLen = a.count * dstStride(a.tail);
+        if (a.count <= 0 || (a.dst & 3) !== 0 || (a.src < a.dst + dstLen && a.dst < a.src + srcLen)) {
+            return deformKernel(view, args, scale, true);
+        }
+        const bytes = new Uint8Array(dstLen);
+        const out = deformViews(bytes);
+        if (!out) return deformKernel(view, args, scale, true);
+        const eax = deformKernelDirect(new ShiftedWriteView(view, bytes, -a.dst), live, out, -a.dst, args, scale);
+        view.writeBytes(a.dst, bytes);
+        return eax;
     },
 };
 
@@ -170,6 +204,8 @@ export const grannyDeformDescriptor: LibDescriptor = {
     onReset() {
         clearWeightScales();
         deformCounters.reset();
+        liveMem = null;
+        liveMemViews = null;
     },
 };
 

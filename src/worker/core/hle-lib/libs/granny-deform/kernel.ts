@@ -69,7 +69,8 @@ export const clearWeightScales = (): void => { weightScales.clear(); };
 export const deformCounters = {
     calls: 0,
     vertices: 0,
-    reset(): void { this.calls = 0; this.vertices = 0; },
+    exactVertices: 0,
+    reset(): void { this.calls = 0; this.vertices = 0; this.exactVertices = 0; },
 };
 
 const F32_MIN_NORMAL = 2 ** -126;
@@ -104,6 +105,39 @@ export function round24(v: number): number {
 
 const exact = (v: number): number => v;
 
+function deformVertex(
+    view: ShadowView, a: DeformArgs, s: number, d: number, c: number, r: (v: number) => number,
+): void {
+    const x = view.readF32(s), y = view.readF32(s + 4), z = view.readF32(s + 8);
+    const nx = view.readF32(s + 0x14), ny = view.readF32(s + 0x18), nz = view.readF32(s + 0x1c);
+    let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
+    for (let k = 0; k < 4; k++) {
+        const mi = view.readU32(a.matrixIndices + 4 * view.readU8(s + 0x10 + k));
+        const m = (a.matrices + (mi << 6)) >>> 0;
+        const b = view.readU8(s + 0x0c + k);
+        const w = k === 3 ? fround(r(b * c)) : r(b * c);
+        const m0 = view.readF32(m), m1 = view.readF32(m + 4), m2 = view.readF32(m + 8);
+        const m4 = view.readF32(m + 0x10), m5 = view.readF32(m + 0x14), m6 = view.readF32(m + 0x18);
+        const m8 = view.readF32(m + 0x20), m9 = view.readF32(m + 0x24), m10 = view.readF32(m + 0x28);
+        const tx = r(r(r(r(r(x * m0) + r(z * m8)) + r(y * m4)) + view.readF32(m + 0x30)) * w);
+        const ty = r(r(r(r(r(z * m9) + r(y * m5)) + r(x * m1)) + view.readF32(m + 0x34)) * w);
+        const tz = r(r(r(r(r(x * m2) + r(z * m10)) + r(y * m6)) + view.readF32(m + 0x38)) * w);
+        const ux = r(r(r(r(nx * m0) + r(nz * m8)) + r(ny * m4)) * w);
+        const uy = r(r(r(r(nz * m9) + r(ny * m5)) + r(nx * m1)) * w);
+        const uz = r(r(r(r(nx * m2) + r(nz * m10)) + r(ny * m6)) * w);
+        if (k === 0) {
+            px = fround(tx); py = fround(ty); pz = fround(tz);
+            qx = fround(ux); qy = fround(uy); qz = fround(uz);
+        } else {
+            px = fround(r(tx + px)); py = fround(r(ty + py)); pz = fround(r(tz + pz));
+            qx = fround(r(ux + qx)); qy = fround(r(uy + qy)); qz = fround(r(uz + qz));
+        }
+    }
+    view.writeF32(d, px); view.writeF32(d + 4, py); view.writeF32(d + 8, pz);
+    view.writeF32(d + 0x0c, qx); view.writeF32(d + 0x10, qy); view.writeF32(d + 0x14, qz);
+    for (let t = 0; t < a.tail; t++) view.writeU32(d + DST_FIXED + 4 * t, view.readU32(s + SRC_FIXED + 4 * t));
+}
+
 export function deformKernel(view: ShadowView, args: number[], scaleAddr: number, singlePrecision: boolean): number {
     const a = decodeArgs(args);
     if (a.count <= 0) return a.dst;
@@ -114,38 +148,165 @@ export function deformKernel(view: ShadowView, args: number[], scaleAddr: number
     let s = a.src;
     let d = a.dst;
     for (let v = 0; v < a.count; v++) {
-        const x = view.readF32(s), y = view.readF32(s + 4), z = view.readF32(s + 8);
-        const nx = view.readF32(s + 0x14), ny = view.readF32(s + 0x18), nz = view.readF32(s + 0x1c);
-        let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
-        for (let k = 0; k < 4; k++) {
-            const mi = view.readU32(a.matrixIndices + 4 * view.readU8(s + 0x10 + k));
-            const m = (a.matrices + (mi << 6)) >>> 0;
-            const b = view.readU8(s + 0x0c + k);
-            const w = k === 3 ? fround(r(b * c)) : r(b * c);
-            const m0 = view.readF32(m), m1 = view.readF32(m + 4), m2 = view.readF32(m + 8);
-            const m4 = view.readF32(m + 0x10), m5 = view.readF32(m + 0x14), m6 = view.readF32(m + 0x18);
-            const m8 = view.readF32(m + 0x20), m9 = view.readF32(m + 0x24), m10 = view.readF32(m + 0x28);
-            const tx = r(r(r(r(r(x * m0) + r(z * m8)) + r(y * m4)) + view.readF32(m + 0x30)) * w);
-            const ty = r(r(r(r(r(z * m9) + r(y * m5)) + r(x * m1)) + view.readF32(m + 0x34)) * w);
-            const tz = r(r(r(r(r(x * m2) + r(z * m10)) + r(y * m6)) + view.readF32(m + 0x38)) * w);
-            const ux = r(r(r(r(nx * m0) + r(nz * m8)) + r(ny * m4)) * w);
-            const uy = r(r(r(r(nz * m9) + r(ny * m5)) + r(nx * m1)) * w);
-            const uz = r(r(r(r(nx * m2) + r(nz * m10)) + r(ny * m6)) * w);
-            if (k === 0) {
-                px = fround(tx); py = fround(ty); pz = fround(tz);
-                qx = fround(ux); qy = fround(uy); qz = fround(uz);
-            } else {
-                px = fround(r(tx + px)); py = fround(r(ty + py)); pz = fround(r(tz + pz));
-                qx = fround(r(ux + qx)); qy = fround(r(uy + qy)); qz = fround(r(uz + qz));
-            }
-        }
-        view.writeF32(d, px); view.writeF32(d + 4, py); view.writeF32(d + 8, pz);
-        view.writeF32(d + 0x0c, qx); view.writeF32(d + 0x10, qy); view.writeF32(d + 0x14, qz);
-        for (let t = 0; t < a.tail; t++) view.writeU32(d + DST_FIXED + 4 * t, view.readU32(s + SRC_FIXED + 4 * t));
+        deformVertex(view, a, s, d, c, r);
         s = (s + sStride) >>> 0;
         d = (d + dStride) >>> 0;
     }
     deformCounters.calls++;
     deformCounters.vertices += a.count;
+    deformCounters.exactVertices += a.count;
     return d;
+}
+
+/**
+ * Magnitude windows inside which single-rounded f32 arithmetic IS the precision-control
+ * result. With every vertex component zero or in [2^-32, 2^30] and every matrix entry zero
+ * or in [2^-40, 2^30], each product and translation is zero or at least 2^-72, every sum is
+ * a multiple of 2^-95, every weighted term (weights are zero or at least 1/255) is at least
+ * 2^-103 with a unit in the last place of at least 2^-126 (the weight scale is held to [2^-8, 2^-7]), and so is every accumulator: no
+ * intermediate can be subnormal or overflow, which are the only results round24 does not
+ * hand to Math.fround. A vertex or matrix outside the windows takes the exact path.
+ */
+const VERTEX_LO = 2 ** -32;
+const MATRIX_LO = 2 ** -40;
+const PLAIN_HI = 2 ** 30;
+const WEIGHT_SCALE_LO = 2 ** -8;
+const WEIGHT_SCALE_HI = 2 ** -7;
+const MATRIX_ENTRIES = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
+const MATRIX_UNKNOWN = 0, MATRIX_PLAIN = 1, MATRIX_EXACT = 2;
+const matrixSlotAddr = new Int32Array(256);
+const matrixSlotState = new Uint8Array(256);
+
+function classifyMatrix(F: Float32Array, i: number): number {
+    for (let j = 0; j < MATRIX_ENTRIES.length; j++) {
+        const v = F[i + MATRIX_ENTRIES[j]];
+        const m = v < 0 ? -v : v;
+        if (!(m >= MATRIX_LO && m <= PLAIN_HI) && v !== 0) return MATRIX_EXACT;
+    }
+    return MATRIX_PLAIN;
+}
+
+export interface DeformViews {
+    u8: Uint8Array;
+    u32: Uint32Array;
+    f32: Float32Array;
+}
+
+export function deformViews(mem: Uint8Array): DeformViews | null {
+    if ((mem.byteOffset & 3) !== 0) return null;
+    return {
+        u8: mem,
+        u32: new Uint32Array(mem.buffer, mem.byteOffset, mem.byteLength >>> 2),
+        f32: new Float32Array(mem.buffer, mem.byteOffset, mem.byteLength >>> 2),
+    };
+}
+
+/**
+ * The same kernel over dword views of guest memory. `out` receives the destination vertices
+ * at `address + outDelta`, which lets a validation run aim them at its scratch copy of the
+ * destination range; `view` serves the vertices that need the exact path.
+ */
+export function deformKernelDirect(
+    view: ShadowView, src: DeformViews, out: DeformViews, outDelta: number,
+    args: number[], scaleAddr: number,
+): number {
+    const a = decodeArgs(args);
+    if (a.count <= 0) return a.dst;
+    if (((a.src | a.dst | a.matrixIndices | a.matrices | scaleAddr | outDelta) & 3) !== 0) {
+        return deformKernel(view, args, scaleAddr, true);
+    }
+    const F = src.f32, U = src.u32, B = src.u8;
+    const OF = out.f32, OU = out.u32;
+    const c = F[scaleAddr >>> 2];
+    if (!(c >= WEIGHT_SCALE_LO && c <= WEIGHT_SCALE_HI)) return deformKernel(view, args, scaleAddr, true);
+    const sStride = srcStride(a.tail);
+    const dStride = dstStride(a.tail);
+    const indices = a.matrixIndices >>> 2;
+    const matrixLimit = F.length - 16;
+    const tail = a.tail;
+    matrixSlotState.fill(MATRIX_UNKNOWN);
+    let s = a.src;
+    let d = a.dst;
+    let exactCount = 0;
+    for (let v = 0; v < a.count; v++, s = (s + sStride) >>> 0, d = (d + dStride) >>> 0) {
+        const o = s >>> 2;
+        const x = F[o], y = F[o + 1], z = F[o + 2];
+        const nx = F[o + 5], ny = F[o + 6], nz = F[o + 7];
+        let g = x < 0 ? -x : x;
+        let plain = (g >= VERTEX_LO && g <= PLAIN_HI) || x === 0;
+        g = y < 0 ? -y : y;
+        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || y === 0);
+        g = z < 0 ? -z : z;
+        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || z === 0);
+        g = nx < 0 ? -nx : nx;
+        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || nx === 0);
+        g = ny < 0 ? -ny : ny;
+        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || ny === 0);
+        g = nz < 0 ? -nz : nz;
+        plain = plain && ((g >= VERTEX_LO && g <= PLAIN_HI) || nz === 0);
+        let px = 0, py = 0, pz = 0, qx = 0, qy = 0, qz = 0;
+        for (let k = 0; plain && k < 4; k++) {
+            const mi = U[indices + B[s + 0x10 + k]];
+            const m = (a.matrices + (mi << 6)) >>> 0;
+            const i = m >>> 2;
+            const slot = mi & 255;
+            let state = matrixSlotAddr[slot] === (m | 0) ? matrixSlotState[slot] : MATRIX_UNKNOWN;
+            if (state === MATRIX_UNKNOWN) {
+                state = i <= matrixLimit ? classifyMatrix(F, i) : MATRIX_EXACT;
+                matrixSlotAddr[slot] = m | 0;
+                matrixSlotState[slot] = state;
+            }
+            if (state !== MATRIX_PLAIN) { plain = false; break; }
+            const w = fround(B[s + 0x0c + k] * c);
+            const m0 = F[i], m1 = F[i + 1], m2 = F[i + 2];
+            const m4 = F[i + 4], m5 = F[i + 5], m6 = F[i + 6];
+            const m8 = F[i + 8], m9 = F[i + 9], m10 = F[i + 10];
+            const tx = fround(fround(fround(fround(fround(x * m0) + fround(z * m8)) + fround(y * m4)) + F[i + 12]) * w);
+            const ty = fround(fround(fround(fround(fround(z * m9) + fround(y * m5)) + fround(x * m1)) + F[i + 13]) * w);
+            const tz = fround(fround(fround(fround(fround(x * m2) + fround(z * m10)) + fround(y * m6)) + F[i + 14]) * w);
+            const ux = fround(fround(fround(fround(nx * m0) + fround(nz * m8)) + fround(ny * m4)) * w);
+            const uy = fround(fround(fround(fround(nz * m9) + fround(ny * m5)) + fround(nx * m1)) * w);
+            const uz = fround(fround(fround(fround(nx * m2) + fround(nz * m10)) + fround(ny * m6)) * w);
+            if (k === 0) {
+                px = tx; py = ty; pz = tz; qx = ux; qy = uy; qz = uz;
+            } else {
+                px = fround(tx + px); py = fround(ty + py); pz = fround(tz + pz);
+                qx = fround(ux + qx); qy = fround(uy + qy); qz = fround(uz + qz);
+            }
+        }
+        if (!plain) {
+            deformVertex(view, a, s, d, c, round24);
+            exactCount++;
+            continue;
+        }
+        const e = (d + outDelta) >>> 2;
+        OF[e] = px; OF[e + 1] = py; OF[e + 2] = pz;
+        OF[e + 3] = qx; OF[e + 4] = qy; OF[e + 5] = qz;
+        for (let t = 0; t < tail; t++) OU[e + 6 + t] = U[o + 8 + t];
+    }
+    deformCounters.calls++;
+    deformCounters.vertices += a.count;
+    deformCounters.exactVertices += exactCount;
+    return d;
+}
+
+export class ShiftedWriteView implements ShadowView {
+    private target: DataView;
+    constructor(private base: ShadowView, bytes: Uint8Array, private delta: number) {
+        this.target = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    }
+    readU8(a: number): number { return this.base.readU8(a); }
+    readU16(a: number): number { return this.base.readU16(a); }
+    readU32(a: number): number { return this.base.readU32(a); }
+    readF32(a: number): number { return this.base.readF32(a); }
+    readF64(a: number): number { return this.base.readF64(a); }
+    readBytes(a: number, len: number): Uint8Array { return this.base.readBytes(a, len); }
+    writeU8(a: number, v: number): void { this.target.setUint8(a + this.delta, v & 0xFF); }
+    writeU16(a: number, v: number): void { this.target.setUint16(a + this.delta, v & 0xFFFF, true); }
+    writeU32(a: number, v: number): void { this.target.setUint32(a + this.delta, v >>> 0, true); }
+    writeF32(a: number, v: number): void { this.target.setFloat32(a + this.delta, v, true); }
+    writeF64(a: number, v: number): void { this.target.setFloat64(a + this.delta, v, true); }
+    writeBytes(a: number, bytes: Uint8Array): void {
+        new Uint8Array(this.target.buffer, this.target.byteOffset, this.target.byteLength).set(bytes, a + this.delta);
+    }
 }
