@@ -68,7 +68,9 @@ test("switching into a new fiber lands on its start routine with the parameter b
     const esp = cpu.reg32[4] >>> 0;
     expect(u32(TEB + 4)).toBeGreaterThan(esp);
     expect(u32(TEB + 8)).toBeLessThan(esp);
-    // Simulate the stub's RET 4.
+    // EIP is a guest RET 4, which pops the start routine and the argument slot.
+    expect(mem[cpu.instruction_pointer[0] >>> 0]).toBe(0xC2);
+    expect(mem[(cpu.instruction_pointer[0] >>> 0) + 1]).toBe(4);
     const eip = u32(esp);
     const afterRet = esp + 8;
     expect(eip).toBe(0x401000);
