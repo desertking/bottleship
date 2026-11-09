@@ -188,6 +188,12 @@ export function* compileEffectSource(process: Process, src: number, len: number,
             const errors = Mem.readUint32(errorOut) ?? 0;
             if (failed(hr) || !code) {
                 if (code) yield { fn: vtableSlot(code, VTBL_RELEASE), args: [code], tag: 'ID3DBlob::Release' };
+                if (errors) {
+                    const p = (yield { fn: vtableSlot(errors, VTBL_GET_BUFFER_POINTER), args: [errors], tag: 'ID3DBlob::GetBufferPointer' }) >>> 0;
+                    const n = (yield { fn: vtableSlot(errors, VTBL_GET_BUFFER_SIZE), args: [errors], tag: 'ID3DBlob::GetBufferSize' }) >>> 0;
+                    const text = p && n ? Mem.readBytes(p, Math.min(n, 2048)) : null;
+                    if (text) Logger.warn(LogCategory.D3D9, `D3DCompile(fx_2_0) hr=0x${hr.toString(16)}: ${new TextDecoder('latin1').decode(text).replace(/\0+$/, '')}`);
+                }
                 if (attempt === 0 && !(compileFlags & D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY)) {
                     if (errors) yield { fn: vtableSlot(errors, VTBL_RELEASE), args: [errors], tag: 'ID3DBlob::Release' };
                     compileFlags |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY;
