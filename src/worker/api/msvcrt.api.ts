@@ -283,6 +283,7 @@ export const msvcrtModule: ModuleDescriptor = {
         makeFunc("_wcsupr", 1),
         makeFunc("_wtoi", 1),
         makeFunc("wcstoul", 3),
+        makeFunc("wcstod", 2),
         makeFunc("_vsnwprintf", 4),
         makeFunc("_controlfp", 2),
         makeFunc("_control87", 2),

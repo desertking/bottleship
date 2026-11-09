@@ -151,6 +151,17 @@ export function registerCrtConvExports(exports: Record<string, ThunkImplementati
         return 0;
     }
 
+    function wcstod(strPtr: number, endPtr: number): number {
+        const str = host.readWString(strPtr, 256);
+        let start = 0;
+        while (start < str.length && /\s/.test(str[start])) start++;
+        const match = str.slice(start).match(/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?/);
+        const value = match ? parseFloat(match[0]) : 0;
+        fpuPush(host.process.v86, Number.isFinite(value) ? value : 0);
+        if (endPtr) Mem.writeUint32(endPtr, strPtr + (match ? start + match[0].length : 0) * 2);
+        return 0;
+    }
+
     function toupper(ch: number): number {
         const c = ch & 0xff;
         const caseUpperTableAddr = host.caseUpperTableAddr();
@@ -247,6 +258,7 @@ export function registerCrtConvExports(exports: Record<string, ThunkImplementati
     exports["strtol"] = (ctx, mem, args) => strtol(args[0] ?? 0, args[1] ?? 0, args[2] ?? 10);
     exports["strtoul"] = (ctx, mem, args) => strtoul(args[0] ?? 0, args[1] ?? 0, args[2] ?? 10);
     exports["strtod"] = (ctx, mem, args) => strtod(args[0] ?? 0, args[1] ?? 0);
+    exports["wcstod"] = (ctx, mem, args) => wcstod(args[0] ?? 0, args[1] ?? 0);
     exports["toupper"] = (ctx, mem, args) => toupper(args[0] ?? 0);
     exports["tolower"] = (ctx, mem, args) => tolower(args[0] ?? 0);
     exports["abs"] = (ctx, mem, args) => abs(args[0] ?? 0);
