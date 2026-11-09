@@ -1271,12 +1271,12 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
     // drops SrcDataLen, and the Ex overloads add pSkipConstants after pInclude.
     /**
      * HLSL text is compiled to fx_2_0 first, as d3dx9 does, through the guest's d3dcompiler.
-     * The compiler's messages go to ppCompilationErrors; a failed compile fails the create
-     * with the compiler's HRESULT, and only a missing compiler keeps the pass-through effect.
+     * The compiler's messages go to ppCompilationErrors; a failed or unavailable compile keeps
+     * the pass-through effect this create always returned for source text.
      */
     const createFromText = (ctx: Parameters<ThunkImplementation>[0], mem: Uint8Array, stackCleanup: number,
         src: number, len: number, pDefines: number, pInclude: number, flags: number,
-        ppEffect: number, ppErrors: number, publish: (model: EffectModel | null) => number) => {
+        _ppEffect: number, ppErrors: number, publish: (model: EffectModel | null) => number) => {
         if (ppErrors) Mem.writeUint32(ppErrors, 0);
         Logger.log(LogCategory.D3D9, `d3dx9: compiling effect HLSL (${len} bytes) defines=[${describeMacros(pDefines)}]`);
         return runGuestRoutine(ctx, mem, (function* (): GuestRoutine {
@@ -1289,10 +1289,12 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
                 }
             }
             if (!out.bytes) {
-                if ((out.hr >>> 0) === 0x80004005 && !out.errors) return publish(null);
-                if (ppEffect) Mem.writeUint32(ppEffect, 0);
-                Logger.warn(LogCategory.D3D9, `d3dx9: effect compile failed hr=0x${(out.hr >>> 0).toString(16)}`);
-                return out.hr >>> 0;
+                // d3dcompiler's shader back end still aborts under emulation (E_OUTOFMEMORY with
+                // no message, right after its per-compile HeapCreate) although the same source
+                // compiles natively. Until that is found, keep the pass-through effect a title
+                // got before rather than failing the create it would have survived.
+                Logger.warn(LogCategory.D3D9, `d3dx9: effect compile failed hr=0x${(out.hr >>> 0).toString(16)} — pass-through effect`);
+                return publish(null);
             }
             Logger.log(LogCategory.D3D9, `d3dx9: effect compiled from HLSL (${len} -> ${out.bytes.length} bytes)`);
             return publish(parseBytes(out.bytes));
