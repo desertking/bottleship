@@ -1746,7 +1746,7 @@ export class Msvcrt implements IModule {
     private strlen(ptr: number): number {
         if (!ptr) return 0;
         let len = 0;
-        while (len < 0x100000) {
+        for (;;) {
             const b = Mem.readUint8(ptr + len);
             if (b === 0 || b === null) break;
             len++;
@@ -1755,8 +1755,8 @@ export class Msvcrt implements IModule {
     }
 
     private strcpy(dest: number, src: number): number {
-        const value = this.readCString(src, 0x100000);
-        this.writeCString(dest, value);
+        if (!dest || !src) return dest >>> 0;
+        Mem.memmove(dest, src, this.strlen(src) + 1);
         return dest >>> 0;
     }
 
@@ -1772,9 +1772,8 @@ export class Msvcrt implements IModule {
     }
 
     private strcat(dest: number, src: number): number {
-        const destLen = this.strlen(dest);
-        const value = this.readCString(src, 0x100000);
-        this.writeCString(dest + destLen, value);
+        if (!dest || !src) return dest >>> 0;
+        Mem.memmove(dest + this.strlen(dest), src, this.strlen(src) + 1);
         return dest >>> 0;
     }
 
