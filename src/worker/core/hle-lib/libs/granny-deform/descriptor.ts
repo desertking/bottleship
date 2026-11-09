@@ -53,9 +53,19 @@ import {
     ShiftedWriteView,
     srcStride,
 } from './kernel';
+import {
+    decodeSseArgs,
+    deformKernelSse,
+    SSE_DST_STRIDE,
+    SSE_FRAME_INDICES,
+    SSE_FRAME_MATRICES,
+    SSE_SCRATCH_LEN,
+    SSE_SRC_STRIDE,
+} from './sse-kernel';
 import { LiveShadowView } from '../../shadow-validator';
 
 const FN = 'granny_deform_pwn343_pn33';
+const FN_SSE = 'granny_deform_pwn343_pn33_sse';
 
 function hexPattern(hex: string): Uint8Array {
     const out = new Uint8Array(hex.length / 2);
@@ -71,18 +81,37 @@ const BODY_LEN = 0x3ed;
 const SCALE_OPERANDS = [0x72, 0x13d, 0x219, 0x2f5];
 const BODY_SHA256 = 'de0c210bbee42ab970fc88f0c7724164b379d8db1b1cc46a63ebc716bc80b109';
 const PROLOGUE_LEN = 5;
+const SSE_PREFIX = hexPattern(
+    '558bec5657535156578b750c8b5d14908d7e140f126e208b432433c98a4e108b0c88c1e10603'
+    + '4b2033d28a56118b1490c1e20603532033c08a460cf30f2af0f30f5935');
+const SSE_BODY_LEN = 0x286;
+const SSE_SCALE_OPERANDS = [0x43, 0x56, 0x15d, 0x170];
+const SSE_BODY_SHA256 = '21af306b8af3a6211edaa5daa7d8cb5c80eea6ac72942f800ef99112ad691b00';
 const WEIGHT_SCALE = Math.fround(1 / 255);
 
-function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    const hit = view.signatureHits.find(h => h.signatureId === FN);
+interface KernelShape {
+    name: string;
+    label: string;
+    bodyLen: number;
+    scaleOperands: number[];
+    sha256: string;
+}
+
+const SHAPES: KernelShape[] = [
+    { name: FN, label: 'x87', bodyLen: BODY_LEN, scaleOperands: SCALE_OPERANDS, sha256: BODY_SHA256 },
+    { name: FN_SSE, label: 'SSE', bodyLen: SSE_BODY_LEN, scaleOperands: SSE_SCALE_OPERANDS, sha256: SSE_BODY_SHA256 },
+];
+
+function resolveShape(view: ResolverModuleView, shape: KernelShape): HookedFunctionMatch[] {
+    const hit = view.signatureHits.find(h => h.signatureId === shape.name);
     if (!hit) return [];
     const entry = hit.address;
-    const body = Mem.readBytes(entry, BODY_LEN);
-    if (!body || body.length !== BODY_LEN) return [];
+    const body = Mem.readBytes(entry, shape.bodyLen);
+    if (!body || body.length !== shape.bodyLen) return [];
     const masked = new Uint8Array(body);
-    const scale = Mem.readUint32(entry + SCALE_OPERANDS[0]);
+    const scale = Mem.readUint32(entry + shape.scaleOperands[0]);
     if (scale === null) return [];
-    for (const off of SCALE_OPERANDS) {
+    for (const off of shape.scaleOperands) {
         if (Mem.readUint32(entry + off) !== scale) {
             Logger.warn(LogCategory.SYSTEM,
                 `[granny-deform] ${view.module.name}: weight-scale operands at 0x${entry.toString(16)} disagree — refusing to hook`);
@@ -90,7 +119,7 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
         }
         masked.fill(0, off, off + 4);
     }
-    if (sha256HexSync(masked) !== BODY_SHA256) {
+    if (sha256HexSync(masked) !== shape.sha256) {
         Logger.log(LogCategory.SYSTEM,
             `[granny-deform] ${view.module.name}: prefix at 0x${entry.toString(16)} but a different body — not hooked`);
         return [];
@@ -102,8 +131,12 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
     }
     setWeightScale(entry, scale);
     Logger.log(LogCategory.SYSTEM,
-        `[granny-deform] ${view.module.name}: 4-bone PWN343 kernel 0x${entry.toString(16)}, weight scale 0x${scale.toString(16)}`);
-    return [{ name: FN, address: entry }];
+        `[granny-deform] ${view.module.name}: 4-bone PWN343 ${shape.label} kernel 0x${entry.toString(16)}, weight scale 0x${scale.toString(16)}`);
+    return [{ name: shape.name, address: entry }];
+}
+
+function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
+    return SHAPES.flatMap(shape => resolveShape(view, shape));
 }
 
 const memLength = (): number => Mem.getView()?.length ?? 0;
@@ -171,6 +204,48 @@ const shadow: ShadowSpec = {
     },
 };
 
+const sseShadow: ShadowSpec = {
+    validateInGame: true,
+    n: 32,
+    guard(args, view) {
+        const a = decodeSseArgs(args);
+        if (a.count <= 0 || a.count > MAX_VERTICES) return false;
+        if ((a.src & 3) !== 0 || (a.dst & 15) !== 0 || (a.frame & 15) !== 0) return false;
+        const srcLen = a.count * SSE_SRC_STRIDE;
+        const dstLen = a.count * SSE_DST_STRIDE;
+        if (!inBounds(a.src, srcLen) || !inBounds(a.dst, dstLen) || !inBounds(a.frame, SSE_FRAME_INDICES + 4)) return false;
+        if (a.src < a.dst + dstLen && a.dst < a.src + srcLen) return false;
+        if (a.frame < a.dst + dstLen && a.dst < a.frame + SSE_SCRATCH_LEN) return false;
+        if (a.frame < a.src + srcLen && a.src < a.frame + SSE_SCRATCH_LEN) return false;
+        const matrices = view.readU32(a.frame + SSE_FRAME_MATRICES);
+        const indices = view.readU32(a.frame + SSE_FRAME_INDICES);
+        return (matrices & 15) === 0 && (indices & 3) === 0 && inBounds(matrices, 64) && inBounds(indices, 4)
+            && liveViews() !== null;
+    },
+    ranges(args) {
+        const a = decodeSseArgs(args);
+        if (a.count <= 0) return [];
+        return [{ addr: a.dst, len: a.count * SSE_DST_STRIDE }, { addr: a.frame, len: SSE_SCRATCH_LEN }];
+    },
+    kernel(view: ShadowView, args: number[], site) {
+        const scale = getWeightScale(site.targetAddress);
+        const live = liveViews();
+        if (scale === undefined || !live) throw new Error(`no weight scale or dword view for 0x${site.targetAddress.toString(16)}`);
+        const a = decodeSseArgs(args);
+        if (view instanceof LiveShadowView) {
+            return deformKernelSse(live, live, 0, live.f32.subarray(a.frame >>> 2, (a.frame >>> 2) + 8), args, scale);
+        }
+        const bytes = new Uint8Array(a.count * SSE_DST_STRIDE);
+        const out = deformViews(bytes);
+        const scratch = new Float32Array(8);
+        if (!out) throw new Error('no dword view of the scratch destination');
+        const eax = deformKernelSse(live, out, -a.dst, scratch, args, scale);
+        view.writeBytes(a.dst, bytes);
+        view.writeBytes(a.frame, new Uint8Array(scratch.buffer));
+        return eax;
+    },
+};
+
 export const grannyDeformDescriptor: LibDescriptor = {
     id: 'granny-deform',
     displayName: 'Granny 2 four-bone position+normal skinning kernel (inner-loop HLE)',
@@ -180,6 +255,13 @@ export const grannyDeformDescriptor: LibDescriptor = {
             kind: 'bytes',
             pattern: PREFIX,
             mask: 'x'.repeat(PREFIX.length),
+            section: '.text',
+            weight: 12,
+        },
+        [FN_SSE]: {
+            kind: 'bytes',
+            pattern: SSE_PREFIX,
+            mask: 'x'.repeat(SSE_PREFIX.length),
             section: '.text',
             weight: 12,
         },
@@ -195,6 +277,16 @@ export const grannyDeformDescriptor: LibDescriptor = {
             prologueLen: PROLOGUE_LEN,
             shadow,
         },
+        [FN_SSE]: {
+            name: FN_SSE,
+            entryProbe: { kind: 'prologue', pattern: new Uint8Array(0), mask: '' },
+            externallyResolved: true,
+            callingConvention: 'cdecl',
+            argCount: 4,
+            required: false,
+            prologueLen: PROLOGUE_LEN,
+            shadow: sseShadow,
+        },
     },
     handlers: {},
     resolveAdditionalFunctions: resolveKernel,
@@ -209,4 +301,7 @@ export const grannyDeformDescriptor: LibDescriptor = {
     },
 };
 
-export const __test = { PREFIX, BODY_LEN, SCALE_OPERANDS, BODY_SHA256, PROLOGUE_LEN };
+export const __test = {
+    PREFIX, BODY_LEN, SCALE_OPERANDS, BODY_SHA256, PROLOGUE_LEN,
+    SSE_PREFIX, SSE_BODY_LEN, SSE_SCALE_OPERANDS, SSE_BODY_SHA256,
+};
