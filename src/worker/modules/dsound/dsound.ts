@@ -2240,7 +2240,7 @@ export class DSound implements IModule {
                     if (buffer.bufferLost) status |= DSBSTATUS_BUFFERLOST;
                     if (buffer.isPlaying) status |= DSBSTATUS_PLAYING;
                     if (buffer.isLooping) status |= DSBSTATUS_LOOPING;
-                    if (!(buffer.flags & DSBCAPS_LOCHARDWARE)) {
+                    if (buffer.isPlaying && !(buffer.flags & DSBCAPS_LOCHARDWARE)) {
                         status |= DSBSTATUS_LOCSOFTWARE;
                     }
                 }
@@ -2294,7 +2294,7 @@ export class DSound implements IModule {
                                 if (buffer.bufferLost) status |= DSBSTATUS_BUFFERLOST;
                                 if (buffer.isPlaying) status |= DSBSTATUS_PLAYING;
                                 if (buffer.isLooping) status |= DSBSTATUS_LOOPING;
-                                if (!(buffer.flags & DSBCAPS_LOCHARDWARE)) {
+                                if (buffer.isPlaying && !(buffer.flags & DSBCAPS_LOCHARDWARE)) {
                                     status |= DSBSTATUS_LOCSOFTWARE;
                                 }
                             }
