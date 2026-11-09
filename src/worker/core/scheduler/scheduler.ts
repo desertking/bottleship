@@ -806,7 +806,7 @@ export class Scheduler {
                 stackBase: t.stackBase, stackSize: t.stackSize, stackTop: t.stackTop,
                 startAddress: t.startAddress, parameter: t.parameter,
                 waitInfo: t.waitInfo ? { ...t.waitInfo } : null,
-                exitCode: t.exitCode, tlsValues: [...t.tlsValues], lastError: t.lastError,
+                exitCode: t.exitCode, tlsValues: (this.refreshTlsValuesFromTeb(t), [...t.tlsValues]), lastError: t.lastError,
                 suspendCount: t.suspendCount, priority: t.priority, backgroundMode: t.backgroundMode ?? false,
                 tebAddress: t.tebAddress, kernelPinCount: t.kernelPinCount,
                 apcQueue: t.apcQueue.map(a => ({ routine: a.routine, arg0: a.arg0, arg1: a.arg1, arg2: a.arg2, arg3: a.arg3 ?? null, kind: a.kind })),
@@ -870,6 +870,7 @@ export class Scheduler {
         this.runQueue = [...state.runQueue];
         this.bootstrapUntilFirstWait = new Set(state.bootstrapUntilFirstWait);
         this.tlsSlots = new Set(state.tlsSlots);
+        this.publishTlsSlots();
         this.nextTlsIndex = state.nextTlsIndex;
         this.criticalSectionOwners = new Map(state.criticalSectionOwners.map(([a, t]) => [a, t]));
         this.csLockSemaphores = new Map(state.csLockSemaphores.map(([a, h]) => [a, h]));
@@ -922,6 +923,7 @@ export class Scheduler {
         this.unhandledFaultFired = false;
         this.tlsSlots.clear();
         this.nextTlsIndex = 0;
+        this.publishTlsSlots();
         this.switchRequested = false;
         this.bootstrapUntilFirstWait.clear();
         this.idleAnchorWallMs = 0;
@@ -3777,19 +3779,42 @@ export class Scheduler {
         const index = this.nextTlsIndex;
         this.tlsSlots.add(index);
         this.nextTlsIndex = index + 1;
+        this.publishTlsSlots();
         return index;
     }
 
     tlsFree(index: number): boolean {
         if (!this.tlsSlots.has(index)) return false;
         this.tlsSlots.delete(index);
-        for (const t of this.threads.values()) t.tlsValues.delete(index);
+        for (const t of this.threads.values()) {
+            t.tlsValues.delete(index);
+            this.tebManager.syncTlsSlot(t.id, index, 0);
+        }
+        this.publishTlsSlots();
         return true;
     }
 
+    /** The TEB slot is authoritative for indices 0..63: the TlsSetValue hypercall writes only it. */
     tlsGetValue(index: number): number {
         const t = this.getCurrentThread();
-        return t ? (t.tlsValues.get(index) ?? 0) : 0;
+        if (!t) return 0;
+        return this.tebManager.readTlsSlot(t.id, index) ?? (t.tlsValues.get(index) ?? 0);
+    }
+
+    private publishTlsSlots(): void {
+        let lo = 0, hi = 0;
+        for (const i of this.tlsSlots) {
+            if (i < 32) lo |= 1 << i;
+            else if (i < 64) hi |= 1 << (i - 32);
+        }
+        hypercallDataManager.setTlsAllocatedMask(lo >>> 0, hi >>> 0);
+    }
+
+    private refreshTlsValuesFromTeb(t: Thread): void {
+        for (const i of this.tlsSlots) {
+            const v = this.tebManager.readTlsSlot(t.id, i);
+            if (v !== undefined) t.tlsValues.set(i, v);
+        }
     }
 
     tlsIsAllocated(index: number): boolean {

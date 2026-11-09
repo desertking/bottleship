@@ -69,6 +69,9 @@ const OFF_HC_RAND_SEED = 0x0B0;
 // authoritative at all times: published at init, on every capture mutation, and on
 // buffer-change resync (rewriteState).
 const OFF_HC_CAPTURE_HWND = 0x0B4;
+// TlsAlloc'd slots 0..63 (lo = 0..31, hi = 32..63) for the TlsSetValue handler.
+const OFF_HC_TLS_ALLOCATED_LO = 0x0B8;
+const OFF_HC_TLS_ALLOCATED_HI = 0x0BC;
 const OFF_HC_DISPATCH_TABLE = 0x100;
 const OFF_HC_DISPATCH_TABLE_EXT = 0x4000;
 const HC_DISPATCH_LIMIT = 0x10000;
@@ -130,6 +133,8 @@ const HANDLER_CDECL_FLOOR = 45;
 const HANDLER_CHAR_NEXT_A = 46;
 const HANDLER_CHAR_NEXT_W = 47;
 const CHAR_NEXT_HANDLERS = new Set([HANDLER_CHAR_NEXT_A, HANDLER_CHAR_NEXT_W]);
+// kernel32 TlsSetValue: bound only when the engine reports get_tls_set_value_abi() == 1.
+const HANDLER_TLS_SET_VALUE = 48;
 // String/memory hypercalls (Tier 3)
 const HANDLER_WCSLEN = 51;
 const HANDLER_WCSCPY = 52;
@@ -270,6 +275,7 @@ const HANDLER_MAP: Record<string, number> = {
     // skipped onThunkComplete the same as GetLastError. Hot via the CRT's _getptd().
     'kernel32.getcurrentthreadid': HANDLER_GET_CURRENT_THREAD_ID,
     'kernel32.tlsgetvalue': HANDLER_TLS_GET_VALUE,
+    'kernel32.tlssetvalue': HANDLER_TLS_SET_VALUE,
     'kernel32.flsgetvalue': HANDLER_FLS_GET_VALUE,
     // Pointer validation via page probe (EA titles call these per-pointer in hot loops).
     // Read-only probe; falls back to JS on any probe fault (decommit/CoW disambiguation).
@@ -542,6 +548,8 @@ export class HypercallDataManager {
     // shared slot index — a global value table hands thread A's _ptd to thread B.
     // The page holds the CURRENT thread's values; syncThreadData swaps them.
     private readonly flsAllocatedShadow = new Uint8Array(HC_FLS_SLOT_COUNT);
+    private tlsAllocatedLo = 0;
+    private tlsAllocatedHi = 0;
     private readonly flsValuesByThread = new Map<number, Uint32Array>();
     private flsCurrentTid = 0;
     // Last capture owner published to the page. Needed because the page is a Rust static
@@ -597,6 +605,7 @@ export class HypercallDataManager {
         this.view.setUint32(this.hpBase + OFF_HC_CAPTURE_HWND, this.captureHwndShadow, true);
 
         this.writeFlsSharedState();
+        this.writeTlsAllocatedMask();
         this.writeEventMirrorState();
 
         // Start disabled — enable after functions are registered
@@ -742,6 +751,7 @@ export class HypercallDataManager {
         this.view.setUint32(this.hpBase + OFF_HC_CAPTURE_HWND, this.captureHwndShadow, true);
 
         this.writeFlsSharedState();
+        this.writeTlsAllocatedMask();
         this.writeEventMirrorState(true); // preserve WASM-set signal bits across buffer-change resync
         this.resyncPublishedClockAfterBufferChange();
 
@@ -755,6 +765,22 @@ export class HypercallDataManager {
                 `[HYPERCALL] Re-synced state after buffer change ` +
                 `(${this.registeredEntries.size} handlers, enabled=true)`);
         }
+    }
+
+    private writeTlsAllocatedMask(): void {
+        if (!this.view) return;
+        this.view.setUint32(this.hpBase + OFF_HC_TLS_ALLOCATED_LO, this.tlsAllocatedLo, true);
+        this.view.setUint32(this.hpBase + OFF_HC_TLS_ALLOCATED_HI, this.tlsAllocatedHi, true);
+    }
+
+    /** Publish which TLS slots 0..63 are allocated; the scheduler owns the set. */
+    setTlsAllocatedMask(lo: number, hi: number): void {
+        this.tlsAllocatedLo = lo >>> 0;
+        this.tlsAllocatedHi = hi >>> 0;
+        if (!this.initialized) return;
+        this.refreshViews();
+        if (!this.view || this.hpBase === 0) return;
+        this.writeTlsAllocatedMask();
     }
 
     private writeFlsSharedState(): void {
@@ -1127,6 +1153,12 @@ export class HypercallDataManager {
         return typeof probe === "function" ? Number(probe()) : 0;
     }
 
+    /** 1 when this engine build carries the TlsSetValue handler and its allocation mask, else 0. */
+    private tlsSetValueAbi(): number {
+        const probe = (this.cpu as any)?.wm?.exports?.get_tls_set_value_abi;
+        return typeof probe === "function" ? Number(probe()) : 0;
+    }
+
     /** 1 when this engine build carries the CharNextA/CharNextW handlers, else 0. */
     private charNextAbi(): number {
         const probe = (this.cpu as any)?.wm?.exports?.get_char_next_abi;
@@ -1149,6 +1181,7 @@ export class HypercallDataManager {
         // when the engine reports the ABI keeps such a build on its JS fallbacks.
         if (BULK_MEMORY_HANDLERS.has(handlerId) && this.bulkMemoryAbi() !== BULK_MEMORY_ABI) return;
         if (CHAR_NEXT_HANDLERS.has(handlerId) && this.charNextAbi() !== 1) return;
+        if (handlerId === HANDLER_TLS_SET_VALUE && this.tlsSetValueAbi() !== 1) return;
 
         this.refreshViews();
         if (!this.view) return;

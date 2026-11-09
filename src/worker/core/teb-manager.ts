@@ -377,6 +377,16 @@ export class TebManager {
         view.setUint32(tlsAddr + index * 4, value >>> 0, true);
     }
 
+    /** A TLS slot's value as the guest sees it (TlsSetValue may write it from WASM), or undefined. */
+    readTlsSlot(threadId: number, index: number): number | undefined {
+        if (index < 0 || index >= TLS_MINIMUM_AVAILABLE) return undefined;
+        const tlsAddr = this.tlsArrayMap.get(threadId);
+        if (tlsAddr === undefined) return undefined;
+        const view = this.getView();
+        if (!view) return undefined;
+        return view.getUint32(tlsAddr + index * 4, true);
+    }
+
     /**
      * Free a thread's TEB (just removes from tracking; memory freed by process cleanup).
      */
