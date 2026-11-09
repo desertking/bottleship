@@ -646,6 +646,10 @@ function writeTextMetrics(hdc: number, lptm: number, mem: Uint8Array): void {
     let maxWidth = 12;
 
     if (dcCtx) {
+        // fontBoundingBoxAscent/Descent are measured from the context's textBaseline; the DC's
+        // context draws with 'top', which would hand back ascent≈0 and the whole cell as descent.
+        const baseline = dcCtx.textBaseline;
+        dcCtx.textBaseline = 'alphabetic';
         try {
             const m = dcCtx.measureText('ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz');
             if (m.fontBoundingBoxAscent !== undefined) {
@@ -661,6 +665,8 @@ function writeTextMetrics(hdc: number, lptm: number, mem: Uint8Array): void {
             }
         } catch (_) {
             // keep defaults
+        } finally {
+            dcCtx.textBaseline = baseline;
         }
     }
 
