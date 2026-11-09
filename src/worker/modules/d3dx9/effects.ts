@@ -1172,6 +1172,20 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
      * create its effect at all takes a much worse path than one whose effect renders
      * nothing. The reason is logged so the gap is visible rather than silent.
      */
+    /** D3DXMACRO {Name, Definition} pairs up to the NULL name, for the log. */
+    const describeMacros = (p: number): string => {
+        const view = Mem.getView();
+        if (!p || !view) return '';
+        const out: string[] = [];
+        for (let i = 0; i < 32; i++) {
+            const name = Mem.readUint32(p + i * 8) ?? 0;
+            if (!name) break;
+            const def = Mem.readUint32(p + i * 8 + 4) ?? 0;
+            out.push(Marshaler.readString(view, name) + (def ? '=' + Marshaler.readString(view, def) : ''));
+        }
+        return out.join(',');
+    };
+
     const isSourceText = (pSrcData: number, srcLen: number): boolean => {
         if (!pSrcData || !srcLen) return false;
         const head = Mem.readBytes(pSrcData, Math.min(srcLen, 8));
@@ -1262,6 +1276,7 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
         src: number, len: number, pDefines: number, pInclude: number, flags: number,
         ppEffect: number, ppErrors: number, publish: (model: EffectModel | null) => number) => {
         if (ppErrors) Mem.writeUint32(ppErrors, 0);
+        Logger.log(LogCategory.D3D9, `d3dx9: compiling effect HLSL (${len} bytes) defines=[${describeMacros(pDefines)}]`);
         return runGuestRoutine(ctx, mem, (function* (): GuestRoutine {
             const out = yield* compileEffectSource(process, src, len, pDefines, pInclude, flags);
             if (out.errors) {
