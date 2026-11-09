@@ -51,6 +51,7 @@ const PS_2_A_CAPS = D3DPS20CAPS_ARBITRARYSWIZZLE | D3DPS20CAPS_GRADIENTINSTRUCTI
 const VTBL_GET_DEVICE_CAPS = 7;
 const VTBL_RELEASE = 2;
 const VTBL_GET_BUFFER_POINTER = 3;
+const VTBL_GET_BUFFER_SIZE = 4;
 
 interface CompilerBinding {
     /** D3DCompile, once resolved; the module stays loaded, as d3dx9 keeps it. */
@@ -116,6 +117,96 @@ export function pixelShaderProfile(caps: DataView): string | null {
     return null;
 }
 
+/** LoadLibrary + GetProcAddress, as guest calls, so the loader and search order are Windows'. */
+function* bindCompiler(process: Process, scratch: number): Generator<{ fn: number; args: number[]; tag: string }, number, number> {
+    if (binding.d3dCompile) return binding.d3dCompile;
+    if (binding.missing) return 0;
+    const dispatcher = process.dispatcher;
+    const loadLibrary = resolveHleExportAddress(dispatcher, 'kernel32', 'LoadLibraryA');
+    const getProcAddress = resolveHleExportAddress(dispatcher, 'kernel32', 'GetProcAddress');
+    const dllName = scratch;
+    const procName = scratch + D3DX_COMPILER_DLL.length + 1;
+    writeAscii(dllName, D3DX_COMPILER_DLL);
+    writeAscii(procName, 'D3DCompile');
+
+    // Both return NULL on failure.
+    const module = yield { fn: loadLibrary, args: [dllName], tag: 'LoadLibraryA' };
+    const entry = module
+        ? yield { fn: getProcAddress, args: [module, procName], tag: 'GetProcAddress' }
+        : 0;
+    if (!entry) {
+        binding.missing = true;
+        Logger.error(LogCategory.D3D9,
+            `D3DXCompileShader: ${D3DX_COMPILER_DLL} could not be loaded — the DirectX runtime ` +
+            `installs it into C:\\Windows\\System32; without it no HLSL compiles`);
+        return 0;
+    }
+    binding.d3dCompile = entry >>> 0;
+    return binding.d3dCompile;
+}
+
+/** D3DXFX_* creation flags that share bit values with D3DCOMPILE_* and must not reach the compiler. */
+const D3DXFX_ONLY_FLAGS = (1 << 11) | (1 << 17) | D3DXSHADER_USE_LEGACY_D3DX9_31_DLL;
+const D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY = 1 << 12;
+
+export interface CompiledEffectSource {
+    hr: number;
+    /** The compiled fx_2_0 binary, when hr succeeded. */
+    bytes?: Uint8Array;
+    /** ID3DBlob with the compiler's messages, owned by the caller (0 if none). */
+    errors: number;
+}
+
+/**
+ * Compile an effect's HLSL text to the fx_2_0 binary d3dx9's effect parser reads, through
+ * d3dcompiler_43's D3DCompile running as guest code — the compiler d3dx9_43 itself uses for
+ * effects. Older d3dx9 builds carried their own copy of the same compiler; an effect written
+ * against those is retried with D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY (pre-SM2 syntax),
+ * which is what fxc does for them.
+ */
+export function* compileEffectSource(process: Process, src: number, len: number, pDefines: number,
+    pInclude: number, flags: number): Generator<GuestCall, CompiledEffectSource, number> {
+    const scratch = process.memory.alloc(8 + 64 + 8, 'HEAP', 'rw') >>> 0;
+    if (!scratch) return { hr: E_FAIL, errors: 0 };
+    const codeOut = scratch;
+    const errorOut = scratch + 4;
+    const profile = scratch + 8 + 64;
+    try {
+        const d3dCompile = yield* bindCompiler(process, scratch + 8);
+        if (!d3dCompile) return { hr: E_FAIL, errors: 0 };
+        writeAscii(profile, 'fx_2_0');
+        let compileFlags = flags & ~D3DXFX_ONLY_FLAGS;
+        for (let attempt = 0; ; attempt++) {
+            Mem.writeUint32(codeOut, 0);
+            Mem.writeUint32(errorOut, 0);
+            const hr = (yield {
+                fn: d3dCompile,
+                args: [src, len, 0, pDefines, pInclude, 0, profile, compileFlags, 0, codeOut, errorOut],
+                tag: 'D3DCompile(fx_2_0)',
+            }) >>> 0;
+            const code = Mem.readUint32(codeOut) ?? 0;
+            const errors = Mem.readUint32(errorOut) ?? 0;
+            if (failed(hr) || !code) {
+                if (code) yield { fn: vtableSlot(code, VTBL_RELEASE), args: [code], tag: 'ID3DBlob::Release' };
+                if (attempt === 0 && !(compileFlags & D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY)) {
+                    if (errors) yield { fn: vtableSlot(errors, VTBL_RELEASE), args: [errors], tag: 'ID3DBlob::Release' };
+                    compileFlags |= D3DCOMPILE_ENABLE_BACKWARDS_COMPATIBILITY;
+                    continue;
+                }
+                return { hr: failed(hr) ? hr : E_FAIL, errors };
+            }
+            const ptr = (yield { fn: vtableSlot(code, VTBL_GET_BUFFER_POINTER), args: [code], tag: 'ID3DBlob::GetBufferPointer' }) >>> 0;
+            const size = (yield { fn: vtableSlot(code, VTBL_GET_BUFFER_SIZE), args: [code], tag: 'ID3DBlob::GetBufferSize' }) >>> 0;
+            const bytes = ptr && size ? Mem.readBytes(ptr, size) : null;
+            yield { fn: vtableSlot(code, VTBL_RELEASE), args: [code], tag: 'ID3DBlob::Release' };
+            if (!bytes || bytes.length !== size) return { hr: E_FAIL, errors };
+            return { hr, bytes: new Uint8Array(bytes), errors };
+        }
+    } finally {
+        process.memory.free(scratch);
+    }
+}
+
 export function createCompileShaderExports(process: Process): Record<string, ThunkImplementation> {
     const exports: Record<string, ThunkImplementation> = {};
 
@@ -153,34 +244,6 @@ export function createCompileShaderExports(process: Process): Record<string, Thu
 
     exports['D3DXGetVertexShaderProfile'] = profileQuery('D3DXGetVertexShaderProfile', vertexShaderProfile);
     exports['D3DXGetPixelShaderProfile'] = profileQuery('D3DXGetPixelShaderProfile', pixelShaderProfile);
-
-    /** LoadLibrary + GetProcAddress, as guest calls, so the loader and search order are Windows'. */
-    function* bindCompiler(scratch: number): Generator<{ fn: number; args: number[]; tag: string }, number, number> {
-        if (binding.d3dCompile) return binding.d3dCompile;
-        if (binding.missing) return 0;
-        const dispatcher = process.dispatcher;
-        const loadLibrary = resolveHleExportAddress(dispatcher, 'kernel32', 'LoadLibraryA');
-        const getProcAddress = resolveHleExportAddress(dispatcher, 'kernel32', 'GetProcAddress');
-        const dllName = scratch;
-        const procName = scratch + D3DX_COMPILER_DLL.length + 1;
-        writeAscii(dllName, D3DX_COMPILER_DLL);
-        writeAscii(procName, 'D3DCompile');
-
-        // Both return NULL on failure.
-        const module = yield { fn: loadLibrary, args: [dllName], tag: 'LoadLibraryA' };
-        const entry = module
-            ? yield { fn: getProcAddress, args: [module, procName], tag: 'GetProcAddress' }
-            : 0;
-        if (!entry) {
-            binding.missing = true;
-            Logger.error(LogCategory.D3D9,
-                `D3DXCompileShader: ${D3DX_COMPILER_DLL} could not be loaded — the DirectX runtime ` +
-                `installs it into C:\\Windows\\System32; without it no HLSL compiles`);
-            return 0;
-        }
-        binding.d3dCompile = entry >>> 0;
-        return binding.d3dCompile;
-    }
 
     // HRESULT D3DXCompileShader(LPCSTR pSrcData, UINT SrcDataLen, CONST D3DXMACRO *pDefines,
     //     LPD3DXINCLUDE pInclude, LPCSTR pFunctionName, LPCSTR pProfile, DWORD Flags,
@@ -222,7 +285,7 @@ export function createCompileShaderExports(process: Process): Record<string, Thu
                     if (typeof loaded === 'number') return loaded;
                     [pSrcData, srcDataLen, release] = [loaded.src, loaded.len, loaded.release];
                 }
-                const d3dCompile = yield* bindCompiler(scratch + 8);
+                const d3dCompile = yield* bindCompiler(process, scratch + 8);
                 if (!d3dCompile) {
                     if (ppErrorMsgs) {
                         const msg = createD3DXTextBuffer(process, `${D3DX_COMPILER_DLL} is not installed`);

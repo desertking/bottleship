@@ -33,6 +33,8 @@ import { Mem } from '../../core/memory/mem-accessor';
 import { Marshaler } from '../../core/memory/marshaler';
 import { D3D_OK } from '../d3d9/resource-registry';
 import { isCompiledEffect, parseCompiledEffect, STATE_PIXEL_SHADER, STATE_VERTEX_SHADER } from './effect-parser';
+import { compileEffectSource } from './compile-shader';
+import { runGuestRoutine, type GuestRoutine } from '../../core/thunking/guest-routine';
 import {
     annotationHandle,
     decodeHandle,
@@ -1170,12 +1172,23 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
      * create its effect at all takes a much worse path than one whose effect renders
      * nothing. The reason is logged so the gap is visible rather than silent.
      */
+    const isSourceText = (pSrcData: number, srcLen: number): boolean => {
+        if (!pSrcData || !srcLen) return false;
+        const head = Mem.readBytes(pSrcData, Math.min(srcLen, 8));
+        if (!head) return false;
+        return srcLen < 8 || !isCompiledEffect(head);
+    };
+
     const parseSource = (pSrcData: number, srcLen: number): EffectModel | null => {
         if (!pSrcData || !srcLen) return null;
         const bytes = Mem.readBytes(pSrcData, srcLen);
         if (!bytes || bytes.length !== srcLen) return null;
+        return parseBytes(bytes);
+    };
+
+    const parseBytes = (bytes: Uint8Array): EffectModel | null => {
         if (!isCompiledEffect(bytes)) {
-            Logger.warn(LogCategory.D3D9, 'd3dx9: effect source is not compiled (HLSL text) — not supported');
+            Logger.warn(LogCategory.D3D9, 'd3dx9: effect source is not compiled (HLSL text) and could not be compiled');
             return null;
         }
         try {
@@ -1240,14 +1253,52 @@ export function createEffectExports(process: Process): Record<string, ThunkImple
 
     // Every D3DXCreateEffect* overload differs only in where ppEffect sits: FromFile*
     // drops SrcDataLen, and the Ex overloads add pSkipConstants after pInclude.
-    exports['D3DXCreateEffect'] = (_ctx, _mem, args) => {
+    /**
+     * HLSL text is compiled to fx_2_0 first, as d3dx9 does, through the guest's d3dcompiler.
+     * The compiler's messages go to ppCompilationErrors; a failed compile fails the create
+     * with the compiler's HRESULT, and only a missing compiler keeps the pass-through effect.
+     */
+    const createFromText = (ctx: Parameters<ThunkImplementation>[0], mem: Uint8Array, stackCleanup: number,
+        src: number, len: number, pDefines: number, pInclude: number, flags: number,
+        ppEffect: number, ppErrors: number, publish: (model: EffectModel | null) => number) => {
+        if (ppErrors) Mem.writeUint32(ppErrors, 0);
+        return runGuestRoutine(ctx, mem, (function* (): GuestRoutine {
+            const out = yield* compileEffectSource(process, src, len, pDefines, pInclude, flags);
+            if (out.errors) {
+                if (ppErrors) Mem.writeUint32(ppErrors, out.errors);
+                else {
+                    const release = Mem.readUint32((Mem.readUint32(out.errors) ?? 0) + 8) ?? 0;
+                    if (release) yield { fn: release, args: [out.errors], tag: 'ID3DBlob::Release' };
+                }
+            }
+            if (!out.bytes) {
+                if ((out.hr >>> 0) === 0x80004005 && !out.errors) return publish(null);
+                if (ppEffect) Mem.writeUint32(ppEffect, 0);
+                Logger.warn(LogCategory.D3D9, `d3dx9: effect compile failed hr=0x${(out.hr >>> 0).toString(16)}`);
+                return out.hr >>> 0;
+            }
+            Logger.log(LogCategory.D3D9, `d3dx9: effect compiled from HLSL (${len} -> ${out.bytes.length} bytes)`);
+            return publish(parseBytes(out.bytes));
+        })(), stackCleanup, 'D3DXCreateEffect');
+    };
+
+    exports['D3DXCreateEffect'] = (ctx, mem, args) => {
         noteSource(args[1] >>> 0, args[2] >>> 0);
-        // D3DXCreateEffect(pDevice, pSrcData, len, pDefines, pInclude, Flags, pPool, ppEffect)
+        // D3DXCreateEffect(pDevice, pSrcData, len, pDefines, pInclude, Flags, pPool, ppEffect, ppCompilationErrors)
+        if (isSourceText(args[1] >>> 0, args[2] >>> 0)) {
+            return createFromText(ctx, mem, 36, args[1] >>> 0, args[2] >>> 0, args[3] >>> 0, args[4] >>> 0, args[5] >>> 0,
+                args[7] >>> 0, args[8] >>> 0, (model) => publishEffect(args[7] >>> 0, model, args[0] >>> 0, args[6] >>> 0));
+        }
         return publishEffect(args[7] >>> 0, parseSource(args[1] >>> 0, args[2] >>> 0), args[0] >>> 0, args[6] >>> 0);
     };
     // ...Ex adds pSkipConstants between pInclude and Flags, so ppEffect moves to index 8.
-    exports['D3DXCreateEffectEx'] = (_ctx, _mem, args) => {
+    exports['D3DXCreateEffectEx'] = (ctx, mem, args) => {
         noteSource(args[1] >>> 0, args[2] >>> 0);
+        if (isSourceText(args[1] >>> 0, args[2] >>> 0)) {
+            return createFromText(ctx, mem, 40, args[1] >>> 0, args[2] >>> 0, args[3] >>> 0, args[4] >>> 0, args[6] >>> 0,
+                args[8] >>> 0, args[9] >>> 0, (model) => publishEffect(args[8] >>> 0, model, args[0] >>> 0, args[7] >>> 0,
+                    parseSkipConstants(args[5] >>> 0)));
+        }
         // ...Ex: pPool moves to index 7 with ppEffect at 8.
         return publishEffect(
             args[8] >>> 0, parseSource(args[1] >>> 0, args[2] >>> 0), args[0] >>> 0, args[7] >>> 0,
