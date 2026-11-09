@@ -277,6 +277,13 @@ type ApiCursorCache = {
 // @transient(the last GetCurrentPosition answer per live buffer, answered again from the ring after a load)
 const apiCursorCaches = new WeakMap<object, ApiCursorCache>();
 
+const API_CURSOR_COALESCE_MS = 0.5;
+
+function apiCursorCoalesceMs(): number {
+    const v = (globalThis as { __apiCursorCoalesceMs?: number }).__apiCursorCoalesceMs;
+    return v === undefined ? API_CURSOR_COALESCE_MS : v;
+}
+
 function apiDebugFlags(): number {
     const g = globalThis as {
         __noFrontierHold?: boolean; __noHostLatency?: boolean; __noCursorSmoothing?: boolean;
@@ -3337,7 +3344,8 @@ export class DSound implements IModule {
             const ctrl = cache.ctrl;
             const raw = Atomics.load(ctrl, CTRL_PLAY_CURSOR) % ring;
             const debugFlags = apiDebugFlags();
-            if (now === cache.now && raw === cache.raw && debugFlags === cache.debugFlags
+            if ((now === cache.now || (now > cache.now && now - cache.now < apiCursorCoalesceMs()))
+                && raw === cache.raw && debugFlags === cache.debugFlags
                 && ring === cache.ring && buffer.bytes === cache.bytes && buffer.frequency === cache.frequency
                 && buffer.isLooping === cache.isLooping && buffer.streamed === cache.streamed
                 && buffer.format === cache.format && buffer.premixAdvancedAtMs === cache.premixAdvancedAtMs
