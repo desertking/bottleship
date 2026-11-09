@@ -2034,6 +2034,58 @@ export function createPaintingExports(): Record<string, ThunkImplementation> {
         return 1; // success
     };
 
+    // OUTLINETEXTMETRICA: the TEXTMETRICA of the selected font plus the outline metrics a
+    // TrueType face reports, derived from the same measurement. Names follow the fixed part.
+    exports['GetOutlineTextMetricsA'] = (ctx, mem, args): number => {
+        const hdc = args[0] >>> 0;
+        const cbData = args[1] >>> 0;
+        const lpOtm = args[2] >>> 0;
+        const gdi = System.getInstance().gdiContext;
+        const dc = gdi.hdcStates.get(hdc);
+        if (!dc) return 0;
+        const font = dc.hFont ? gdi.objects.get(dc.hFont) : undefined;
+        const face = (font?.type === 'FONT' && font.faceName) ? String(font.faceName) : 'Arial';
+        const bold = (font?.lfWeight ?? 400) >= 600, italic = !!font?.lfItalic;
+        const style = bold && italic ? 'Bold Italic' : bold ? 'Bold' : italic ? 'Italic' : 'Regular';
+        const names = [face, face, style, style === 'Regular' ? face : `${face} ${style}`];
+        const FIXED = 212;
+        const total = FIXED + names.reduce((n, x) => n + x.length + 1, 0);
+        if (!lpOtm) return total;
+        if (cbData < FIXED || lpOtm + Math.min(cbData, total) > mem.length) return 0;
+        const tm = new Uint8Array(56);
+        const scratch = mem.subarray(lpOtm, lpOtm + Math.min(cbData, total));
+        scratch.fill(0);
+        writeTextMetrics(hdc, lpOtm + 4, mem);
+        tm.set(mem.subarray(lpOtm + 4, lpOtm + 60));
+        const v = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
+        const tmv = new DataView(tm.buffer);
+        const height = tmv.getInt32(0, true), ascent = tmv.getInt32(4, true), descent = tmv.getInt32(8, true);
+        const external = tmv.getInt32(16, true), maxWidth = tmv.getInt32(24, true);
+        const em = Math.max(1, height - tmv.getInt32(12, true));
+        const ints: [number, number][] = [
+            [0, total], [72, (bold ? 0x20 : 0) | (italic ? 0x01 : 0) | (!bold && !italic ? 0x40 : 0)], [76, 0],
+            [80, 1], [84, 0], [88, italic ? -120 : 0], [92, em], [96, ascent], [100, -descent], [104, external],
+            [108, Math.round(ascent * 0.7)], [112, Math.round(ascent * 0.5)],
+            [116, 0], [120, ascent], [124, maxWidth], [128, -descent],
+            [132, ascent], [136, -descent], [140, external], [144, 9],
+            [148, Math.round(em * 0.6)], [152, Math.round(em * 0.6)], [156, 0], [160, Math.round(em * 0.15)],
+            [164, Math.round(em * 0.6)], [168, Math.round(em * 0.6)], [172, 0], [176, Math.round(em * 0.45)],
+            [180, Math.max(1, Math.round(em / 20))], [184, Math.round(ascent * 0.3)],
+            [188, -Math.max(1, Math.round(em / 20))], [192, -Math.max(1, Math.round(descent / 2))],
+        ];
+        for (const [off, val] of ints) if (off + 4 <= cbData) v.setInt32(lpOtm + off, val | 0, true);
+        let off = FIXED;
+        names.forEach((name, i) => {
+            if (off + name.length + 1 <= cbData) {
+                for (let k = 0; k < name.length; k++) mem[lpOtm + off + k] = name.charCodeAt(k) & 0xff;
+                mem[lpOtm + off + name.length] = 0;
+                if (196 + i * 4 + 4 <= cbData) v.setUint32(lpOtm + 196 + i * 4, off, true);
+            }
+            off += name.length + 1;
+        });
+        return 1;
+    };
+
     exports['GetTextMetricsW'] = (ctx, mem, args): number => {
         const hdc = args[0];
         const lptm = args[1];

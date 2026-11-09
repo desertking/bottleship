@@ -75,6 +75,7 @@ export const gdi32Module: ModuleDescriptor = {
 
         // Text and font metrics
         makeFunc("GetTextMetricsA", 2),
+        makeFunc("GetOutlineTextMetricsA", 3),
         makeFunc("GetTextMetricsW", 2),
         makeFunc("GetTextExtentPointA", 4),
         makeFunc("GetTextExtentExPointA", 7),
