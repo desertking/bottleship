@@ -11,6 +11,7 @@ import { System } from "../../core/system";
 import { isValidAddress, overlapsThunkCode } from "../../core/memory/address-guard";
 import { toPlainGuestMemory } from "../../core/memory/guest-memory";
 import { tryConvertPixelKernel } from "../../backends/webgpu/shared/dxt-kernel";
+import { tryGpuSwizzleUpload } from "../../backends/webgpu/shared/bgra-upload-swizzle";
 import { DDPF_FOURCC } from "./constants";
 import { lockCostProfiler, LP } from "./lock-cost-profiler";
 import type { DirectDrawSurfaceState } from "./com-objects";
@@ -1852,6 +1853,9 @@ function uploadPartialRegion(
     const needsSwizzle = textureFormat === "bgra8unorm";
 
     const dirtyBPR = w * 4;
+    if (needsSwizzle && tryGpuSwizzleUpload(queue, texture, rgbaData, (y * fullWidth + x) * 4, fullWidth * 4, { x, y, w, h })) {
+        return;
+    }
     if (!needsSwizzle) {
         queue.writeTexture(
             { texture, origin: { x, y, z: 0 } },
@@ -1972,6 +1976,7 @@ export function uploadToGPUTexture(
     const textureFormat = format ?? (texture as unknown as { format?: GPUTextureFormat }).format ?? "rgba8unorm";
     let dataToUpload = rgbaData;
     if (textureFormat === "bgra8unorm") {
+        if (tryGpuSwizzleUpload(queue, texture, rgbaData, 0, bytesPerRow, { x: 0, y: 0, w: width, h: height })) return;
         const totalPixels = width * height;
         const size = totalPixels * 4;
         const swizzled = scratch && scratch.length >= size

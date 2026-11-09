@@ -1,3 +1,4 @@
+import { registerSwizzleUploadDevice } from "./shared/bgra-upload-swizzle";
 import { RenderBackend } from "../../runtime/runtime-services";
 import { requestAdapterWithRetry } from "../../../gpu-adapter-retry";
 import { Logger, LogCategory } from "../../core/logger";
@@ -138,6 +139,7 @@ export class WebGPUBackend implements RenderBackend {
         // Byte census for harness `footprint` (estimates; see gpu-memory-census.ts).
         instrumentGpuDeviceCensus(device);
         this.device = device;
+        registerSwizzleUploadDevice(device);
         this.bcSupported = device.features.has("texture-compression-bc");
         this.queue = device.queue;
 
