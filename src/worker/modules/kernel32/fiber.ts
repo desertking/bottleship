@@ -114,7 +114,7 @@ function tebAddress(cpu: any): number {
 function newFiberObject(param: number): number {
     const process = System.getInstance().process;
     if (!process) return 0;
-    let fiber = 0;
+    let fiber: number;
     try { fiber = process.memory.alloc(FIBER_SIZE) >>> 0; } catch { return 0; }
     for (let off = 0; off < FIBER_SIZE; off += 4) Mem.writeUint32(fiber + off, 0);
     Mem.writeUint32(fiber + F_DATA, param >>> 0);
@@ -147,7 +147,7 @@ function createFiber(stackReserve: number, start: number, param: number): number
     const process = system.process;
     if (!process || !start) { setLastError(ERROR_INVALID_PARAMETER); return 0; }
     const size = Math.max(MIN_STACK, ((stackReserve >>> 0) || DEFAULT_STACK) + 0xFFFF & ~0xFFFF) >>> 0;
-    let stack = 0;
+    let stack: number;
     try { stack = process.memory.alloc(size, undefined, undefined, 0x1000) >>> 0; } catch { stack = 0; }
     if (!stack) { setLastError(ERROR_NOT_ENOUGH_MEMORY); return 0; }
     const fiber = newFiberObject(param);
