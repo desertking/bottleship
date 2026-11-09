@@ -69,9 +69,10 @@ export const clearWeightScales = (): void => { weightScales.clear(); };
 export const deformCounters = {
     calls: 0,
     sseCalls: 0,
+    aabbCalls: 0,
     vertices: 0,
     exactVertices: 0,
-    reset(): void { this.calls = 0; this.sseCalls = 0; this.vertices = 0; this.exactVertices = 0; },
+    reset(): void { this.calls = 0; this.sseCalls = 0; this.aabbCalls = 0; this.vertices = 0; this.exactVertices = 0; },
 };
 
 const F32_MIN_NORMAL = 2 ** -126;

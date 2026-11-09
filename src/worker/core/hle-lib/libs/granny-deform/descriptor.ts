@@ -62,6 +62,7 @@ import {
     SSE_SCRATCH_LEN,
     SSE_SRC_STRIDE,
 } from './sse-kernel';
+import { aabbInputsPlain, aabbKernel, aabbResult, decodeAabbArgs } from './aabb-kernel';
 import { LiveShadowView } from '../../shadow-validator';
 
 const FN = 'granny_deform_pwn343_pn33';
@@ -88,6 +89,16 @@ const SSE_BODY_LEN = 0x286;
 const SSE_SCALE_OPERANDS = [0x43, 0x56, 0x15d, 0x170];
 const SSE_BODY_SHA256 = '21af306b8af3a6211edaa5daa7d8cb5c80eea6ac72942f800ef99112ad691b00';
 const WEIGHT_SCALE = Math.fround(1 / 255);
+const FN_AABB = 'granny_aabb_transform';
+const AABB_PREFIX = hexPattern(
+    '83ec28a100000000d9050000000053d9e055d954242c8b6c2440d95424288bd0d95c2424568b7424388bc8'
+    + '8954241c8b54243c5789442428894c2424c7442410');
+const AABB_MASK = 'xxxx????xx????' + 'x'.repeat(AABB_PREFIX.length - 14);
+const AABB_BODY_LEN = 0x191;
+const AABB_LIMIT_OPERANDS = [0x4, 0xa];
+const AABB_BODY_SHA256 = 'd3d7d15730fa2980a3923a209dbc9c1f92154b593cde445f2abce59bbc7ad68f';
+const AABB_PROLOGUE_LEN = 8;
+const FLT_MAX = Math.fround(3.4028234663852886e38);
 
 interface KernelShape {
     name: string;
@@ -135,8 +146,33 @@ function resolveShape(view: ResolverModuleView, shape: KernelShape): HookedFunct
     return [{ name: shape.name, address: entry }];
 }
 
+function resolveAabb(view: ResolverModuleView): HookedFunctionMatch[] {
+    const hit = view.signatureHits.find(h => h.signatureId === FN_AABB);
+    if (!hit) return [];
+    const entry = hit.address;
+    const body = Mem.readBytes(entry, AABB_BODY_LEN);
+    if (!body || body.length !== AABB_BODY_LEN) return [];
+    const masked = new Uint8Array(body);
+    const limit = Mem.readUint32(entry + AABB_LIMIT_OPERANDS[0]);
+    if (limit === null || Mem.readUint32(entry + AABB_LIMIT_OPERANDS[1]) !== limit) return [];
+    for (const off of AABB_LIMIT_OPERANDS) masked.fill(0, off, off + 4);
+    if (sha256HexSync(masked) !== AABB_BODY_SHA256) {
+        Logger.log(LogCategory.SYSTEM,
+            `[granny-deform] ${view.module.name}: box-transform prefix at 0x${entry.toString(16)} but a different body — not hooked`);
+        return [];
+    }
+    if (Mem.readFloat32(limit) !== FLT_MAX) {
+        Logger.warn(LogCategory.SYSTEM,
+            `[granny-deform] ${view.module.name}: box limit at 0x${limit.toString(16)} is not FLT_MAX — refusing to hook`);
+        return [];
+    }
+    Logger.log(LogCategory.SYSTEM,
+        `[granny-deform] ${view.module.name}: bounding-box transform 0x${entry.toString(16)}`);
+    return [{ name: FN_AABB, address: entry }];
+}
+
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    return SHAPES.flatMap(shape => resolveShape(view, shape));
+    return [...SHAPES.flatMap(shape => resolveShape(view, shape)), ...resolveAabb(view)];
 }
 
 const memLength = (): number => Mem.getView()?.length ?? 0;
@@ -246,6 +282,33 @@ const sseShadow: ShadowSpec = {
     },
 };
 
+const aabbShadow: ShadowSpec = {
+    validateInGame: true,
+    n: 32,
+    guard(args) {
+        const a = decodeAabbArgs(args);
+        if (((a.t | a.m | a.min | a.max) & 3) !== 0) return false;
+        if (!inBounds(a.t, 12) || !inBounds(a.m, 36) || !inBounds(a.min, 12) || !inBounds(a.max, 12)) return false;
+        if (a.min < a.max + 12 && a.max < a.min + 12) return false;
+        const live = liveViews();
+        return live !== null && callerRoundsToSingle() && aabbInputsPlain(live, a);
+    },
+    ranges(args) {
+        const a = decodeAabbArgs(args);
+        return [{ addr: a.min, len: 12 }, { addr: a.max, len: 12 }];
+    },
+    kernel(view: ShadowView, args: number[]) {
+        const live = liveViews();
+        if (!live) throw new Error('no dword view of guest memory');
+        if (view instanceof LiveShadowView) return aabbKernel(live, live, args);
+        const a = decodeAabbArgs(args);
+        const eax = aabbKernel(live, null, args);
+        view.writeBytes(a.min, aabbResult.slice(0, 12));
+        view.writeBytes(a.max, aabbResult.slice(12, 24));
+        return eax;
+    },
+};
+
 export const grannyDeformDescriptor: LibDescriptor = {
     id: 'granny-deform',
     displayName: 'Granny 2 four-bone position+normal skinning kernel (inner-loop HLE)',
@@ -265,8 +328,25 @@ export const grannyDeformDescriptor: LibDescriptor = {
             section: '.text',
             weight: 12,
         },
+        [FN_AABB]: {
+            kind: 'bytes',
+            pattern: AABB_PREFIX,
+            mask: AABB_MASK,
+            section: '.text',
+            weight: 12,
+        },
     },
     functions: {
+        [FN_AABB]: {
+            name: FN_AABB,
+            entryProbe: { kind: 'prologue', pattern: new Uint8Array(0), mask: '' },
+            externallyResolved: true,
+            callingConvention: 'cdecl',
+            argCount: 4,
+            required: false,
+            prologueLen: AABB_PROLOGUE_LEN,
+            shadow: aabbShadow,
+        },
         [FN]: {
             name: FN,
             entryProbe: { kind: 'prologue', pattern: new Uint8Array(0), mask: '' },
@@ -304,4 +384,5 @@ export const grannyDeformDescriptor: LibDescriptor = {
 export const __test = {
     PREFIX, BODY_LEN, SCALE_OPERANDS, BODY_SHA256, PROLOGUE_LEN,
     SSE_PREFIX, SSE_BODY_LEN, SSE_SCALE_OPERANDS, SSE_BODY_SHA256,
+    AABB_PREFIX, AABB_MASK, AABB_BODY_LEN, AABB_LIMIT_OPERANDS, AABB_BODY_SHA256,
 };
