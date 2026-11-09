@@ -4,6 +4,7 @@ import { Mem } from '../../core/memory/mem-accessor';
 import { addMemoryFontResource, removeMemoryFontResource, installedFontCoverage } from './font-resource';
 import { packGray8, writeGlyphSet } from './sfnt-coverage.mjs';
 import { decodeAnsiString, EmulatorConfig } from '../../core/emulator-config-manager';
+import { dcFontScale } from './painting-dc-state';
 
 export function registerFontExtraExports(exports: Record<string, ThunkImplementation>): void {
     exports['AddFontMemResourceEx'] = (_ctx, mem, args): number | Promise<number> => {
@@ -65,7 +66,11 @@ export function registerFontExtraExports(exports: Record<string, ThunkImplementa
             const canvas = new OffscreenCanvas(1, 1);
             const c = canvas.getContext('2d', { willReadFrequently: true });
             if (!c) return fail;
-            c.font = state.font; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
+            // GLYPHMETRICS and bitmaps are in device units: a font created in logical units under
+            // MM_ANISOTROPIC/ISOTROPIC is realized at its height times the viewport/window ratio.
+            const scale = dcFontScale(hdc);
+            const font = scale === 1 ? state.font : state.font.replace(/(\d+(?:\.\d+)?)px/, (_m, px) => `${Math.max(1, Math.round(Number(px) * scale))}px`);
+            c.font = font; c.textBaseline = 'alphabetic'; c.textAlign = 'left';
             const text = String.fromCharCode(ch), m = c.measureText(text);
             const left = Math.floor(-m.actualBoundingBoxLeft), top = Math.ceil(m.actualBoundingBoxAscent);
             const right = Math.ceil(m.actualBoundingBoxRight), bottom = Math.floor(-m.actualBoundingBoxDescent);
@@ -80,7 +85,7 @@ export function registerFontExtraExports(exports: Record<string, ThunkImplementa
             if (kind === 0) return 0;
             if (!size || !out || !required) return required;
             canvas.width = width; canvas.height = height;
-            c.font = state.font; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillStyle = '#fff';
+            c.font = font; c.textBaseline = 'alphabetic'; c.textAlign = 'left'; c.fillStyle = '#fff';
             c.fillText(text, -left, top);
             const gray = packGray8(c.getImageData(0, 0, width, height).data, width, height);
             const levels = kind === 4 ? 4 : kind === 5 ? 16 : 64;

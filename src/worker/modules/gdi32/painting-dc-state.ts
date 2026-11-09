@@ -171,6 +171,14 @@ export function applyMapMode(m: DcMapping, mode: number, res = screenRes()): boo
     return true;
 }
 
+/** Device units per logical unit on the y axis — how a font's logical height becomes pixels. */
+export function dcFontScale(hdc: number): number {
+    const m = readMapping(hdc);
+    if (m.mapMode === MM_TEXT || !m.wndExtY) return 1;
+    const scale = Math.abs(m.vportExtY / m.wndExtY);
+    return Number.isFinite(scale) && scale > 0 ? scale : 1;
+}
+
 /** Logical → device (Wine's construct_window_to_viewport, win32u/dc.c:417). */
 export function lpToDp(m: DcMapping, x: number, y: number): { x: number; y: number } {
     const scaleX = m.vportExtX / m.wndExtX;
