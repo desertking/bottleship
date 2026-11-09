@@ -283,6 +283,19 @@ export function registerFastPathD3D9Functions(dispatcher: HleDispatcher): void {
         return D3D_OK;
     }, { trivial: true });
 
+    // IDirect3DDevice9_GetVertexShaderConstantF(thisPtr, StartRegister, pConstantData, Vector4fCount)
+    // A read of the hardware bank straight into guest memory; anything unusual (SWVP, a range
+    // or pointer the full thunk would reject) returns null and takes the full thunk.
+    dispatcher.registerFastPath('d3d9', 'IDirect3DDevice9_GetVertexShaderConstantF', (esp: number, view: DataView, mem: Uint8Array): number | null => {
+        const device = devices.lookup(view.getUint32(esp + 4, true));
+        if (!device) return null;
+        const start = view.getUint32(esp + 8, true);
+        const pData = view.getUint32(esp + 12, true);
+        const count = view.getUint32(esp + 16, true);
+        if (count === 0 || count > 256 || start > 256 || !isValidAddress(mem, pData, count * 16, "rw")) return null;
+        return device.copyHardwareVertexShaderConstantsToGuest(start, count, pData, view) ? D3D_OK : null;
+    }, { trivial: true });
+
     // IDirect3DDevice9_SetPixelShaderConstantF(thisPtr, StartRegister, pConstantData, Vector4fCount)
     dispatcher.registerFastPath('d3d9', 'IDirect3DDevice9_SetPixelShaderConstantF', (esp: number, view: DataView, mem: Uint8Array): number => {
         const device = devices.lookup(view.getUint32(esp + 4, true));
