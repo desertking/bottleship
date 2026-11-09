@@ -146,6 +146,7 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_wbuf_bitmap", 1],
     ["jit_mmx_logic_inline", 1],
     ["jit_rmw_misc_inline", 1],
+    ["jit_out_direct", 1],
 ]));
 
 /** The all-off reference for the switches. */
