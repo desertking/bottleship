@@ -216,7 +216,7 @@ export function registerFastPathD3D9Functions(dispatcher: HleDispatcher): void {
         const device = devices.lookup(view.getUint32(esp + 4, true));
         if (!device) return null;
         const pMatrix = view.getUint32(esp + 12, true);
-        if (pMatrix === 0 || !isValidAddress(mem, pMatrix, D3DMATRIX_SIZE, "rw")) return null;
+        if (!validGuestRange(mem, pMatrix, D3DMATRIX_SIZE) || !isValidAddress(mem, pMatrix, D3DMATRIX_SIZE, "rw")) return null;
         const matrix = device.getTransform(view.getUint32(esp + 8, true));
         if (!matrix || matrix.length < 16) return null;
         for (let i = 0; i < 16; i++) view.setFloat32(pMatrix + i * 4, matrix[i]!, true);
