@@ -113,6 +113,10 @@ class LibHleManager {
         return `${libId}|${moduleName}|${functionName}`;
     }
 
+    patchFunctionId(libId: string, functionName: string, moduleName?: string): number {
+        return this.resolvePatch(libId, functionName, moduleName)?.functionId ?? -1;
+    }
+
     /**
      * Find the patch for (libId, functionName). `moduleName` selects one exactly; without it
      * the lookup only succeeds when a single module carries the function — an ambiguous

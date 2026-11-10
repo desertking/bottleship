@@ -1758,6 +1758,26 @@ export class ThunkDispatcher {
         return out;
     }
 
+    private trapBarrier: ((functionId: number, ringPending: boolean) => void) | null = null;
+
+    setTrapBarrier(barrier: ((functionId: number, ringPending: boolean) => void) | null): void {
+        this.trapBarrier = barrier;
+    }
+
+    private runTrapBarrier(functionId: number): void {
+        const mem32 = this.cachedMem32;
+        const headWordIdx = this.writeBufControlAddr >> 2;
+        let ringPending = false;
+        if (this.writeBufControlAddr !== 0) {
+            if (!mem32 || headWordIdx >= mem32.length) ringPending = true;
+            else {
+                const head = mem32[headWordIdx]!;
+                ringPending = head !== 0 && head !== this.wbufTail;
+            }
+        }
+        this.trapBarrier!(functionId, ringPending);
+    }
+
     wbufDeferring(): boolean {
         return (globalThis as { __wbufDefer?: boolean }).__wbufDefer === true && this.writeBufCapacity > 0
             && !this.wbufSplitting();
@@ -2600,6 +2620,7 @@ export class ThunkDispatcher {
         // The ring is drained here so that all pending state changes are applied before
         // the flush trigger (DrawPrimitive, glEnd, wglSwapBuffers) executes.
         // Cost when ring is empty: ~2 ns (one branch + one u32 read).
+        if (this.trapBarrier !== null) this.runTrapBarrier(functionId);
         if (this.wbufDeferring()) this.deferredTrapBoundary(functionId);
         else if (this.wbufSplitting()) this.drainWriteBuffer();
         else {

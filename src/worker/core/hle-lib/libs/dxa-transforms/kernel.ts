@@ -37,9 +37,17 @@ export const transformCounters = {
     declinedValues: 0,
     checkOk: 0,
     checkDiff: 0,
+    held: 0,
+    heldStore: 0,
+    heldMultiply: 0,
+    heldReleased: 0,
+    heldCheckOk: 0,
+    heldCheckDiff: 0,
     reset(): void {
         this.store = 0; this.restore = 0; this.multiply = 0; this.multiplyShader = 0;
         this.declinedValues = 0; this.checkOk = 0; this.checkDiff = 0;
+        this.held = 0; this.heldStore = 0; this.heldMultiply = 0; this.heldReleased = 0;
+        this.heldCheckOk = 0; this.heldCheckDiff = 0;
     },
 };
 
@@ -81,6 +89,97 @@ export function sameBank(a: Float32Array, b: Float32Array): boolean {
     for (let i = 0; i < BANK_FLOATS; i++) {
         if (i >= 16 && i < 32) continue;
         if (x[i] !== y[i]) return false;
+    }
+    return true;
+}
+
+export interface TransformDevice {
+    getTransform(state: number): Float32Array | null;
+    setTransform(state: number, matrix: Float32Array): number;
+    multiplyTransform(state: number, matrix: Float32Array): number;
+    getVertexShaderConstants(start: number, vector4fCount: number): Float32Array;
+    setVertexShaderConstantFFromArray(startRegister: number, data: Float32Array, mem: Uint8Array): number;
+}
+
+const NO_MEM = null as unknown as Uint8Array;
+const HELD_CHECK_EVERY = 64;
+
+export class HeldRestore {
+    device: TransformDevice | null = null;
+    shader = false;
+    readonly bytes = new Uint8Array(STORE_SHADER_LEN);
+    private readonly floats = new Float32Array(this.bytes.buffer);
+    private readonly bank = new Float32Array(BANK_FLOATS);
+    private readonly product = new Float32Array(BANK_FLOATS);
+    private readonly world = new Float32Array(16);
+    private checks = 0;
+
+    constructor(private readonly multiplyMatrices: (a: Float32Array, b: Float32Array) => Float32Array) {}
+
+    hold(device: TransformDevice, shader: boolean, mem: Uint8Array, buf: number): void {
+        const len = shader ? STORE_SHADER_LEN : STORE_FFP_LEN;
+        this.bytes.set(mem.subarray(buf, buf + len));
+        this.device = device;
+        this.shader = shader;
+        transformCounters.held++;
+    }
+
+    release(): void {
+        const device = this.device;
+        if (!device) return;
+        this.device = null;
+        device.setTransform(WORLD, this.floats.subarray(0, 16));
+        if (this.shader) {
+            device.setVertexShaderConstantFFromArray(0, this.floats.subarray(16, 32), NO_MEM);
+            device.setVertexShaderConstantFFromArray(8, this.floats.subarray(32, BANK_FLOATS), NO_MEM);
+        }
+        transformCounters.heldReleased++;
+    }
+    heldBank(device: TransformDevice): Float32Array {
+        const bank = this.bank;
+        bank.set(this.floats.subarray(16, 32), 0);
+        bank.set(device.getVertexShaderConstants(4, 4), 16);
+        bank.set(this.floats.subarray(32, BANK_FLOATS), 32);
+        return bank;
+    }
+    multiply(m: Float32Array): boolean {
+        const device = this.device;
+        if (!device) return false;
+        const world = this.multiplyMatrices(m, this.floats.subarray(0, 16));
+        for (let i = 0; i < 16; i++) {
+            if (!Number.isFinite(world[i]!)) { this.release(); return false; }
+        }
+        if (this.shader) multiplyBank(this.heldBank(device), m, this.product);
+        if (this.checks++ % HELD_CHECK_EVERY === 0) {
+            this.world.set(world);
+            this.release();
+            device.multiplyTransform(WORLD, m);
+            let same = sameBits(device.getTransform(WORLD), this.world, 16);
+            if (this.shader) {
+                const now = new Float32Array(BANK_FLOATS);
+                multiplyBank(device.getVertexShaderConstants(0, BANK_REGISTERS), m, now);
+                device.setVertexShaderConstantFFromArray(0, now, NO_MEM);
+                same = same && sameBits(now, this.product, BANK_FLOATS);
+            }
+            if (same) transformCounters.heldCheckOk++;
+            else transformCounters.heldCheckDiff++;
+            return true;
+        }
+        this.device = null;
+        device.setTransform(WORLD, world);
+        if (this.shader) device.setVertexShaderConstantFFromArray(0, this.product, NO_MEM);
+        transformCounters.heldMultiply++;
+        return true;
+    }
+}
+
+function sameBits(a: Float32Array | null, b: Float32Array, n: number): boolean {
+    if (!a || a.length < n) return false;
+    const f = new Float32Array(2);
+    const u = new Uint32Array(f.buffer);
+    for (let i = 0; i < n; i++) {
+        f[0] = a[i]!; f[1] = b[i]!;
+        if (u[0] !== u[1]) return false;
     }
     return true;
 }
