@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { deformViews, round24 } from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
+import { deformCounters, deformViews, round24 } from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
 import {
     BONE_STRIDE,
     decodeWorldPoseArgs,
@@ -195,5 +195,24 @@ describe('granny world-pose kernel', () => {
         expect(__test.WORLDPOSE_PARTS.reduce((n, p) => n + p.len, 0)).toBe(0x292 + 7 + 8 + 8 + 0x1e + 0xaa + 0xc4 + 0xe7 + 0x14c);
         expect(validatePrologueBytes(__test.WORLDPOSE_PREFIX.slice(0, __test.WORLDPOSE_PROLOGUE_LEN))).toBeNull();
         expect(validatePrologueBytes(__test.WORLDPOSE_PREFIX.slice(0, 5))).not.toBeNull();
+    });
+
+    it('takes the plain pass only while no product can leave the normal f32 range', () => {
+        const plainRuns = (scale: number): number => {
+            const before = deformCounters.worldPosePlain;
+            check(build(4242, scale, { offset: true }));
+            return deformCounters.worldPosePlain - before;
+        };
+        expect(plainRuns(1)).toBe(1);
+        expect(plainRuns(1e-3)).toBe(1);
+        expect(plainRuns(1e-22)).toBe(0);
+        expect(plainRuns(1e18)).toBe(0);
+    });
+
+    it('rounds a value just below the smallest normal f32 like the x87 does', () => {
+        expect(round24(2 ** -126)).toBe(2 ** -126);
+        expect(round24(2 ** -126 * (1 - 2 ** -24 - 2 ** -30))).toBe(2 ** -126 * (1 - 2 ** -24));
+        expect(round24(2 ** -126 * (1 - 2 ** -26))).toBe(2 ** -126);
+        expect(round24(2 ** -1040 * (1 + 2 ** -24 + 2 ** -30))).toBe(2 ** -1040 * (1 + 2 ** -23));
     });
 });

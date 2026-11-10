@@ -72,10 +72,11 @@ export const deformCounters = {
     aabbCalls: 0,
     worldPoseCalls: 0,
     worldPoseBones: 0,
+    worldPosePlain: 0,
     vertices: 0,
     exactVertices: 0,
     reset(): void {
-        this.calls = 0; this.sseCalls = 0; this.aabbCalls = 0; this.worldPoseCalls = 0; this.worldPoseBones = 0;
+        this.calls = 0; this.sseCalls = 0; this.aabbCalls = 0; this.worldPoseCalls = 0; this.worldPoseBones = 0; this.worldPosePlain = 0;
         this.vertices = 0; this.exactVertices = 0;
     },
 };
@@ -85,7 +86,7 @@ const F32_LIMIT = 2 ** 128;
 const f64Bits = new DataView(new ArrayBuffer(8));
 
 /** Round the significand to 24 bits keeping the f64 exponent (v86 fpu_round_significand). */
-function roundSignificand24Slow(v: number): number {
+function roundSignificand24Subnormal(v: number): number {
     f64Bits.setFloat64(0, v, true);
     const bits = f64Bits.getBigUint64(0, true);
     const magnitude = bits & 0x7fff_ffff_ffff_ffffn;
@@ -102,12 +103,29 @@ function roundSignificand24Slow(v: number): number {
     return f64Bits.getFloat64(0, true);
 }
 
+const f64Value = new Float64Array(1);
+const f64Words = new Uint32Array(f64Value.buffer);
+
+function roundSignificand24Slow(v: number): number {
+    f64Value[0] = v;
+    const high = f64Words[1], low = f64Words[0];
+    const exponent = (high >>> 20) & 0x7ff;
+    if (exponent === 0x7ff) return v;
+    if (exponent === 0) return roundSignificand24Subnormal(v);
+    const rest = low & 0x1fffffff;
+    let kept = low >>> 29;
+    if (rest > 0x10000000 || (rest === 0x10000000 && (kept & 1) !== 0)) kept++;
+    f64Words[0] = (kept << 29) >>> 0;
+    if (kept === 8) f64Words[1] = high + 1;
+    return f64Value[0];
+}
+
 /** One x87 arithmetic result under precision control 00 (single). */
 export function round24(v: number): number {
     if (v === 0) return v;
     const f = fround(v);
     const m = f < 0 ? -f : f;
-    return m >= F32_MIN_NORMAL && m < F32_LIMIT ? f : roundSignificand24Slow(v);
+    return m > F32_MIN_NORMAL && m < F32_LIMIT ? f : roundSignificand24Slow(v);
 }
 
 const exact = (v: number): number => v;
