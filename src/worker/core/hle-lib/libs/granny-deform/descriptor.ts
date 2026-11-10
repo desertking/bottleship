@@ -249,7 +249,9 @@ function resolveWorldPose(view: ResolverModuleView): HookedFunctionMatch[] {
 }
 
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    return [...SHAPES.flatMap(shape => resolveShape(view, shape)), ...resolveAabb(view), ...resolveWorldPose(view)];
+    const deform = SHAPES.flatMap(shape => resolveShape(view, shape));
+    if ((globalThis as { __grannyPoseHooks?: boolean }).__grannyPoseHooks !== true) return deform;
+    return [...deform, ...resolveAabb(view), ...resolveWorldPose(view)];
 }
 
 const memLength = (): number => Mem.getView()?.length ?? 0;
