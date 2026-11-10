@@ -210,6 +210,33 @@ export function registerFastPathD3D9Functions(dispatcher: HleDispatcher): void {
         return device.setTransform(view.getUint32(esp + 8, true), matrix);
     }, { trivial: true });
 
+    // IDirect3DDevice9_GetTransform(thisPtr, State, pMatrix)
+    // A read of the tracked matrix; anything the full thunk would reject takes the full thunk.
+    dispatcher.registerFastPath('d3d9', 'IDirect3DDevice9_GetTransform', (esp: number, view: DataView, mem: Uint8Array): number | null => {
+        const device = devices.lookup(view.getUint32(esp + 4, true));
+        if (!device) return null;
+        const pMatrix = view.getUint32(esp + 12, true);
+        if (pMatrix === 0 || !isValidAddress(mem, pMatrix, D3DMATRIX_SIZE, "rw")) return null;
+        const matrix = device.getTransform(view.getUint32(esp + 8, true));
+        if (!matrix || matrix.length < 16) return null;
+        for (let i = 0; i < 16; i++) view.setFloat32(pMatrix + i * 4, matrix[i]!, true);
+        return D3D_OK;
+    }, { trivial: true });
+
+    // IDirect3DDevice9_MultiplyTransform(thisPtr, State, pMatrix)
+    // CAPTURE-AT-CALL like SetTransform: the operand is copied out of guest memory here.
+    dispatcher.registerFastPath('d3d9', 'IDirect3DDevice9_MultiplyTransform', (esp: number, view: DataView, mem: Uint8Array): number => {
+        const device = devices.lookup(view.getUint32(esp + 4, true));
+        if (!device) return D3DERR_INVALIDCALL;
+        const pMatrix = view.getUint32(esp + 12, true);
+        if (!validGuestRange(mem, pMatrix, D3DMATRIX_SIZE)) return D3DERR_INVALIDCALL;
+        const matrix = new Float32Array(16);
+        for (let i = 0; i < 16; i++) {
+            matrix[i] = view.getFloat32(pMatrix + i * 4, true);
+        }
+        return device.multiplyTransform(view.getUint32(esp + 8, true), matrix);
+    }, { trivial: true });
+
     // IDirect3DDevice9_SetFVF(thisPtr, FVF)
     dispatcher.registerFastPath('d3d9', 'IDirect3DDevice9_SetFVF', (esp: number, view: DataView): number => {
         const device = devices.lookup(view.getUint32(esp + 4, true));
