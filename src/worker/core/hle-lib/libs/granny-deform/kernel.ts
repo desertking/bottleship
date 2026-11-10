@@ -132,7 +132,7 @@ export function round24(v: number): number {
 
 const exact = (v: number): number => v;
 
-function deformVertex(
+export function deformVertex(
     view: ShadowView, a: DeformArgs, s: number, d: number, c: number, r: (v: number) => number,
 ): void {
     const x = view.readF32(s), y = view.readF32(s + 4), z = view.readF32(s + 8);
@@ -198,8 +198,8 @@ export function deformKernel(view: ShadowView, args: number[], scaleAddr: number
  */
 const PRODUCT_LO = 2 ** -72;
 const PLAIN_HI = 2 ** 30;
-const WEIGHT_SCALE_LO = 2 ** -8;
-const WEIGHT_SCALE_HI = 2 ** -7;
+export const WEIGHT_SCALE_LO = 2 ** -8;
+export const WEIGHT_SCALE_HI = 2 ** -7;
 const MATRIX_ENTRIES = [0, 1, 2, 4, 5, 6, 8, 9, 10, 12, 13, 14];
 const MATRIX_EXACT = -1;
 const matrixSlotAddr = new Int32Array(256);

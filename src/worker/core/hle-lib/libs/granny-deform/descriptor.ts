@@ -72,6 +72,9 @@ import {
     worldPoseWorld,
 } from './worldpose-kernel';
 import { LiveShadowView } from '../../shadow-validator';
+import {
+    deformAccelFor, deformAccelState, deformSseAccel, deformX87Accel, loadDeformAccel, resetDeformAccel,
+} from './wasm-kernel';
 
 const FN = 'granny_deform_pwn343_pn33';
 const FN_SSE = 'granny_deform_pwn343_pn33_sse';
@@ -303,12 +306,26 @@ const shadow: ShadowSpec = {
         if (!callerRoundsToSingle()) return deformKernel(view, args, scale, false);
         const live = liveViews();
         if (!live) return deformKernel(view, args, scale, true);
-        if (view instanceof LiveShadowView) return deformKernelDirect(view, live, live, 0, args, scale);
+        const accel = deformAccelFor(live.u8);
+        if (view instanceof LiveShadowView) {
+            const eax = accel ? deformX87Accel(accel, view, live, args, scale) : null;
+            return eax !== null ? eax : deformKernelDirect(view, live, live, 0, args, scale);
+        }
         const a = decodeArgs(args);
         const srcLen = a.count * srcStride(a.tail);
         const dstLen = a.count * dstStride(a.tail);
         if (a.count <= 0 || (a.dst & 3) !== 0 || (a.src < a.dst + dstLen && a.dst < a.src + srcLen)) {
             return deformKernel(view, args, scale, true);
+        }
+        if (accel) {
+            const saved = live.u8.slice(a.dst, a.dst + dstLen);
+            const eax = deformX87Accel(accel, new LiveShadowView(live.u8), live, args, scale);
+            if (eax !== null) {
+                const result = live.u8.slice(a.dst, a.dst + dstLen);
+                live.u8.set(saved, a.dst);
+                view.writeBytes(a.dst, result);
+                return eax;
+            }
         }
         const bytes = new Uint8Array(dstLen);
         const out = deformViews(bytes);
@@ -348,8 +365,26 @@ const sseShadow: ShadowSpec = {
         const live = liveViews();
         if (scale === undefined || !live) throw new Error(`no weight scale or dword view for 0x${site.targetAddress.toString(16)}`);
         const a = decodeSseArgs(args);
+        const accel = deformAccelFor(live.u8);
         if (view instanceof LiveShadowView) {
-            return deformKernelSse(live, live, 0, live.f32.subarray(a.frame >>> 2, (a.frame >>> 2) + 8), args, scale);
+            const eax = accel ? deformSseAccel(accel, live, args, scale) : null;
+            return eax !== null ? eax
+                : deformKernelSse(live, live, 0, live.f32.subarray(a.frame >>> 2, (a.frame >>> 2) + 8), args, scale);
+        }
+        if (accel) {
+            const dstLen = a.count * SSE_DST_STRIDE;
+            const savedDst = live.u8.slice(a.dst, a.dst + dstLen);
+            const savedFrame = live.u8.slice(a.frame, a.frame + SSE_SCRATCH_LEN);
+            const eax = deformSseAccel(accel, live, args, scale);
+            if (eax !== null) {
+                const result = live.u8.slice(a.dst, a.dst + dstLen);
+                const frame = live.u8.slice(a.frame, a.frame + SSE_SCRATCH_LEN);
+                live.u8.set(savedDst, a.dst);
+                live.u8.set(savedFrame, a.frame);
+                view.writeBytes(a.dst, result);
+                view.writeBytes(a.frame, frame);
+                return eax;
+            }
         }
         const bytes = new Uint8Array(a.count * SSE_DST_STRIDE);
         const out = deformViews(bytes);
@@ -516,13 +551,19 @@ export const grannyDeformDescriptor: LibDescriptor = {
     handlers: {},
     resolveAdditionalFunctions: resolveKernel,
     onActivated() {
-        (globalThis as Record<string, unknown>).__grannyDeformStats = () => ({ ...deformCounters });
+        (globalThis as Record<string, unknown>).__grannyDeformStats = () => ({ ...deformCounters, wasm: deformAccelState() });
+        if ((globalThis as { __grannyWasmKernel?: boolean }).__grannyWasmKernel !== false) {
+            const v86 = (System.getInstance() as { process?: { v86?: { cpu?: unknown; v86?: { cpu?: unknown } } } }).process?.v86;
+            const cpu = (v86?.cpu ?? v86?.v86?.cpu) as { wasm_memory?: WebAssembly.Memory } | undefined;
+            loadDeformAccel(cpu?.wasm_memory);
+        }
     },
     onReset() {
         clearWeightScales();
         worldPoseSites.clear();
         worldPosePending = null;
         deformCounters.reset();
+        resetDeformAccel();
         liveMem = null;
         liveMemViews = null;
     },
