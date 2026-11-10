@@ -253,7 +253,7 @@ function resolveWorldPose(view: ResolverModuleView): HookedFunctionMatch[] {
 
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
     const deform = SHAPES.flatMap(shape => resolveShape(view, shape));
-    if ((globalThis as { __grannyPoseHooks?: boolean }).__grannyPoseHooks !== true) return deform;
+    if ((globalThis as { __grannyPoseHooks?: boolean }).__grannyPoseHooks === false) return deform;
     return [...deform, ...resolveAabb(view), ...resolveWorldPose(view)];
 }
 
