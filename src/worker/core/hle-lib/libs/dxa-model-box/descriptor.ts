@@ -115,7 +115,7 @@ function grannyMatches(): boolean {
 }
 
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    if ((globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook !== true) return [];
+    if ((globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook === false) return [];
     const hit = view.signatureHits.find(h => h.signatureId === FN);
     if (!hit) return [];
     const entry = hit.address;
@@ -146,9 +146,11 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
  *   jmp stub
  *
  * EAX is dead at a cdecl entry; the two pushes are balanced before either exit.
- * The pose update is arbitrary game code, so it only ever runs here, in the
- * guest. The trampoline the shadow rail validates against is rewritten to enter
- * the original behind its own pose update call, with EAX = 0 as that call left it.
+ * The flag starts clear: the hook is installed switched off and costs the guest one
+ * compare until __dxaModelBoxEnable(true). In-game validation is not available for it:
+ * the original calls a Granny export that granny-deform has hooked, and a hooked
+ * function inside a synchronous run of the original never returns. A call the guard
+ * turns down therefore removes the hook and runs the restored function.
  */
 function buildFilter(info: EntryFilterInfo): number | null {
     const { mem, targetAddress, stubAddress, trampolineAddress } = info;
@@ -182,7 +184,7 @@ function buildFilter(info: EntryFilterInfo): number | null {
     copy(0x16, 0x19);
     b(0x31, 0xc0);
     b(0xe9); rel(targetAddress + POSE_CALL + 5);
-    mem[p++] = 1;
+    mem[p++] = (globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook === true ? 1 : 0;
     while (p < at + size) mem[p++] = 0xcc;
     p = trampolineAddress;
     b(0xe9); rel(afterPose);
@@ -191,12 +193,9 @@ function buildFilter(info: EntryFilterInfo): number | null {
 }
 
 const shadow: ShadowSpec = {
-    validateInGame: true,
-    guardDeclines: true,
-    allowGuestImports: true,
-    n: 32,
     guard(args) {
         pendingCount = -1;
+        pendingModel = 0;
         const box = args[2]! >>> 0;
         const live = liveViews();
         if (!live || box === 0 || box + BOX_LEN > live.u8.length) return false;
@@ -213,14 +212,9 @@ const shadow: ShadowSpec = {
     },
     kernel(view, args) {
         const model = args[1]! >>> 0;
-        let count = pendingCount;
-        if (count < 0 || pendingModel !== model) {
-            const live = liveViews();
-            if (!live) throw new Error('no dword view of guest memory');
-            count = modelBox(live, model);
-            if (count < 0) throw new Error('model outside the served shape');
-        }
+        const count = pendingCount;
         pendingCount = -1;
+        if (count < 0 || pendingModel !== model) throw new Error('model outside the served shape');
         if (count > 0) view.writeBytes(args[2]! >>> 0, modelBoxResult);
         modelBoxCounters.calls++;
         modelBoxCounters.bindings += count;
