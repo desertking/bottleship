@@ -109,6 +109,12 @@ const AABB_BODY_LEN = 0x191;
 const AABB_LIMIT_OPERANDS = [0x4, 0xa];
 const AABB_BODY_SHA256 = 'd3d7d15730fa2980a3923a209dbc9c1f92154b593cde445f2abce59bbc7ad68f';
 const AABB_PROLOGUE_LEN = 8;
+let aabbEntry = 0;
+
+/** Entry of the verified bounding-box transform, or 0 while none has been identified. */
+export function grannyBoxTransformEntry(): number {
+    return aabbEntry;
+}
 const FLT_MAX = Math.fround(3.4028234663852886e38);
 
 const FN_WORLDPOSE = 'granny_build_world_pose';
@@ -210,6 +216,7 @@ function resolveAabb(view: ResolverModuleView): HookedFunctionMatch[] {
     }
     Logger.log(LogCategory.SYSTEM,
         `[granny-deform] ${view.module.name}: bounding-box transform 0x${entry.toString(16)}`);
+    aabbEntry = entry;
     return [{ name: FN_AABB, address: entry }];
 }
 
@@ -564,6 +571,7 @@ export const grannyDeformDescriptor: LibDescriptor = {
         worldPosePending = null;
         deformCounters.reset();
         resetDeformAccel();
+        aabbEntry = 0;
         liveMem = null;
         liveMemViews = null;
     },
