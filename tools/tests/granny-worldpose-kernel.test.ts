@@ -209,6 +209,25 @@ describe('granny world-pose kernel', () => {
         expect(plainRuns(1e18)).toBe(0);
     });
 
+    it('redoes only the bones whose products leave the normal f32 range', () => {
+        const redone = (patch: (c: Case) => void): number => {
+            const c = build(977, 1, { offset: true });
+            patch(c);
+            const before = deformCounters.worldPoseExactBones;
+            check(c);
+            return deformCounters.worldPoseExactBones - before;
+        };
+        expect(redone(() => undefined)).toBe(0);
+        expect(redone((c) => {
+            const t = BONES + c.total * BONE_STRIDE + 0x40 + (c.total - 1) * LOCAL_STRIDE + 8;
+            for (let k = 0; k < 4; k++) new DataView(c.mem.buffer).setFloat32(t + 0x10 + 4 * k, 2 ** -70 * (k + 1), true);
+        })).toBe(1);
+        expect(redone((c) => {
+            const t = BONES + c.total * BONE_STRIDE + 0x40 + 8;
+            for (let k = 0; k < 3; k++) new DataView(c.mem.buffer).setFloat32(t + 4 + 4 * k, 2 ** -30 * (k + 1), true);
+        })).toBe(0);
+    });
+
     it('rounds a value just below the smallest normal f32 like the x87 does', () => {
         expect(round24(2 ** -126)).toBe(2 ** -126);
         expect(round24(2 ** -126 * (1 - 2 ** -24 - 2 ** -30))).toBe(2 ** -126 * (1 - 2 ** -24));

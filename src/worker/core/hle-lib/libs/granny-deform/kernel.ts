@@ -75,10 +75,11 @@ export const deformCounters = {
     worldPoseCalls: 0,
     worldPoseBones: 0,
     worldPosePlain: 0,
+    worldPoseExactBones: 0,
     vertices: 0,
     exactVertices: 0,
     reset(): void {
-        this.calls = 0; this.sseCalls = 0; this.aabbCalls = 0; this.aabbPlain = 0; this.sseSkipVertices = 0; this.worldPoseCalls = 0; this.worldPoseBones = 0; this.worldPosePlain = 0;
+        this.calls = 0; this.sseCalls = 0; this.aabbCalls = 0; this.aabbPlain = 0; this.sseSkipVertices = 0; this.worldPoseCalls = 0; this.worldPoseBones = 0; this.worldPosePlain = 0; this.worldPoseExactBones = 0;
         this.vertices = 0; this.exactVertices = 0;
     },
 };
