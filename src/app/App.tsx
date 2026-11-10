@@ -2046,6 +2046,13 @@ export default function App() {
         return;
       }
 
+      // F1–F10 and Ctrl/Cmd+R belong to the guest while it runs: F5 is a quick-save or
+      // quick-load key in many games, and the UA default (reload, help, find, address bar)
+      // would take the session down. Still forwarded below.
+      if (/^F([1-9]|10)$/.test(event.code) || ((event.ctrlKey || event.metaKey) && event.code === "KeyR")) {
+        event.preventDefault();
+      }
+
       // Right Ctrl = deliberate host-release key for pointer lock. When locked, release and
       // suppress auto re-acquire (handlePointerLockChange / updatePointerLockIntent) until the
       // next explicit canvas click. Consumed as a host key (not forwarded to the guest) so it
