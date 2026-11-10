@@ -184,7 +184,7 @@ function buildFilter(info: EntryFilterInfo): number | null {
     copy(0x16, 0x19);
     b(0x31, 0xc0);
     b(0xe9); rel(targetAddress + POSE_CALL + 5);
-    mem[p++] = (globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook === true ? 1 : 0;
+    mem[p++] = (globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook === false ? 0 : 1;
     while (p < at + size) mem[p++] = 0xcc;
     p = trampolineAddress;
     b(0xe9); rel(afterPose);

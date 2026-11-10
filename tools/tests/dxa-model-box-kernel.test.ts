@@ -146,7 +146,7 @@ describe('dxa model bounding box', () => {
         expect(at + 55 + dv.getInt32(at + 51, true)).toBe(target + 6);
         expect(hex(at + 55, at + 77)).toBe('5589e557565381ec9c000000c64593018b7d1031c0e9');
         expect(at + 81 + dv.getInt32(at + 77, true)).toBe(target + 0x25);
-        expect(mem[at + 81]).toBe(0);
+        expect(mem[at + 81]).toBe(1);
         expect(mem[trampoline]).toBe(0xe9);
         expect(trampoline + 5 + dv.getInt32(trampoline + 1, true)).toBe(at + 55);
     });
