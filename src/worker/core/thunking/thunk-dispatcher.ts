@@ -4838,6 +4838,17 @@ export class ThunkDispatcher {
         }
     }
 
+    unregisterFastPath(dllName: string, functionName: string): void {
+        this.pendingFastPathRegistrations.delete(`${dllName}:${functionName}`.toLowerCase());
+        for (const stub of this.findStubsByName(dllName, functionName)) {
+            if (stub.functionId < MAX_THUNK_ID) {
+                this.fastPathTable[stub.functionId] = null;
+                this.trivialFastPathTable[stub.functionId] = 0;
+                this.pollFastPathTable[stub.functionId] = PollKind.None;
+            }
+        }
+    }
+
     /**
      * Register a Tier-0 write-buffer function.
      *
