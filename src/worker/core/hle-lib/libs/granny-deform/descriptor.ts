@@ -310,6 +310,9 @@ const shadow: ShadowSpec = {
     kernel(view: ShadowView, args: number[], site) {
         const scale = getWeightScale(site.targetAddress);
         if (scale === undefined) throw new Error(`no weight scale for 0x${site.targetAddress.toString(16)}`);
+        const seen = decodeArgs(args);
+        if ((seen.dst & 15) !== 0) deformCounters.x87DstUnaligned++;
+        if ((seen.matrices & 15) !== 0) deformCounters.x87MatricesUnaligned++;
         if (!callerRoundsToSingle()) return deformKernel(view, args, scale, false);
         const live = liveViews();
         if (!live) return deformKernel(view, args, scale, true);
