@@ -275,8 +275,8 @@ const multiplyShadow: ShadowSpec = {
         transformCounters.multiply++;
         if (!c.shader) return 0;
         multiplyBank(c.device.getVertexShaderConstants(0, BANK_REGISTERS), m, product);
-        c.device.setVertexShaderConstantFFromArray(0, product.subarray(0, 16), c.mem);
-        c.device.setVertexShaderConstantFFromArray(8, product.subarray(32, BANK_FLOATS), c.mem);
+        c.device.setVertexShaderConstantFFromArray(0, product.subarray(0, 16), null as unknown as Uint8Array);
+        c.device.setVertexShaderConstantFFromArray(8, product.subarray(32, BANK_FLOATS), null as unknown as Uint8Array);
         transformCounters.multiplyShader++;
         return 0;
     },
