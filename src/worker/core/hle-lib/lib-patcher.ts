@@ -135,6 +135,7 @@ export function validatePrologueBytes(bytes: Uint8Array): string | null {
         if (b === 0xA1) { i += 5; continue; }
         // mov r8, [disp32] (absolute — position-independent)
         if (b === 0x8A && b1 !== undefined && (b1 & 0xC7) === 0x05) { i += 6; continue; }
+        if (b === 0xD9 && b1 === 0x05) { i += 6; continue; }
         // SEH prologue: mov eax, fs:[imm32]
         if (b === 0x64 && b1 === 0xA1) { i += 6; continue; }
         // xor r32, r32 (33 /r reg-reg)

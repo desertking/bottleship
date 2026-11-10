@@ -74,6 +74,45 @@ const boxBits = new Uint32Array(box.buffer);
 /** The new min (bytes 0..11) and max (bytes 12..23) of the last aabbKernel call. */
 export const aabbResult = new Uint8Array(box.buffer);
 
+let variant = 0;
+
+export function setAabbVariant(v: number): void {
+    variant = v;
+}
+
+export function aabbVariant(): number {
+    return variant;
+}
+
+function plainBoxB(
+    t0: number, t1: number, t2: number,
+    m0: number, m1: number, m2: number, m3: number, m4: number, m5: number, m6: number, m7: number, m8: number,
+): void {
+    let lx = FLT_MAX, ly = FLT_MAX, lz = FLT_MAX, hx = -FLT_MAX, hy = -FLT_MAX, hz = -FLT_MAX;
+    for (let k = 0; k < 2; k++) {
+        const z = corner[2 + 3 * k];
+        const zm2 = fround(z * m2), zm5 = fround(z * m5), zm8 = fround(z * m8);
+        for (let j = 0; j < 2; j++) {
+            const y = corner[1 + 3 * j];
+            const ym1 = fround(y * m1), ym4 = fround(y * m4), ym7 = fround(y * m7);
+            const zy = fround(zm2 + ym1), zy4 = fround(zm5 + ym4);
+            for (let i = 0; i < 2; i++) {
+                const x = corner[3 * i];
+                const vx = fround(fround(zy + fround(x * m0)) + t0);
+                const vy = fround(fround(zy4 + fround(x * m3)) + t1);
+                const vz = fround(fround(fround(fround(x * m6) + ym7) + zm8) + t2);
+                if (!(lx < vx)) lx = vx;
+                if (!(hx > vx)) hx = vx;
+                if (!(ly < vy)) ly = vy;
+                if (!(hy > vy)) hy = vy;
+                if (!(lz < vz)) lz = vz;
+                if (!(hz > vz)) hz = vz;
+            }
+        }
+    }
+    box[0] = lx; box[1] = ly; box[2] = lz; box[3] = hx; box[4] = hy; box[5] = hz;
+}
+
 function plainBox(
     t0: number, t1: number, t2: number,
     m0: number, m1: number, m2: number, m3: number, m4: number, m5: number, m6: number, m7: number, m8: number,
@@ -118,7 +157,8 @@ export function aabbKernel(src: DeformViews, out: DeformViews | null, args: numb
     box[3] = -FLT_MAX; box[4] = -FLT_MAX; box[5] = -FLT_MAX;
     if (inputsPlain(src.u32, t, m, a.min >>> 2, a.max >>> 2)) {
         deformCounters.aabbPlain++;
-        plainBox(t0, t1, t2, m0, m1, m2, m3, m4, m5, m6, m7, m8);
+        if (variant === 1) plainBoxB(t0, t1, t2, m0, m1, m2, m3, m4, m5, m6, m7, m8);
+        else plainBox(t0, t1, t2, m0, m1, m2, m3, m4, m5, m6, m7, m8);
     } else {
         for (let k = 0; k < 2; k++) {
             const z = corner[2 + 3 * k];
@@ -127,10 +167,13 @@ export function aabbKernel(src: DeformViews, out: DeformViews | null, args: numb
                 const y = corner[1 + 3 * j];
                 const ym1 = round24(y * m1), ym4 = round24(y * m4), ym7 = round24(y * m7);
                 const zy = round24(zm2 + ym1);
+                const zy4 = variant === 1 ? round24(zm5 + ym4) : 0;
                 for (let i = 0; i < 2; i++) {
                     const x = corner[3 * i];
                     const vx = fround(round24(fround(round24(zy + round24(x * m0))) + t0));
-                    const vy = fround(round24(fround(round24(round24(round24(x * m3) + zm5) + ym4)) + t1));
+                    const vy = variant === 1
+                        ? fround(round24(fround(round24(zy4 + round24(x * m3))) + t1))
+                        : fround(round24(fround(round24(round24(round24(x * m3) + zm5) + ym4)) + t1));
                     const vz = fround(round24(round24(round24(round24(x * m6) + ym7) + zm8) + t2));
                     if (!(box[0] < vx)) box[0] = vx;
                     if (!(box[3] > vx)) box[3] = vx;
@@ -149,5 +192,5 @@ export function aabbKernel(src: DeformViews, out: DeformViews | null, args: numb
         O[hi] = boxBits[3]; O[hi + 1] = boxBits[4]; O[hi + 2] = boxBits[5];
     }
     deformCounters.aabbCalls++;
-    return boxBits[3];
+    return variant === 1 ? boxBits[2] : boxBits[3];
 }
