@@ -419,7 +419,15 @@ class LibHleManager {
                     // an ABI whose contract includes a mutated state struct.
                     return this.completeViaRestoredOriginal(libId, fnName, moduleName, decl, targetAddress, args);
                 }
-                if (!guardOk) rt.recordGuardFail();
+                if (!guardOk) {
+                    rt.recordGuardFail();
+                    if (spec.guardDeclines && validateInGame) {
+                        const declined = this.resolvePatch(libId, fnName, moduleName);
+                        if (declined && declined.trampolineAddress !== undefined) {
+                            return this.completeViaOriginalSync(rt, spec, decl, declined, args.slice(0, decl.argCount), liveView, site, null);
+                        }
+                    }
+                }
                 try {
                     return { value: spec.kernel(liveView, args, site) >>> 0 };
                 } catch (e) {

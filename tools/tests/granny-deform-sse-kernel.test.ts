@@ -133,6 +133,34 @@ describe('granny-deform SSE kernel', () => {
         });
     }
 
+    for (const [name, wild] of [['ordinary data', false], ['extreme data', true]] as const) {
+        it(`skips zero-weight bones byte-identically over ${name}`, () => {
+            let skipped = 0;
+            for (let seed = 1; seed <= 20; seed++) {
+                const count = 120;
+                const expected = build(count, seed * 7717, wild);
+                let state = seed;
+                for (let v = 0; v < count; v++) {
+                    for (let i = 0; i < 4; i++) {
+                        state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+                        if (state >>> 31) expected[SRC + v * 0x28 + 0x0c + i] = 0;
+                    }
+                    if (v % 7 === 0) expected.fill(0, SRC + v * 0x28, SRC + v * 0x28 + 8);
+                    if (v % 11 === 0) new DataView(expected.buffer).setFloat32(SRC + v * 0x28 + 0x14, -0, true);
+                }
+                const actual = expected.slice();
+                const eax = guest(expected, count);
+                const views = deformViews(actual)!;
+                deformCounters.reset();
+                const got = deformKernelSse(views, views, 0, views.f32.subarray(FRAME >>> 2, (FRAME >>> 2) + 8), [count, SRC, DST, FRAME], SCALE);
+                expect(got).toBe(eax);
+                expect(Buffer.from(foldNaN(actual)).equals(Buffer.from(foldNaN(expected)))).toBe(true);
+                skipped += deformCounters.sseSkipVertices;
+            }
+            expect(skipped).toBeGreaterThan(wild ? 0 : 1000);
+        });
+    }
+
     it('writes a shifted destination and a detached scratch for validation runs', () => {
         const expected = build(40, 99, false);
         const live = expected.slice();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { deformViews, round24 } from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
-import { aabbInputsPlain, aabbKernel, aabbResult, decodeAabbArgs } from '../../src/worker/core/hle-lib/libs/granny-deform/aabb-kernel';
+import { deformCounters, deformViews, round24 } from '../../src/worker/core/hle-lib/libs/granny-deform/kernel';
+import { aabbInputsFinite, aabbKernel, aabbResult, decodeAabbArgs } from '../../src/worker/core/hle-lib/libs/granny-deform/aabb-kernel';
 import { __test } from '../../src/worker/core/hle-lib/libs/granny-deform/descriptor';
 
 const f = Math.fround;
@@ -72,7 +72,7 @@ describe('granny bounding-box transform kernel', () => {
                 const b = new Uint8Array(a);
                 const want = guest(a);
                 const views = deformViews(b)!;
-                expect(aabbInputsPlain(views, decodeAabbArgs(ARGS))).toBe(true);
+                expect(aabbInputsFinite(views, decodeAabbArgs(ARGS))).toBe(true);
                 const got = aabbKernel(views, views, ARGS);
                 expect(got >>> 0).toBe(want >>> 0);
                 expect(Buffer.from(b).equals(Buffer.from(a))).toBe(true);
@@ -95,11 +95,28 @@ describe('granny bounding-box transform kernel', () => {
         expect(Buffer.from(aabbResult.slice(12, 24)).equals(Buffer.from(a.slice(MAX, MAX + 12)))).toBe(true);
     });
 
-    it('rejects inputs that could leave the plain range', () => {
-        for (const bad of [NaN, Infinity, -Infinity, 1e19, -1e19]) {
+    it('rejects inputs that are not finite', () => {
+        for (const bad of [NaN, Infinity, -Infinity]) {
             const a = build(9, 1);
             new DataView(a.buffer).setFloat32(M + 16, bad, true);
-            expect(aabbInputsPlain(deformViews(a)!, decodeAabbArgs(ARGS))).toBe(false);
+            expect(aabbInputsFinite(deformViews(a)!, decodeAabbArgs(ARGS))).toBe(false);
+        }
+    });
+
+    it('matches the instruction model past the plain range', () => {
+        for (let seed = 1; seed <= 300; seed++) {
+            const a = build(seed * 104729, 1);
+            const dv = new DataView(a.buffer);
+            dv.setFloat32(M + 4 * (seed % 9), [1e19, -3e38, 2 ** -64, 1e-40][seed & 3], true);
+            const b = new Uint8Array(a);
+            const want = guest(a);
+            const views = deformViews(b)!;
+            expect(aabbInputsFinite(views, decodeAabbArgs(ARGS))).toBe(true);
+            const before = deformCounters.aabbPlain;
+            const got = aabbKernel(views, views, ARGS);
+            expect(deformCounters.aabbPlain).toBe(before);
+            expect(got >>> 0).toBe(want >>> 0);
+            expect(Buffer.from(b).equals(Buffer.from(a))).toBe(true);
         }
     });
 

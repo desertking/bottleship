@@ -257,6 +257,12 @@ export interface ShadowSpec {
      */
     validateInGame?: boolean;
     /**
+     * The kernel covers only what the guard admits. Once promoted, a call the guard
+     * turns down runs the original through the trampoline instead of the kernel.
+     * Needs validateInGame.
+     */
+    guardDeclines?: boolean;
+    /**
      * Let the sync-original run re-enter our import thunks instead of aborting
      * on them. Required for a library entry point that ALLOCATES (zlib's
      * `uncompress` mallocs a 32 KiB window through the CRT, whose HeapAlloc IAT

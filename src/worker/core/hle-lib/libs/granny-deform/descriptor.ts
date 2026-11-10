@@ -62,7 +62,7 @@ import {
     SSE_SCRATCH_LEN,
     SSE_SRC_STRIDE,
 } from './sse-kernel';
-import { aabbInputsPlain, aabbKernel, aabbResult, decodeAabbArgs } from './aabb-kernel';
+import { aabbInputsFinite, aabbKernel, aabbResult, decodeAabbArgs } from './aabb-kernel';
 import {
     decodeWorldPoseArgs,
     worldPoseComposite,
@@ -319,6 +319,7 @@ const shadow: ShadowSpec = {
 
 const sseShadow: ShadowSpec = {
     validateInGame: true,
+    guardDeclines: true,
     n: 32,
     guard(args, view) {
         const a = decodeSseArgs(args);
@@ -361,6 +362,7 @@ const sseShadow: ShadowSpec = {
 
 const aabbShadow: ShadowSpec = {
     validateInGame: true,
+    guardDeclines: true,
     n: 32,
     guard(args) {
         const a = decodeAabbArgs(args);
@@ -368,7 +370,7 @@ const aabbShadow: ShadowSpec = {
         if (!inBounds(a.t, 12) || !inBounds(a.m, 36) || !inBounds(a.min, 12) || !inBounds(a.max, 12)) return false;
         if (a.min < a.max + 12 && a.max < a.min + 12) return false;
         const live = liveViews();
-        return live !== null && callerRoundsToSingle() && aabbInputsPlain(live, a);
+        return live !== null && callerRoundsToSingle() && aabbInputsFinite(live, a);
     },
     ranges(args) {
         const a = decodeAabbArgs(args);
@@ -397,6 +399,7 @@ let worldPosePending: WorldPosePlan | null = null;
 
 const worldPoseShadow: ShadowSpec = {
     validateInGame: true,
+    guardDeclines: true,
     ignoreEax: true,
     n: 32,
     guard(args) {
