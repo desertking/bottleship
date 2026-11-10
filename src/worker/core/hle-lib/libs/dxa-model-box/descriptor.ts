@@ -115,7 +115,7 @@ function grannyMatches(): boolean {
 }
 
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    if ((globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook === false) return [];
+    if ((globalThis as { __dxaModelBoxHook?: boolean }).__dxaModelBoxHook !== true) return [];
     const hit = view.signatureHits.find(h => h.signatureId === FN);
     if (!hit) return [];
     const entry = hit.address;
