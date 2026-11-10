@@ -15,7 +15,7 @@ import { Mem } from '../../../memory/mem-accessor';
 import { sha256HexSync } from '../../../../savestate/sha256';
 import { getFpuControlWord } from '../../../fpu-helper';
 import { System } from '../../../system';
-import type { HookedFunctionMatch, LibDescriptor, ResolverModuleView, ShadowSpec } from '../../types';
+import type { EntryFilterInfo, HookedFunctionMatch, LibDescriptor, ResolverModuleView, ShadowSpec } from '../../types';
 import { mdctBackward, mdctCounters, mdctShape } from './kernel';
 
 const FN = 'vorbis_mdct_backward';
@@ -71,7 +71,7 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
     return [{ name: FN, address: entry }];
 }
 
-let enabled = true;
+let enableFlag = 0;
 let pendingN = 0;
 let pendingSingle = false;
 
@@ -82,14 +82,43 @@ function precision(): number {
     return (cw & 0x300) === 0 ? 0 : 1;
 }
 
+/**
+ * Emits
+ *
+ *   cmp byte [flag], 0 ; je original
+ *   sub esp, 4 ; fnstcw [esp] ; pop eax
+ *   test ah, 0x0c ; jnz original
+ *   jmp stub
+ *
+ * EAX is dead at a cdecl entry. Switched off, or with a rounding mode other than to
+ * nearest, the call runs the guest function through the relocated prologue. The hook
+ * takes no in-game validation: that runs the original synchronously on the decoder
+ * thread while other threads sit in a wait, and the translation is compared against
+ * the original offline instead.
+ */
+function buildFilter(info: EntryFilterInfo): number | null {
+    const { mem, stubAddress, trampolineAddress } = info;
+    const size = 36;
+    const at = info.allocCode(size);
+    if (at <= 0 || at + size > mem.length) return null;
+    const dv = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
+    enableFlag = at + 34;
+    let p = at;
+    const b = (...bytes: number[]): void => { for (const x of bytes) mem[p++] = x; };
+    const rel = (target: number): void => { dv.setInt32(p, (target - (p + 4)) | 0, true); p += 4; };
+    b(0x80, 0x3d); dv.setUint32(p, enableFlag, true); p += 4; b(0x00);
+    b(0x0f, 0x84); rel(trampolineAddress);
+    b(0x83, 0xec, 0x04, 0xd9, 0x3c, 0x24, 0x58);
+    b(0xf6, 0xc4, 0x0c);
+    b(0x0f, 0x85); rel(trampolineAddress);
+    b(0xe9); rel(stubAddress);
+    b(0x01, 0xcc);
+    return at;
+}
+
 const shadow: ShadowSpec = {
-    validateInGame: true,
-    guardDeclines: true,
-    ignoreEax: true,
-    n: 32,
     guard(args) {
         pendingN = 0;
-        if (!enabled) return false;
         const mem = Mem.getView();
         const mode = precision();
         if (!mem || mode < 0) { mdctCounters.declined++; return false; }
@@ -128,18 +157,24 @@ export const vorbisMdctDescriptor: LibDescriptor = {
             required: false,
             prologueLen: PROLOGUE_LEN,
             shadow,
+            entryFilter: buildFilter,
         },
     },
     handlers: {},
     resolveAdditionalFunctions: resolveKernel,
     onActivated() {
         const g = globalThis as Record<string, unknown>;
-        g.__vorbisMdctStats = () => ({ ...mdctCounters, enabled });
-        g.__vorbisMdctEnable = (on: boolean) => { enabled = on; return true; };
+        g.__vorbisMdctStats = () => ({ ...mdctCounters, enabled: enableFlag !== 0 && Mem.getView()?.[enableFlag] === 1 });
+        g.__vorbisMdctEnable = (on: boolean) => {
+            const mem = Mem.getView();
+            if (!mem || enableFlag === 0) return false;
+            mem[enableFlag] = on ? 1 : 0;
+            return true;
+        };
     },
     onReset() {
         mdctCounters.reset();
-        enabled = true;
+        enableFlag = 0;
         pendingN = 0;
     },
 };
