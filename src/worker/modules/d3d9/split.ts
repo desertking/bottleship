@@ -334,6 +334,7 @@ class SplitStream {
             slot, name, orig,
             transform: TRANSFORMS[name], post: POST_RECORDS[name],
             unsupported: UNSUPPORTED.has(name), fence: FENCES.has(name), readbackFence: READBACK_FENCES.has(name),
+            recName: "", recId: -1,
         };
         // Fixed arity and no `arguments`: the ring handlers and state-block applies call these
         // ~20k times a frame with recording suppressed, and a function that names `arguments`
@@ -373,7 +374,7 @@ class SplitStream {
         this.depth++;
         let result: unknown;
         try {
-            result = orig.apply(device, args);
+            result = orig.call(device, a0, a1, a2, a3, a4, a5, a6, a7, a8, a9);
         } finally {
             this.depth--;
         }
@@ -389,7 +390,8 @@ class SplitStream {
             const t = site.post(device, args, result);
             if (t) this.record(slot, t[0], t[1], undefined);
         } else if (record) {
-            this.record(slot, recName, recArgs, result);
+            if (site.recName !== recName) { site.recName = recName; site.recId = this.methodId(recName); }
+            this.record(slot, recName, recArgs, result, site.recId);
         }
         if (site.fence) this.flush();
         else if (site.readbackFence && result !== null && typeof result === "object"
@@ -411,7 +413,7 @@ class SplitStream {
         }
     }
 
-    private record(slot: number, name: string, args: Args, result: unknown): void {
+    private record(slot: number, name: string, args: Args, result: unknown, id = -1): void {
         const enc = this.encoder;
         enc.reset();
         let arg = -1;
@@ -429,7 +431,7 @@ class SplitStream {
         }
         const tail = enc.tail;
         const bytes = enc.length + (tail === null ? 0 : tail.length);
-        if (!this.dispatcher.enqueuePayloadById(this.queueId, this.methodId(name), slot, 0, 0, enc.bytes, 0, enc.length, tail)) {
+        if (!this.dispatcher.enqueuePayloadById(this.queueId, id >= 0 ? id : this.methodId(name), slot, 0, 0, enc.bytes, 0, enc.length, tail)) {
             this.stats.encodeErrors[name] = (this.stats.encodeErrors[name] ?? 0) + 1;
             Logger.error(LogCategory.D3D9, `[split] queue rejected ${name} (${bytes} bytes)`);
             return;
@@ -512,6 +514,8 @@ interface RecordSite {
     readonly unsupported: boolean;
     readonly fence: boolean;
     readonly readbackFence: boolean;
+    recName: string;
+    recId: number;
 }
 
 let stream: SplitStream | null = null;

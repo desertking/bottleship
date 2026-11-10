@@ -1867,7 +1867,12 @@ export class ThunkDispatcher {
         q32[w + 3] = h2 >>> 0;
         q32[w + 4] = h3 >>> 0;
         q32[w + 5] = byteCount >>> 0;
-        if (headBytes > 0) this.wbufQueueU8!.set(src.subarray(srcOffset, srcOffset + headBytes), this.wbufQueueEnd + 24);
+        if (headBytes > 64) this.wbufQueueU8!.set(src.subarray(srcOffset, srcOffset + headBytes), this.wbufQueueEnd + 24);
+        else if (headBytes > 0) {
+            const q8 = this.wbufQueueU8!;
+            const at = this.wbufQueueEnd + 24;
+            for (let i = 0; i < headBytes; i++) q8[at + i] = src[srcOffset + i]!;
+        }
         if (tail !== null) this.wbufQueueU8!.set(tail, this.wbufQueueEnd + 24 + headBytes);
         this.wbufQueueEnd += stride;
         this.wbufDeferStats.enqueuedCalls++;
@@ -2003,7 +2008,15 @@ export class ThunkDispatcher {
     private appendRingBytes(base: number, from: number, to: number): void {
         const bytes = to - from;
         this.ensureWbufQueue(this.wbufQueueEnd + bytes);
-        this.wbufQueueU8!.set(this.cachedMem8!.subarray(base + from, base + to), this.wbufQueueEnd);
+        const src = toPlainGuestMemory(this.cachedMem8!);
+        const dst = this.wbufQueueU8!;
+        const at = this.wbufQueueEnd;
+        if (bytes <= 64) {
+            const lo = base + from;
+            for (let i = 0; i < bytes; i++) dst[at + i] = src[lo + i]!;
+        } else {
+            dst.set(src.subarray(base + from, base + to), at);
+        }
         this.wbufQueueEnd += bytes;
         this.wbufDeferStats.transports++;
         this.wbufDeferStats.bytesQueued += bytes;
@@ -2466,8 +2479,7 @@ export class ThunkDispatcher {
     private tryResetWbufHead(mem32: Uint32Array, headWordIdx: number, head: number): void {
         if (!head || this.wbufTail !== head) return; // not fully drained yet
         if (this.wbufTrampLo !== 0) {
-            const sched = System.getInstance().scheduler;
-            if (sched && (sched as any).hasParkedThreadInRange?.(this.wbufTrampLo, this.wbufTrampHi)) {
+            if (this.ensureScheduler().hasParkedThreadInRange(this.wbufTrampLo, this.wbufTrampHi)) {
                 this.wbufResetDeferredTotal++;
                 return;
             }
@@ -3092,10 +3104,6 @@ export class ThunkDispatcher {
         let memBorrowsBefore = 0;
         frameProfiler.markThunkStart();
         const thunkStart = frameProfiler.startTimer();
-        // PERF: Capture wall-clock time for virtual time compensation.
-        // Sync thunks don't spin-loop > instruction counter doesn't advance > virtual time
-        // falls behind wall-clock. Credit handler time to keep game timing consistent.
-        const implWallStart = performance.now();
         try {
             // FRESHNESS: the raw views are plain arrays over one buffer, so a WASM grow
             // DETACHES them — reading a detached view yields undefined, which would land in
@@ -6527,6 +6535,7 @@ export class ThunkDispatcher {
      * legit FPO pointer and is NOT caught, and a wedge that never reaches another thunk is only
      * caught by the hang watchdog.
      */
+    private lastOddEbp = -1;
     private checkEbpSanity(ebp: number, thunkName: string): void {
         const base = this.curStackBase, top = this.curStackTop;
         if (top <= base) return;                        // bounds unknown for this thread → skip
@@ -6543,6 +6552,8 @@ export class ThunkDispatcher {
         // so the real catch below is preserved.
         if (ebp >= MEM_THUNK_CODE_BASE && ebp < (MEM_THUNK_DATA_BASE + MEM_THUNK_DATA_SIZE)) return;
         // FPO/alt-stack tolerance: EBP into committed writable memory is not corruption.
+        if (ebp === this.lastOddEbp) return;
+        this.lastOddEbp = ebp;
         const as: any = System.getInstance().process?.addressSpace;
         if (as?.validateRange?.(ebp >>> 0, 4, "rw")) return;
         const note =
