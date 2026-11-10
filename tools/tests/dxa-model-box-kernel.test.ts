@@ -120,27 +120,34 @@ describe('dxa model bounding box', () => {
         expect(K.modelBox(deformViews(odd.mem)!, odd.model + 1)).toBe(-1);
     });
 
-    test('entry filter runs the pose update and falls back to the original', () => {
+    test('entry filter runs the pose update in the guest and keeps it out of the validated original', () => {
         const mem = new Uint8Array(0x4000);
         const dv = new DataView(mem.buffer);
         const target = 0x1000, stub = 0x2000, trampoline = 0x2800, update = 0x1800;
-        mem[target + __test.POSE_CALL] = 0xe8;
+        mem.set(__test.PREFIX, target);
         dv.setInt32(target + __test.POSE_CALL + 1, update - (target + __test.POSE_CALL + 5), true);
         const at = __test.buildFilter({
             mem, targetAddress: target, stubAddress: stub, trampolineAddress: trampoline,
             allocCode: () => 0x3000,
         } as never)!;
         expect(at).toBe(0x3000);
-        const hex = [...mem.subarray(at, at + 48)].map(x => x.toString(16).padStart(2, '0')).join('');
-        expect(hex.slice(0, 4)).toBe('803d');
-        expect(dv.getUint32(at + 2, true)).toBe(at + 44);
-        expect(at + 13 + dv.getInt32(at + 9, true)).toBe(trampoline);
-        expect(hex.slice(26, 46)).toBe('8b442408508b44240850');
+        const hex = (from: number, to: number): string =>
+            [...mem.subarray(from, to)].map(x => x.toString(16).padStart(2, '0')).join('');
+        expect(hex(at, at + 2)).toBe('803d');
+        expect(dv.getUint32(at + 2, true)).toBe(at + 81);
+        expect(at + 13 + dv.getInt32(at + 9, true)).toBe(at + 44);
+        expect(hex(at + 13, at + 23)).toBe('8b442408508b44240850');
         expect(at + 28 + dv.getInt32(at + 24, true)).toBe(update);
-        expect(hex.slice(56, 66)).toBe('83c40885c0');
-        expect(at + 39 + dv.getInt32(at + 35, true)).toBe(trampoline);
+        expect(hex(at + 28, at + 33)).toBe('83c40885c0');
+        expect(at + 39 + dv.getInt32(at + 35, true)).toBe(at + 44);
         expect(mem[at + 39]).toBe(0xe9);
         expect(at + 44 + dv.getInt32(at + 40, true)).toBe(stub);
-        expect(mem[at + 44]).toBe(1);
+        expect(hex(at + 44, at + 51)).toBe('5589e5575653e9');
+        expect(at + 55 + dv.getInt32(at + 51, true)).toBe(target + 6);
+        expect(hex(at + 55, at + 77)).toBe('5589e557565381ec9c000000c64593018b7d1031c0e9');
+        expect(at + 81 + dv.getInt32(at + 77, true)).toBe(target + 0x25);
+        expect(mem[at + 81]).toBe(1);
+        expect(mem[trampoline]).toBe(0xe9);
+        expect(trampoline + 5 + dv.getInt32(trampoline + 1, true)).toBe(at + 55);
     });
 });

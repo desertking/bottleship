@@ -146,31 +146,47 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
  *   jmp stub
  *
  * EAX is dead at a cdecl entry; the two pushes are balanced before either exit.
+ * The pose update is arbitrary game code, so it only ever runs here, in the
+ * guest. The trampoline the shadow rail validates against is rewritten to enter
+ * the original behind its own pose update call, with EAX = 0 as that call left it.
  */
 function buildFilter(info: EntryFilterInfo): number | null {
     const { mem, targetAddress, stubAddress, trampolineAddress } = info;
     if (mem[targetAddress + POSE_CALL] !== 0xe8) return null;
     const dv = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
     const update = (targetAddress + POSE_CALL + 5 + dv.getInt32(targetAddress + POSE_CALL + 1, true)) >>> 0;
-    const size = 48;
+    const size = 84;
     const at = info.allocCode(size);
     if (at <= 0 || at + size > mem.length) return null;
-    enableFlag = at + 44;
+    const original = at + 44;
+    const afterPose = at + 55;
+    enableFlag = at + 81;
     let p = at;
     const b = (...bytes: number[]): void => { for (const x of bytes) mem[p++] = x; };
     const d = (value: number): void => { dv.setUint32(p, value >>> 0, true); p += 4; };
     const rel = (target: number): void => { dv.setInt32(p, (target - (p + 4)) | 0, true); p += 4; };
+    const copy = (from: number, to: number): void => { for (let i = from; i < to; i++) mem[p++] = mem[targetAddress + i]!; };
     b(0x80, 0x3d); d(enableFlag); b(0x00);
-    b(0x0f, 0x84); rel(trampolineAddress);
+    b(0x0f, 0x84); rel(original);
     b(0x8b, 0x44, 0x24, 0x08, 0x50);
     b(0x8b, 0x44, 0x24, 0x08, 0x50);
     b(0xe8); rel(update);
     b(0x83, 0xc4, 0x08);
     b(0x85, 0xc0);
-    b(0x0f, 0x85); rel(trampolineAddress);
+    b(0x0f, 0x85); rel(original);
     b(0xe9); rel(stubAddress);
+    copy(0, PROLOGUE_LEN);
+    b(0xe9); rel(targetAddress + PROLOGUE_LEN);
+    copy(0, 0x0c);
+    copy(0x0f, 0x13);
+    copy(0x16, 0x19);
+    b(0x31, 0xc0);
+    b(0xe9); rel(targetAddress + POSE_CALL + 5);
+    mem[p++] = 1;
     while (p < at + size) mem[p++] = 0xcc;
-    mem[enableFlag] = 1;
+    p = trampolineAddress;
+    b(0xe9); rel(afterPose);
+    while (p < trampolineAddress + PROLOGUE_LEN + 5) mem[p++] = 0xcc;
     return at;
 }
 
