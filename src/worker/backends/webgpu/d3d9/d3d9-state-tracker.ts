@@ -299,7 +299,7 @@ export class D3D9StateTracker {
         if (!current || matrix.length < 16) return false;
         // setTransform answers "changed"; a product equal to the current matrix (an identity
         // multiply) is still a successful call.
-        this.setTransform(type, multiplyMatrices(current, matrix));
+        this.setTransform(type, multiplyMatrices(matrix, current));
         return true;
     }
 
