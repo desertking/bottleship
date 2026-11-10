@@ -100,6 +100,13 @@ export function deformX87Accel(
     }
     const c = live.f32[scaleAddr >>> 2];
     if (!(c >= WEIGHT_SCALE_LO && c <= WEIGHT_SCALE_HI)) return null;
+    const census = (globalThis as { __grannyDeformCensus?: number[] }).__grannyDeformCensus;
+    if (census) {
+        const u8 = live.u8;
+        for (let i = 0, w = a.src + 12; i < a.count; i++, w += sStride) {
+            census[(u8[w] !== 0 ? 1 : 0) + (u8[w + 1] !== 0 ? 1 : 0) + (u8[w + 2] !== 0 ? 1 : 0) + (u8[w + 3] !== 0 ? 1 : 0)]++;
+        }
+    }
     const base = live.u8.byteOffset;
     let done = 0;
     let exactCount = 0;
