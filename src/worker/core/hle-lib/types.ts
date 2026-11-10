@@ -267,6 +267,12 @@ export interface ShadowSpec {
      * would try to park a thread that the sync-call loop is driving.
      */
     allowGuestImports?: boolean;
+    /**
+     * The function returns nothing and leaves a value in EAX that no kernel can
+     * reproduce (a timestamp sum, a stale pointer). Validation then compares the
+     * declared ranges only.
+     */
+    ignoreEax?: boolean;
 }
 
 export type ShadowHookState = 'shadowing' | 'active' | 'disabled';

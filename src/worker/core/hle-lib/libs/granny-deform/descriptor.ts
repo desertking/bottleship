@@ -63,6 +63,14 @@ import {
     SSE_SRC_STRIDE,
 } from './sse-kernel';
 import { aabbInputsPlain, aabbKernel, aabbResult, decodeAabbArgs } from './aabb-kernel';
+import {
+    decodeWorldPoseArgs,
+    worldPoseComposite,
+    worldPoseKernel,
+    worldPosePlan,
+    type WorldPosePlan,
+    worldPoseWorld,
+} from './worldpose-kernel';
 import { LiveShadowView } from '../../shadow-validator';
 
 const FN = 'granny_deform_pwn343_pn33';
@@ -99,6 +107,37 @@ const AABB_LIMIT_OPERANDS = [0x4, 0xa];
 const AABB_BODY_SHA256 = 'd3d7d15730fa2980a3923a209dbc9c1f92154b593cde445f2abce59bbc7ad68f';
 const AABB_PROLOGUE_LEN = 8;
 const FLT_MAX = Math.fround(3.4028234663852886e38);
+
+const FN_WORLDPOSE = 'granny_build_world_pose';
+const WORLDPOSE_PREFIX = hexPattern(
+    '8a0d5863051083ec585355b00184c85657751c8ad90ad868dc5e0310881d58630510e8f9bbffff83c404a354630510'
+    + '8b2d0c440310a154630510896c2418a30c4403100f31894424');
+const WORLDPOSE_MASKED = [0x2, 0x18, 0x1e, 0x2b, 0x31, 0x36, 0x3f];
+const WORLDPOSE_MASK = (() => {
+    const m = new Array<string>(WORLDPOSE_PREFIX.length).fill('x');
+    for (const off of WORLDPOSE_MASKED) m.fill('?', off, off + 4);
+    return m.join('');
+})();
+const WORLDPOSE_FLAG_OPERANDS = [0x2, 0x1e];
+const WORLDPOSE_SLOT_OPERANDS = [0x2b, 0x36];
+const WORLDPOSE_ONE_OPERANDS = [0x58, 0x83, 0xb7];
+const WORLDPOSE_QUAT = -0xd2e0;
+const WORLDPOSE_PARTS: { rel: number; len: number; relocs: number[] }[] = [
+    { rel: 0, len: 0x292, relocs: [0x2, 0x18, 0x1e, 0x2b, 0x31, 0x36, 0x3f, 0x1f0, 0x1f5, 0x225, 0x22a, 0x245, 0x276] },
+    { rel: -0x218e0, len: 7, relocs: [] },
+    { rel: -0xb4e0, len: 8, relocs: [] },
+    { rel: -0x23b30, len: 8, relocs: [] },
+    { rel: -0xe450, len: 0x1e, relocs: [] },
+    { rel: -0x243b0, len: 0xaa, relocs: [] },
+    { rel: WORLDPOSE_QUAT, len: 0xc4, relocs: WORLDPOSE_ONE_OPERANDS },
+    { rel: -0xd830, len: 0xe7, relocs: [] },
+    { rel: -0xd650, len: 0x14c, relocs: [] },
+];
+const WORLDPOSE_SHA256 = 'd710d9d405613e3125f3bca024594860ba927327edb7cb33131dc6ed367bb5ee';
+const WORLDPOSE_PROLOGUE_LEN = 6;
+
+interface WorldPoseSite { flag: number; slot: number }
+const worldPoseSites = new Map<number, WorldPoseSite>();
 
 interface KernelShape {
     name: string;
@@ -171,8 +210,46 @@ function resolveAabb(view: ResolverModuleView): HookedFunctionMatch[] {
     return [{ name: FN_AABB, address: entry }];
 }
 
+function resolveWorldPose(view: ResolverModuleView): HookedFunctionMatch[] {
+    const hit = view.signatureHits.find(h => h.signatureId === FN_WORLDPOSE);
+    if (!hit) return [];
+    const entry = hit.address;
+    let total = 0;
+    for (const part of WORLDPOSE_PARTS) total += part.len;
+    const family = new Uint8Array(total);
+    let at = 0;
+    for (const part of WORLDPOSE_PARTS) {
+        const bytes = Mem.readBytes(entry + part.rel, part.len);
+        if (!bytes || bytes.length !== part.len) return [];
+        family.set(bytes, at);
+        for (const off of part.relocs) family.fill(0, at + off, at + off + 4);
+        at += part.len;
+    }
+    if (sha256HexSync(family) !== WORLDPOSE_SHA256) {
+        Logger.log(LogCategory.SYSTEM,
+            `[granny-deform] ${view.module.name}: world-pose prefix at 0x${entry.toString(16)} but a different body — not hooked`);
+        return [];
+    }
+    const flag = Mem.readUint32(entry + WORLDPOSE_FLAG_OPERANDS[0]);
+    const slot = Mem.readUint32(entry + WORLDPOSE_SLOT_OPERANDS[0]);
+    const one = Mem.readUint32(entry + WORLDPOSE_QUAT + WORLDPOSE_ONE_OPERANDS[0]);
+    if (flag === null || slot === null || one === null || (slot & 3) !== 0
+        || Mem.readUint32(entry + WORLDPOSE_FLAG_OPERANDS[1]) !== flag
+        || Mem.readUint32(entry + WORLDPOSE_SLOT_OPERANDS[1]) !== slot
+        || WORLDPOSE_ONE_OPERANDS.some(off => Mem.readUint32(entry + WORLDPOSE_QUAT + off) !== one)
+        || Mem.readFloat32(one) !== 1) {
+        Logger.warn(LogCategory.SYSTEM,
+            `[granny-deform] ${view.module.name}: world-pose operands at 0x${entry.toString(16)} disagree — refusing to hook`);
+        return [];
+    }
+    worldPoseSites.set(entry, { flag, slot });
+    Logger.log(LogCategory.SYSTEM,
+        `[granny-deform] ${view.module.name}: world-pose build 0x${entry.toString(16)}`);
+    return [{ name: FN_WORLDPOSE, address: entry }];
+}
+
 function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
-    return [...SHAPES.flatMap(shape => resolveShape(view, shape)), ...resolveAabb(view)];
+    return [...SHAPES.flatMap(shape => resolveShape(view, shape)), ...resolveAabb(view), ...resolveWorldPose(view)];
 }
 
 const memLength = (): number => Mem.getView()?.length ?? 0;
@@ -309,6 +386,52 @@ const aabbShadow: ShadowSpec = {
     },
 };
 
+/** The profiling node a site's calls are counted on, or 0 while the guest has not created it. */
+function worldPoseNode(live: DeformViews, site: WorldPoseSite): number {
+    if (!inBounds(site.flag, 1) || !inBounds(site.slot, 4) || (live.u8[site.flag] & 1) === 0) return 0;
+    const node = live.u32[site.slot >>> 2];
+    return (node & 3) === 0 && inBounds(node, 8) ? node : 0;
+}
+
+let worldPosePending: WorldPosePlan | null = null;
+
+const worldPoseShadow: ShadowSpec = {
+    validateInGame: true,
+    ignoreEax: true,
+    n: 32,
+    guard(args) {
+        const live = liveViews();
+        worldPosePending = null;
+        if (!live || !callerRoundsToSingle()) return false;
+        for (const site of worldPoseSites.values()) if (worldPoseNode(live, site) === 0) return false;
+        worldPosePending = worldPosePlan(live, decodeWorldPoseArgs(args));
+        return worldPosePending !== null;
+    },
+    ranges(args) {
+        const live = liveViews();
+        const plan = live && (worldPosePending ?? worldPosePlan(live, decodeWorldPoseArgs(args)));
+        if (!plan) return [];
+        return [{ addr: plan.world, len: plan.count << 6 }, { addr: plan.composite, len: plan.count << 6 }];
+    },
+    kernel(view: ShadowView, args: number[], site) {
+        const live = liveViews();
+        const plan = live && (worldPosePending ?? worldPosePlan(live, decodeWorldPoseArgs(args)));
+        worldPosePending = null;
+        if (!live || !plan) throw new Error('world-pose call past its guard');
+        if (view instanceof LiveShadowView) {
+            worldPoseKernel(live, live, plan);
+            const at = worldPoseSites.get(site.targetAddress);
+            const node = at ? worldPoseNode(live, at) : 0;
+            if (node !== 0) live.u32[(node >>> 2) + 1]++;
+            return 0;
+        }
+        worldPoseKernel(live, null, plan);
+        view.writeBytes(plan.world, worldPoseWorld.slice(0, plan.count << 6));
+        view.writeBytes(plan.composite, worldPoseComposite.slice(0, plan.count << 6));
+        return 0;
+    },
+};
+
 export const grannyDeformDescriptor: LibDescriptor = {
     id: 'granny-deform',
     displayName: 'Granny 2 four-bone position+normal skinning kernel (inner-loop HLE)',
@@ -335,8 +458,25 @@ export const grannyDeformDescriptor: LibDescriptor = {
             section: '.text',
             weight: 12,
         },
+        [FN_WORLDPOSE]: {
+            kind: 'bytes',
+            pattern: WORLDPOSE_PREFIX,
+            mask: WORLDPOSE_MASK,
+            section: '.text',
+            weight: 12,
+        },
     },
     functions: {
+        [FN_WORLDPOSE]: {
+            name: FN_WORLDPOSE,
+            entryProbe: { kind: 'prologue', pattern: new Uint8Array(0), mask: '' },
+            externallyResolved: true,
+            callingConvention: 'cdecl',
+            argCount: 6,
+            required: false,
+            prologueLen: WORLDPOSE_PROLOGUE_LEN,
+            shadow: worldPoseShadow,
+        },
         [FN_AABB]: {
             name: FN_AABB,
             entryProbe: { kind: 'prologue', pattern: new Uint8Array(0), mask: '' },
@@ -375,6 +515,8 @@ export const grannyDeformDescriptor: LibDescriptor = {
     },
     onReset() {
         clearWeightScales();
+        worldPoseSites.clear();
+        worldPosePending = null;
         deformCounters.reset();
         liveMem = null;
         liveMemViews = null;
@@ -385,4 +527,5 @@ export const __test = {
     PREFIX, BODY_LEN, SCALE_OPERANDS, BODY_SHA256, PROLOGUE_LEN,
     SSE_PREFIX, SSE_BODY_LEN, SSE_SCALE_OPERANDS, SSE_BODY_SHA256,
     AABB_PREFIX, AABB_MASK, AABB_BODY_LEN, AABB_LIMIT_OPERANDS, AABB_BODY_SHA256,
+    WORLDPOSE_PREFIX, WORLDPOSE_MASK, WORLDPOSE_PARTS, WORLDPOSE_SHA256, WORLDPOSE_PROLOGUE_LEN,
 };

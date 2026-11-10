@@ -472,7 +472,7 @@ class LibHleManager {
             const frozenRanges = ranges;
             return this.completeViaOriginalSync(rt, spec, decl, handle, callArgs, liveView, site, (guestEax) => {
                 const mismatch = compareShadowOutputs(
-                    mem, frozenRanges, scratchView.scratch, kernelEax, guestEax, spec.f32UlpTolerance);
+                    mem, frozenRanges, scratchView.scratch, spec.ignoreEax ? guestEax : kernelEax, guestEax, spec.f32UlpTolerance);
                 if (mismatch) rt.recordMismatch(mismatch);
                 else rt.recordCleanCall();
             });
