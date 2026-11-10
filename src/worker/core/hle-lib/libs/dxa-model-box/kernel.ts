@@ -54,7 +54,8 @@ export const modelBoxCounters = {
     calls: 0,
     bindings: 0,
     declined: 0,
-    reset(): void { this.calls = 0; this.bindings = 0; this.declined = 0; },
+    declinedRounding: 0,
+    reset(): void { this.calls = 0; this.bindings = 0; this.declined = 0; this.declinedRounding = 0; },
 };
 
 /**

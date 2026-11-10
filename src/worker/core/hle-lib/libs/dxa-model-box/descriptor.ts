@@ -48,6 +48,7 @@ const IMPORT_BOX = 0x15b;
 const ABSOLUTE_OPERANDS = [IMPORT_INDICES, IMPORT_POSE, IMPORT_BOX, 0x27b];
 const BODY_SHA256 = '801c528516c395f8f9f342f8577d41c805685b7e3db2c5e680bc6d5fd67368bc';
 const PROLOGUE_LEN = 6;
+const DECLINED = 1;
 
 const INDICES_EXPORT = { bytes: hexPattern('8b44240450e80000000083c404c20400'), call: 5 };
 const INDICES_BODY = hexPattern('8b4424048b4014c3');
@@ -143,26 +144,29 @@ function resolveKernel(view: ResolverModuleView): HookedFunctionMatch[] {
  *   cmp byte [flag], 0 ; je original
  *   push [esp+8] ; push [esp+8] ; call pose update ; add esp, 8
  *   test eax, eax ; jnz original
- *   jmp stub
+ *   push [esp+12] x3 ; call stub ; add esp, 12
+ *   test eax, eax ; jnz after-pose copy of the original
+ *   ret
  *
- * EAX is dead at a cdecl entry; the two pushes are balanced before either exit.
- * The flag starts clear: the hook is installed switched off and costs the guest one
- * compare until __dxaModelBoxEnable(true). In-game validation is not available for it:
- * the original calls a Granny export that granny-deform has hooked, and a hooked
- * function inside a synchronous run of the original never returns. A call the guard
- * turns down therefore removes the hook and runs the restored function.
+ * EAX is dead at a cdecl entry; every push is balanced before each exit. The stub
+ * answers 0 for a served model, which is also what the function returns after a
+ * successful pose update, and DECLINED for one the kernel turns down: that call then
+ * continues in the guest function behind its pose update, and the hook stays in place.
+ * In-game validation is not available: the original calls a Granny export that
+ * granny-deform has hooked, and a hooked function inside a synchronous run of the
+ * original never returns.
  */
 function buildFilter(info: EntryFilterInfo): number | null {
     const { mem, targetAddress, stubAddress, trampolineAddress } = info;
     if (mem[targetAddress + POSE_CALL] !== 0xe8) return null;
     const dv = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
     const update = (targetAddress + POSE_CALL + 5 + dv.getInt32(targetAddress + POSE_CALL + 1, true)) >>> 0;
-    const size = 84;
+    const size = 112;
     const at = info.allocCode(size);
     if (at <= 0 || at + size > mem.length) return null;
-    const original = at + 44;
-    const afterPose = at + 55;
-    enableFlag = at + 81;
+    const original = at + 71;
+    const afterPose = at + 82;
+    enableFlag = at + 108;
     let p = at;
     const b = (...bytes: number[]): void => { for (const x of bytes) mem[p++] = x; };
     const d = (value: number): void => { dv.setUint32(p, value >>> 0, true); p += 4; };
@@ -176,7 +180,14 @@ function buildFilter(info: EntryFilterInfo): number | null {
     b(0x83, 0xc4, 0x08);
     b(0x85, 0xc0);
     b(0x0f, 0x85); rel(original);
-    b(0xe9); rel(stubAddress);
+    b(0x8b, 0x44, 0x24, 0x0c, 0x50);
+    b(0x8b, 0x44, 0x24, 0x0c, 0x50);
+    b(0x8b, 0x44, 0x24, 0x0c, 0x50);
+    b(0xe8); rel(stubAddress);
+    b(0x83, 0xc4, 0x0c);
+    b(0x85, 0xc0);
+    b(0x0f, 0x85); rel(afterPose);
+    b(0xc3);
     copy(0, PROLOGUE_LEN);
     b(0xe9); rel(targetAddress + PROLOGUE_LEN);
     copy(0, 0x0c);
@@ -199,7 +210,8 @@ const shadow: ShadowSpec = {
         const box = args[2]! >>> 0;
         const live = liveViews();
         if (!live || box === 0 || box + BOX_LEN > live.u8.length) return false;
-        if (!grannyMatches() || !callerRoundsToSingle()) { modelBoxCounters.declined++; return false; }
+        if (!grannyMatches()) { modelBoxCounters.declined++; return false; }
+        if (!callerRoundsToSingle()) { modelBoxCounters.declined++; modelBoxCounters.declinedRounding++; return false; }
         const model = args[1]! >>> 0;
         const count = modelBox(live, model);
         if (count < 0) { modelBoxCounters.declined++; return false; }
@@ -214,7 +226,7 @@ const shadow: ShadowSpec = {
         const model = args[1]! >>> 0;
         const count = pendingCount;
         pendingCount = -1;
-        if (count < 0 || pendingModel !== model) throw new Error('model outside the served shape');
+        if (count < 0 || pendingModel !== model) return DECLINED;
         if (count > 0) view.writeBytes(args[2]! >>> 0, modelBoxResult);
         modelBoxCounters.calls++;
         modelBoxCounters.bindings += count;
