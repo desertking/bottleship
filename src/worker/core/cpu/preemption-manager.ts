@@ -88,10 +88,66 @@ export class PreemptionManager {
      *  Page tails: compile instructions in the last 15 bytes of a page (NFSU in-race +3..+5 %).
      *  Hot-edge regions: measured −3..−4 % in-race, kept OFF.
      *  Guard groups: accesses through one base register share the first one's TLB check
-     *  (NFSU in-race +5.1 %, 16/16 ABBA pairs). */
+     *  (NFSU in-race +5.1 %, 16/16 ABBA pairs).
+     *  RET memo inline: a RET/indirect exit probes the dynamic-chaining memo in generated code
+     *  and tail-calls on a hit instead of calling the Rust helper (offline: −7.6 % time on a
+     *  cross-page call/ret workload, 6 layouts).
+     *  FWAIT inline: FWAIT no longer spills/reloads every register and ends the block (Delphi
+     *  emits it after nearly every x87 op; offline x87+FWAIT micro −80 % time). Needs multi-entry
+     *  loop safety, which also gives loops with several entries their LOOP_COUNTER exit.
+     *  SSE scalar inline: MULSS/ADDSS/... with memory operand, (U)COMISS/SD, CVT*, SQRTS* as wasm
+     *  float ops instead of helper calls (Bigfoot: helpers 5.4 % of worker time).
+     *  x87 lean: one CR0.EM|TS test per block, 24-bit PC rounding only when PC=24
+     *  (offline micro m32/m64/reg −19/−21/−14 %). */
     private pageTailsEnabled = true;            // switch jit_page_tails
     private hotEdgeRegionsEnabled = false;      // switch jit_hot_edge_regions
     private guardGroupsEnabled = true;          // switch jit_guard_groups
+    private retMemoInlineEnabled = true;        // switch jit_ret_memo_inline
+    private fwaitInlineEnabled = true;          // switch jit_fwait_inline
+    private multiEntryLoopSafetyEnabled = true; // switch jit_multi_entry_loop_safety
+    private sseScalarInlineEnabled = true;      // switch jit_sse_scalar_inline
+    private x87LeanEnabled = true;              // switch jit_x87_lean
+    private fld80ExactFastEnabled = true;       // switch fpu_fld80_exact_fast
+    private x87RunsEnabled = true;
+    private carry8InlineEnabled = true;
+    private sseConvertInlineEnabled = true;
+    private pageFallthroughEnabled = true;
+    private fist64InlineEnabled = true;
+    private flagLocalsAutoEnabled = true;
+    private ftolCallFusionEnabled = true;
+    private smcExitEnabled = true;
+    private flagCarryNeutralEnabled = true;
+    private condSkipEnabled = true;
+    private x87EntryStateEnabled = true;
+    private x87CmpLeanEnabled = true;
+    private ggThroughRunsEnabled = true;
+    private adcCfOnlyEnabled = true;
+    private incdecCfKeepEnabled = true;
+    private loopEipLazyEnabled = true;
+    private flagsFaultMatEnabled = true;
+    private reg8LeanEnabled = true;
+    private smcExitLocalEnabled = true;
+    private adc8CfDirectEnabled = true;
+    private pfInlineEnabled = true;
+    private ssePackedInlineEnabled = true;
+    private alu16InlineEnabled = true;
+    private fldcwInlineEnabled = true;
+    private mmxInlineEnabled = true;
+    private ggMemberInlineFallbackEnabled = true;
+    private cvttps2piInlineEnabled = true;
+    private frndintInlineEnabled = true;
+    private idivInlineEnabled = true;
+    private fld80InlineEnabled = true;
+    private fld80RelaxedEnabled = true;
+    private wbufBitmapEnabled = true;
+    private mmxLogicInlineEnabled = true;
+    private rmwMiscInlineEnabled = true;
+    private outDirectEnabled = true;
+    private budget0ExitEnabled = true;
+    private pageStraddleEnabled = true;
+    private x87RunTailEnabled = true;
+    private x87RunGuardShareEnabled = true;
+    private smcSilentEnabled = true;
 
     /** Walks every PARKED thread's saved x87 snapshot. Registered by the Scheduler
      *  (which owns the thread table and already depends on this module), same provider
@@ -319,7 +375,54 @@ export class PreemptionManager {
             this.applyCodegenSwitch(this.wasmExports, "jit_page_tails", this.pageTailsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_hot_edge_regions", this.hotEdgeRegionsEnabled ? 1 : 0);
             this.applyCodegenSwitch(this.wasmExports, "jit_guard_groups", this.guardGroupsEnabled ? 1 : 0);
-            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"}`);
+            this.applyCodegenSwitch(this.wasmExports, "jit_ret_memo_inline", this.retMemoInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fwait_inline", this.fwaitInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_multi_entry_loop_safety", this.multiEntryLoopSafetyEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_sse_scalar_inline", this.sseScalarInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_lean", this.x87LeanEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "fpu_fld80_exact_fast", this.fld80ExactFastEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_runs", this.x87RunsEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_carry8_inline", this.carry8InlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_sse_convert_inline", this.sseConvertInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_page_fallthrough", this.pageFallthroughEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fist64_inline", this.fist64InlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_flag_locals_auto", this.flagLocalsAutoEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_ftol_call_fusion", this.ftolCallFusionEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_smc_exit", this.smcExitEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_flag_carry_neutral", this.flagCarryNeutralEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_cond_skip", this.condSkipEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_entry_state", this.x87EntryStateEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_cmp_lean", this.x87CmpLeanEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_gg_through_runs", this.ggThroughRunsEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_adc_cf_only", this.adcCfOnlyEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_incdec_cf_keep", this.incdecCfKeepEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_loop_eip_lazy", this.loopEipLazyEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_flags_fault_mat", this.flagsFaultMatEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_reg8_lean", this.reg8LeanEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_smc_exit_local", this.smcExitLocalEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_adc8_cf_direct", this.adc8CfDirectEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_pf_inline", this.pfInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_sse_packed_inline", this.ssePackedInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_alu16_inline", this.alu16InlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fldcw_inline", this.fldcwInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_mmx_inline", this.mmxInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_gg_member_inline_fallback", this.ggMemberInlineFallbackEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_cvttps2pi_inline", this.cvttps2piInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_frndint_inline", this.frndintInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_idiv_inline", this.idivInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_fld80_inline", this.fld80InlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "fpu_fld80_relaxed", this.fld80RelaxedEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_wbuf_bitmap", this.wbufBitmapEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_mmx_logic_inline", this.mmxLogicInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_rmw_misc_inline", this.rmwMiscInlineEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_out_direct", this.outDirectEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_budget0_exit", this.budget0ExitEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_page_straddle", this.pageStraddleEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_run_tail", this.x87RunTailEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_x87_run_guard_share", this.x87RunGuardShareEnabled ? 1 : 0);
+            this.applyCodegenSwitch(this.wasmExports, "jit_smc_silent", this.smcSilentEnabled ? 1 : 0);
+            console.log(`[PERF] codegen switches: pageTails=${this.pageTailsEnabled ? "on" : "off"} hotEdgeRegions=${this.hotEdgeRegionsEnabled ? "on" : "off"} guardGroups=${this.guardGroupsEnabled ? "on" : "off"} retMemoInline=${this.retMemoInlineEnabled ? "on" : "off"} fwaitInline=${this.fwaitInlineEnabled ? "on" : "off"} multiEntryLoopSafety=${this.multiEntryLoopSafetyEnabled ? "on" : "off"} sseScalarInline=${this.sseScalarInlineEnabled ? "on" : "off"} x87Lean=${this.x87LeanEnabled ? "on" : "off"} fld80ExactFast=${this.fld80ExactFastEnabled ? "on" : "off"} x87Runs=${this.x87RunsEnabled ? "on" : "off"} carry8Inline=${this.carry8InlineEnabled ? "on" : "off"} sseConvertInline=${this.sseConvertInlineEnabled ? "on" : "off"} pageFallthrough=${this.pageFallthroughEnabled ? "on" : "off"} fist64Inline=${this.fist64InlineEnabled ? "on" : "off"} flagLocalsAuto=${this.flagLocalsAutoEnabled ? "on" : "off"} ftolCallFusion=${this.ftolCallFusionEnabled ? "on" : "off"} smcExit=${this.smcExitEnabled ? "on" : "off"} flagCarryNeutral=${this.flagCarryNeutralEnabled ? "on" : "off"} condSkip=${this.condSkipEnabled ? "on" : "off"} x87EntryState=${this.x87EntryStateEnabled ? "on" : "off"} x87CmpLean=${this.x87CmpLeanEnabled ? "on" : "off"} ggThroughRuns=${this.ggThroughRunsEnabled ? "on" : "off"} adcCfOnly=${this.adcCfOnlyEnabled ? "on" : "off"} incdecCfKeep=${this.incdecCfKeepEnabled ? "on" : "off"} loopEipLazy=${this.loopEipLazyEnabled ? "on" : "off"} flagsFaultMat=${this.flagsFaultMatEnabled ? "on" : "off"} reg8Lean=${this.reg8LeanEnabled ? "on" : "off"} smcExitLocal=${this.smcExitLocalEnabled ? "on" : "off"} adc8CfDirect=${this.adc8CfDirectEnabled ? "on" : "off"} pfInline=${this.pfInlineEnabled ? "on" : "off"} ssePackedInline=${this.ssePackedInlineEnabled ? "on" : "off"} alu16Inline=${this.alu16InlineEnabled ? "on" : "off"} fldcwInline=${this.fldcwInlineEnabled ? "on" : "off"} mmxInline=${this.mmxInlineEnabled ? "on" : "off"} ggMemberInlineFallback=${this.ggMemberInlineFallbackEnabled ? "on" : "off"} cvttps2piInline=${this.cvttps2piInlineEnabled ? "on" : "off"} frndintInline=${this.frndintInlineEnabled ? "on" : "off"} idivInline=${this.idivInlineEnabled ? "on" : "off"} fld80Inline=${this.fld80InlineEnabled ? "on" : "off"} fld80Relaxed=${this.fld80RelaxedEnabled ? "on" : "off"} wbufBitmap=${this.wbufBitmapEnabled ? "on" : "off"} mmxLogicInline=${this.mmxLogicInlineEnabled ? "on" : "off"} rmwMiscInline=${this.rmwMiscInlineEnabled ? "on" : "off"} outDirect=${this.outDirectEnabled ? "on" : "off"} budget0Exit=${this.budget0ExitEnabled ? "on" : "off"} pageStraddle=${this.pageStraddleEnabled ? "on" : "off"} x87RunTail=${this.x87RunTailEnabled ? "on" : "off"} x87RunGuardShare=${this.x87RunGuardShareEnabled ? "on" : "off"} smcSilent=${this.smcSilentEnabled ? "on" : "off"}`);
+            this.applyDeploymentCodegenSwitches(false);
         }
 
         // EAGL read-cursor lifetime (cpu/hypercall_eagl.rs). The wasm default is the
@@ -378,6 +481,29 @@ export class PreemptionManager {
 
     isInitialized(): boolean {
         return this.initialized;
+    }
+
+    private deploymentCodegenSwitches: Record<string, number> = {};
+
+    /** Per-deployment code-shaping overrides (deployment.json "codegenSwitches"). Applied on top of
+     *  the shipping values at every v86 init; a call after init applies them immediately and drops
+     *  the JIT cache, since the switches change the generated code. */
+    setDeploymentCodegenSwitches(switches: Record<string, number> | undefined): void {
+        this.deploymentCodegenSwitches = {};
+        for (const [name, value] of Object.entries(switches ?? {})) {
+            if (/^(jit|fpu)_[a-z0-9_]+$/.test(name) && Number.isFinite(Number(value))) {
+                this.deploymentCodegenSwitches[name] = Number(value) >>> 0;
+            }
+        }
+        if (this.wasmExports) this.applyDeploymentCodegenSwitches(true);
+    }
+
+    private applyDeploymentCodegenSwitches(clearCache: boolean): void {
+        const entries = Object.entries(this.deploymentCodegenSwitches);
+        if (entries.length === 0 || !this.wasmExports) return;
+        for (const [name, value] of entries) this.applyCodegenSwitch(this.wasmExports, name, value);
+        if (clearCache) this.wasmExports.jit_clear_cache_js?.();
+        console.log(`[PERF] deployment codegen switches: ${entries.map(([n, v]) => `${n}=${v}`).join(" ")}`);
     }
 
     getHypercallPageBase(): number {
