@@ -20,6 +20,7 @@ export interface DeploymentConfig {
     registryOnce?: boolean;
     version?: string;
     registry?: { root: string; path: string; values: { name: string; type: string; data: unknown }[] }[];
+    codegenSwitches?: Record<string, number>;
 }
 
 let cached: DeploymentConfig | null = null;
