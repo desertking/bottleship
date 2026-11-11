@@ -17,7 +17,7 @@ import {
     CTRL_SAMPLE_RATE, CTRL_BITS_PER_SAMPLE, CTRL_BLOCK_ALIGN, CTRL_STATE,
     CTRL_LOOP_MODE, CTRL_VOLUME, CTRL_PAN, CTRL_FREQUENCY, CTRL_DATA_LENGTH,
     CTRL_STOP_REQUESTED, CTRL_FLAGS, CTRL_RESERVED, CTRL_BLOCK_BYTES, CTRL_SLOTS,
-    STATE_PLAYING, FLAG_CIRCULAR, FLAG_STREAMING, MIX_HISTORY_FRAMES,
+    STATE_PLAYING, FLAG_CIRCULAR, FLAG_STREAMING, MIX_HISTORY_FRAMES, FLAG_LAP_MUTE,
     CTRL_3D_POS_X, CTRL_3D_POS_Y, CTRL_3D_POS_Z,
     CTRL_3D_VEL_X, CTRL_3D_VEL_Y, CTRL_3D_VEL_Z,
     CTRL_3D_MIN_DIST, CTRL_3D_MAX_DIST, CTRL_3D_MODE,
@@ -27,6 +27,7 @@ import {
     CTRL_3D_ROLLOFF, CTRL_3D_MIN_GAIN, CTRL_3D_MAX_GAIN,
     CTRL_LOOP_START_FRAME, CTRL_LOOP_END_FRAME,
     FLAG3D_HAS_3D, FLAG3D_SOURCE_ROLLOFF,
+    LCTRL_EMULATION_BEAT,
     LCTRL_POS_X, LCTRL_POS_Y, LCTRL_POS_Z,
     LCTRL_VEL_X, LCTRL_VEL_Y, LCTRL_VEL_Z,
     LCTRL_FRONT_X, LCTRL_FRONT_Y, LCTRL_FRONT_Z,
@@ -82,7 +83,7 @@ const LIMIT_K = 1 - LIMIT_T;
 // audio-engine.ts verifies the echo and logs loudly on a mismatch or timeout,
 // because a cache hit that silently skips this whole file is worse than a version
 // bump you forgot: the failure otherwise looks identical to "nothing is wrong".
-const WORKLET_MODULE_VERSION = 13;
+const WORKLET_MODULE_VERSION = 16;
 
 // Discontinuity detector threshold: |s[n]−s[n−1]| above this between adjacent
 // output samples counts as a click/splice candidate.
@@ -94,6 +95,7 @@ const DISC_THRESHOLD = 0.5;
 // Pure consumer-side; does NOT touch the guest-visible cursors. EAR-VERIFY before
 // committing — set to 0 to disable.
 const CONCEAL_FADE_FRAMES = 64;
+const EMULATION_STALL_SECONDS = 0.25;
 
 // Band-limited interpolation for a source played SLOWER than the output rate (a 16 kHz
 // or 22 kHz buffer on a 48 kHz context). Linear interpolation leaves the spectral images
@@ -168,6 +170,10 @@ type RingBufferSource = {
   /** Frames of fade-in left after a starved stretch: data resumes mid-waveform, and a
    *  step from the silence the starve faded to is a click of its own. */
   fadeIn: number;
+  tail0?: number;
+  tail1?: number;
+  staleLap?: boolean;
+  staleLapWrite?: number;
 };
 
 class BottleShipAudioProcessor extends AudioWorkletProcessor {
@@ -199,6 +205,8 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
 
   // Listener SAB (global singleton; whichever audio API the guest uses owns it)
   private listenerCtrl: Int32Array | null = null;
+  private lastEmulationBeat = 0;
+  private framesSinceEmulationBeat = 0;
 
   // Spatializer scratch — reused for every source of every block (no allocation
   // inside the render quantum).
@@ -504,6 +512,15 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
 
     // Per-block stats accumulators (flushed to the stats SAB once per block)
     let activeRing = 0;
+    const beatCtrl = this.listenerCtrl;
+    const beat = beatCtrl ? Atomics.load(beatCtrl, LCTRL_EMULATION_BEAT) : 0;
+    if (beat !== this.lastEmulationBeat) {
+      this.lastEmulationBeat = beat;
+      this.framesSinceEmulationBeat = 0;
+    } else {
+      this.framesSinceEmulationBeat += frames;
+    }
+    const emulationStalled = beat !== 0 && this.framesSinceEmulationBeat >= sampleRate * EMULATION_STALL_SECONDS;
     let underrunMid = 0;
     let starvedBlocks = 0;
 
@@ -736,6 +753,30 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
       // and write cursors and has no notion of how far the app has written, so there is
       // no drained-queue silence to imitate and no legitimate pump cadence to misjudge.
 
+      if (emulationStalled) {
+        const tail0 = rb.tail0 ?? 0, tail1 = rb.tail1 ?? 0;
+        if (tail0 !== 0 || tail1 !== 0) {
+          const fade = Math.min(frames, CONCEAL_FADE_FRAMES);
+          for (let f = 0; f < fade; f++) {
+            const g = 1 - (f + 1) / fade;
+            output[0][f] += tail0 * g;
+            if (outChannels > 1) output[1][f] += tail1 * g;
+          }
+        }
+        rb.tail0 = 0;
+        rb.tail1 = 0;
+        rb.fadeIn = CONCEAL_FADE_FRAMES;
+        continue;
+      }
+
+      const staleLapWatch = isStreaming && (flags & FLAG_LAP_MUTE) !== 0 && !streamingHold && loopMode === -1;
+      let staleLap = staleLapWatch && !!rb.staleLap;
+      let prevLapAvail = -1;
+      if (staleLap && writeCursorBytes !== rb.staleLapWrite) {
+        staleLap = false;
+        fadeIn = CONCEAL_FADE_FRAMES;
+      }
+
       for (let i = 0; i < frames; i++) {
         while (loopEnd < totalFrames && pos >= loopEnd
                && (loopMode === -1 || (loopMode > 1 && loopsCompleted + 1 < loopMode))) {
@@ -800,6 +841,30 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
             }
             break;
           }
+        }
+
+        const lapAvail = staleLapWatch
+          ? (writeCursorFrame - (Math.floor(pos) % totalFrames) + totalFrames) % totalFrames : 0;
+        const crossedFrontier = staleLapWatch && !staleLap
+          && (lapAvail === 0 || (prevLapAvail >= 0 && lapAvail > prevLapAvail + (totalFrames >> 1)));
+        prevLapAvail = lapAvail;
+        if (crossedFrontier) {
+          staleLap = true;
+          rb.staleLapWrite = writeCursorBytes;
+          if (concealLast0 !== 0 || concealLast1 !== 0) {
+            const fade = Math.min(frames - i, CONCEAL_FADE_FRAMES);
+            for (let f = 0; f < fade; f++) {
+              const g = 1 - (f + 1) / fade;
+              output[0][i + f] += concealLast0 * g;
+              if (outChannels > 1) output[1][i + f] += concealLast1 * g;
+            }
+          }
+          concealLast0 = 0;
+          concealLast1 = 0;
+        }
+        if (staleLap) {
+          pos += rate;
+          continue;
         }
 
         const frameIndex = Math.floor(pos);
@@ -915,6 +980,9 @@ class BottleShipAudioProcessor extends AudioWorkletProcessor {
       rb.position = pos;
       rb.loopsCompleted = loopsCompleted;
       rb.fadeIn = fadeIn;
+      rb.tail0 = concealLast0;
+      rb.tail1 = concealLast1;
+      rb.staleLap = staleLap;
       // TEMP PROBE (ring read diagnosis) — remove after the no-sound regression is closed.
       {
         const d: any = (rb as any).dbg ?? ((rb as any).dbg = {});
