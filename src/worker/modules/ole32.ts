@@ -3,6 +3,7 @@ import { Process } from "../core/process";
 import { ThunkImplementation, ThunkResult, type X86Context } from "../core/thunking/thunk-dispatcher";
 import { System } from "../core/system";
 import { Logger, LogCategory } from "../core/logger";
+import { TimeService } from "../runtime/time";
 import { InterfaceRegistry, registerStandardDirectXInterfaces } from "../core/com/interface-registry";
 import { ComObjectFactory } from "../core/com/base-com-object";
 import { lookupHleComClass, releaseHleComServerLoads, leaveComApartment, captureHleComServerLoads, restoreHleComServerLoads } from "../core/com/hle-com-registry";
@@ -22,6 +23,7 @@ import { CaptureRefusal } from "../savestate/object-codecs";
 import type { SaveValue } from "../savestate/value-codec";
 import { comApartments, ComApartments, type ApartmentRow } from "../core/com/apartment";
 import { coCreateWebBrowser, liveWebBrowserInstances } from "./ole32-webbrowser";
+import { coCreateMlang } from './ole32-mlang-font-link';
 
 // COM error codes
 const REGDB_E_CLASSNOTREG = 0x80040154;
@@ -75,6 +77,7 @@ export const OLE32_SCHEMA = {
         apartments: true, comServerLoads: true,
     }),
 };
+const CO_E_IIDSTRING = 0x800401f4;
 
 export class Ole32 implements IModule {
     name = "ole32";
@@ -399,6 +402,12 @@ export class Ole32 implements IModule {
             return S_OK;
         };
 
+        // IIDFromString parses the same braced form; only the failure code differs.
+        this.exports["IIDFromString"] = (ctx, mem, args) => {
+            const hr = this.exports["CLSIDFromString"](ctx, mem, args) as number;
+            return hr === CO_E_CLASSSTRING ? CO_E_IIDSTRING : hr;
+        };
+
         // HRESULT CLSIDFromProgID(LPCOLESTR lpszProgID, LPCLSID lpclsid)
         // The registry IS the lookup: HKCR\<ProgID>\CLSID's default value holds the
         // string form, which the same parser as CLSIDFromString then turns into bytes.
@@ -627,7 +636,7 @@ export class Ole32 implements IModule {
             if (!lpFileTime || lpFileTime + 8 > mem.length) return E_POINTER;
 
             const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
-            const now = BigInt(Date.now());
+            const now = BigInt(TimeService.getInstance().nowUnixMs());
             const windowsTicks = (now + 11644473600000n) * 10000n;
             view.setBigUint64(lpFileTime, windowsTicks, true);
             return S_OK;
@@ -1038,6 +1047,8 @@ export class Ole32 implements IModule {
         context: X86Context,
         iidAddress: number,
     ): number {
+        const mlang = coCreateMlang(this.process, clsidNormalized, iidNormalized, ppv);
+        if (mlang !== null) return mlang;
         const webBrowser = coCreateWebBrowser(this.process, clsidNormalized, iidNormalized, ppv);
         if (webBrowser !== null) return webBrowser;
         const registered = lookupHleComClass(this.process, clsidNormalized);
