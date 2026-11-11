@@ -26,6 +26,7 @@ export const ole32Module: ModuleDescriptor = {
         makeFunc("CoCreateGuid", 1),
         makeFunc("StringFromGUID2", 3),
         makeFunc("CLSIDFromString", 2),
+        makeFunc("IIDFromString", 2),
         makeFunc("CLSIDFromProgID", 2),
         makeFunc("CoTaskMemAlloc", 1),
         makeFunc("CoTaskMemFree", 1),

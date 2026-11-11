@@ -1,0 +1,8 @@
+{
+  "source": "manual (MSDN arity)",
+  "module": "urlmon",
+  "functions": [
+    {"name": "CoGetClassObjectFromURL", "argCount": 10},
+    {"name": "RegisterBindStatusCallback", "argCount": 4}
+  ]
+}
