@@ -132,9 +132,15 @@ function arrayStride(arr: GLArrayPointer, comps: number): number {
  * DataView reads would throw a RangeError the dispatcher swallows: a silently dropped
  * draw with EAX never set, instead of a diagnosable fault.
  */
+type RegionSpace = { getRegion(a: number): { perms: string } | null; regionGeneration?: number };
+
+interface ValidatedSpan { space: RegionSpace; gen: number; start: number; end: number }
+
+const validatedSpans = new WeakMap<GLArrayPointer, ValidatedSpan>();
+
 function arrayOutOfRange(
     arr: GLArrayPointer, comps: number, lo: number, hi: number,
-    limit: number, space: { getRegion(a: number): { perms: string } | null } | undefined,
+    limit: number, space: RegionSpace | undefined,
 ): boolean {
     if (comps <= 0) return true;
     const stride = arrayStride(arr, comps);
@@ -142,10 +148,19 @@ function arrayOutOfRange(
     const end = arr.pointer + hi * stride + comps * elemSize(arr.type);
     if (end > limit) return true;
     if (!space) return false;
+    const gen = space.regionGeneration;
+    const known = validatedSpans.get(arr);
+    if (gen !== undefined && known && known.space === space && known.gen === gen
+        && start === known.start && end === known.end
+        && !(globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo) {
+        return false;
+    }
     // A region the map knows to be unreadable is a hard reject; an address it has no
     // region for is not — plenty of legitimate guest buffers live outside the map.
-    return space.getRegion(start)?.perms === "noaccess"
+    const bad = space.getRegion(start)?.perms === "noaccess"
         || space.getRegion(end - 1)?.perms === "noaccess";
+    if (!bad && gen !== undefined) validatedSpans.set(arr, { space, gen, start, end });
+    return bad;
 }
 
 /**
@@ -156,9 +171,7 @@ export function validateClientArrayRange(ctx: OpenGLContext, lo: number, hi: num
     if (hi < lo) return true;
     if (lo < 0) return false;
     const limit = toPlainGuestMemory(ctx.process.getCurrentMemory()).length;
-    const space = (ctx.process as unknown as {
-        addressSpace?: { getRegion(a: number): { perms: string } | null };
-    }).addressSpace;
+    const space = (ctx.process as unknown as { addressSpace?: RegionSpace }).addressSpace;
 
     let bad = "";
     if (ctx.vertexArray.enabled && ctx.vertexArray.pointer
@@ -284,12 +297,11 @@ export function sequentialIndices(first: number, count: number): Uint32Array {
 
 function gatherPosition(
     v: GuestViews, arr: GLArrayPointer, idx: Uint32Array, count: number,
-    dst: Float32Array, dstBase: number,
+    dst: Float32Array, dstBase: number, V: number = VERT_FLOATS,
 ): void {
     const size = arr.size, type = arr.type, ptr = arr.pointer;
     const es = elemSize(type);
     const stride = arrayStride(arr, size);
-    const V = VERT_FLOATS;
 
     if (type === GL_FLOAT && size === 3 && v.f32 !== null && ((ptr | stride) & 3) === 0) {
         const f = v.f32, base = ptr >>> 2, st = stride >>> 2;
@@ -313,12 +325,11 @@ function gatherPosition(
 
 function gatherColor(
     v: GuestViews, arr: GLArrayPointer, idx: Uint32Array, count: number,
-    dst: Float32Array, dstBase: number,
+    dst: Float32Array, dstBase: number, V: number = VERT_FLOATS,
 ): void {
     const size = arr.size, type = arr.type, ptr = arr.pointer;
     const es = elemSize(type);
     const stride = arrayStride(arr, size);
-    const V = VERT_FLOATS;
     const has1 = size >= 1, has2 = size >= 2, has3 = size >= 3, has4 = size >= 4;
     // An absent component defaults to 1.0 — already normalised, so never scaled.
     const sc = normScale(type);
@@ -348,13 +359,12 @@ function gatherColor(
 
 function gatherNormal(
     v: GuestViews, arr: GLArrayPointer, idx: Uint32Array, count: number,
-    dst: Float32Array, dstBase: number,
+    dst: Float32Array, dstBase: number, V: number = VERT_FLOATS,
 ): void {
     const type = arr.type, ptr = arr.pointer;
     const es = elemSize(type);
     // A normal array is three components whatever `size` happens to hold.
     const stride = arr.stride > 0 ? arr.stride : 3 * es;
-    const V = VERT_FLOATS;
 
     if (type === GL_FLOAT && v.f32 !== null && ((ptr | stride) & 3) === 0) {
         const f = v.f32, base = ptr >>> 2, st = stride >>> 2;
@@ -378,12 +388,11 @@ function gatherNormal(
 
 function gatherTexCoord(
     v: GuestViews, arr: GLArrayPointer, idx: Uint32Array, count: number,
-    dst: Float32Array, dstBase: number, slot: number,
+    dst: Float32Array, dstBase: number, slot: number, V: number = VERT_FLOATS,
 ): void {
     const size = arr.size, type = arr.type, ptr = arr.pointer;
     const es = elemSize(type);
     const stride = arrayStride(arr, size);
-    const V = VERT_FLOATS;
 
     if (type === GL_FLOAT && size >= 2 && v.f32 !== null && ((ptr | stride) & 3) === 0) {
         const f = v.f32, base = ptr >>> 2, st = stride >>> 2;
@@ -574,6 +583,21 @@ function cvaFill(ctx: OpenGLContext, v: GuestViews, slot: number, lo: number, hi
     for (let i = 0; i < count; i++) idx[i] = first + i;
 
     const arr = ctxArray(ctx, slot);
+    if (!(globalThis as { __noCvaDirectFill?: boolean }).__noCvaDirectFill) {
+        const data = a.data;
+        switch (slot) {
+            case CVA_POS:
+                gatherPosition(v, arr, idx, count, data, 0, 4);
+                transformClipInPlace(ctx, data, count, 4);
+                break;
+            case CVA_COLOR: gatherColor(v, arr, idx, count, data, -SLOT_COLOR, 4); break;
+            case CVA_NORMAL: gatherNormal(v, arr, idx, count, data, -SLOT_NORMAL, 3); break;
+            default: gatherTexCoord(v, arr, idx, count, data, 0, 0, 2); break;
+        }
+        a.first = first;
+        a.end = end;
+        return;
+    }
     switch (slot) {
         case CVA_POS:
             gatherPosition(v, arr, idx, count, stage, 0);
@@ -596,10 +620,10 @@ function cvaFill(ctx: OpenGLContext, v: GuestViews, slot: number, lo: number, hi
 }
 
 /** Object-space xyzw at slots 0..3 -> clip space, in place. */
-function transformClipInPlace(ctx: OpenGLContext, buf: Float32Array, count: number): void {
+function transformClipInPlace(ctx: OpenGLContext, buf: Float32Array, count: number, V: number = VERT_FLOATS): void {
     const m = ctx.cva.mvp;
     for (let i = 0; i < count; i++) {
-        const b = i * VERT_FLOATS;
+        const b = i * V;
         const x = buf[b], y = buf[b + 1], z = buf[b + 2], w = buf[b + 3];
         buf[b]     = m[0] * x + m[4] * y + m[8] * z + m[12] * w;
         buf[b + 1] = m[1] * x + m[5] * y + m[9] * z + m[13] * w;

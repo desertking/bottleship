@@ -26,6 +26,7 @@ import {
     removeWindowUpdate,
     readClientRectFromMem,
     writeClientRectToMem,
+    paintClipNeeded,
     type ClientRect,
 } from './paint-region';
 import { WH_CBT, HCBT_CREATEWND, getHooksOfType } from './hooks';
@@ -446,11 +447,11 @@ function createWindowClientDC(gdi: GDIContext, hWnd: number): number {
             // GetDC→BitBlt "background snapshot" (menu slide transitions) permanently
             // accumulate every page that was ever shown. Own backing first, then an
             // ancestor's, then overlay only when nothing was retained yet.
-            const seeded = shouldSeedPaintFromParent(window)
+            const seeded = !!gdi.skipsPaintSeed?.(hWnd) || (shouldSeedPaintFromParent(window)
                 ? (restoreSeedFromAncestors(gdi, hdc, window)
                     || !!gdi.seedMemoryDCFromClientBacking?.(hdc, window.handle))
                 : (!!gdi.seedMemoryDCFromClientBacking?.(hdc, window.handle)
-                    || restoreSeedFromAncestors(gdi, hdc, window));
+                    || restoreSeedFromAncestors(gdi, hdc, window)));
             if (!seeded) {
                 gdi.seedMemoryDCFromOverlay(hdc);
             }
@@ -1596,6 +1597,7 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
         windows.delete(hWnd);
         removeWindowPlacement(hWnd);
         removeWindowUpdate(hWnd);
+        System.getInstance().inputManager.rawInput.removeWindow(hWnd);
         System.getInstance().windowManager.destroyWindow(hWnd);
         Logger.verbose(LogCategory.USER32, `finalizeDestroy: removed window 0x${hWnd.toString(16)}`);
     };
@@ -1610,6 +1612,12 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
         const lParam = args[3];
 
         Logger.verbose(LogCategory.USER32, `DefWindowProc${textWidth === 'wide' ? 'W' : 'A'}(0x${hWnd.toString(16)}, ${Msg}, 0x${wParam.toString(16)}, 0x${lParam.toString(16)})`);
+
+        if (Msg === 0x00ff) {
+            const system = System.getInstance();
+            system.inputManager.rawInput.release(lParam, hWnd, system.scheduler.getCurrentThreadId());
+            return 0;
+        }
 
         const WM_SETTEXT_DEF = 0x000C;
         const WM_GETTEXT_DEF = 0x000D;
@@ -2433,7 +2441,7 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
 
         if (updateBounds && hdc) {
             const paintCtx = gdi.getDC(hdc);
-            if (paintCtx) {
+            if (paintCtx && paintClipNeeded(updateBounds, paintCtx.canvas.width, paintCtx.canvas.height)) {
                 paintCtx.save();
                 paintCtx.beginPath();
                 paintCtx.rect(
