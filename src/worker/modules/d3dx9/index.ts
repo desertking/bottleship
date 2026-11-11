@@ -12,6 +12,7 @@ import { createSurfaceExports } from './surfaces';
 import { createTextureExports } from './textures';
 import { createEffectExports, resetEffectState } from './effects';
 import { createBufferExports, resetD3DXBuffers } from './buffer';
+import { createFontExports, resetD3DXFonts } from './font';
 import { createEffectPoolExports, resetEffectPools, resetEffectPoolVtable } from './effect-pool';
 import { createShaderExports, resetShaderAsmState } from './shaders';
 import { createCompileShaderExports, resetCompileShaderState } from './compile-shader';
@@ -57,15 +58,12 @@ export class D3dx9 implements IModule {
         Object.assign(this.exports, createCompileShaderExports(process));
         Object.assign(this.exports, createConstantTableExports());
         Object.assign(this.exports, createTextureRequirementExports());
+        Object.assign(this.exports, createFontExports(process));
 
         this.exports['D3DXTessellateNPatches'] = () => D3DERR_INVALIDCALL;
         this.exports['D3DXSavePRTCompBufferToFileW'] = () => D3DERR_INVALIDCALL;
 
         const fontSpriteStubs = [
-            'D3DXCreateFontA',
-            'D3DXCreateFontW',
-            'D3DXCreateFontIndirectA',
-            'D3DXCreateFontIndirectW',
             'D3DXCreateSprite',
         ];
         for (const name of fontSpriteStubs) {
@@ -83,6 +81,7 @@ export class D3dx9 implements IModule {
         warnedStubs.clear();
         resetEffectState();
         resetD3DXBuffers();
+        resetD3DXFonts();
         resetEffectPools();
         resetEffectPoolVtable();
         resetShaderAsmState();

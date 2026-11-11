@@ -136,16 +136,34 @@ export function createMathExports(): Record<string, ThunkImplementation> {
         return writeMatrix(pOut, m) ? pOut : 0;
     };
 
-    exports['D3DXMatrixLookAtLH'] = (_ctx, _mem, args) => {
+    exports['D3DXMatrixPerspectiveFovRH'] = (_ctx, _mem, args) => {
+        const pOut = args[0] >>> 0;
+        const fovy = u32AsFloat(args[1]);
+        const aspect = u32AsFloat(args[2]);
+        const zn = u32AsFloat(args[3]);
+        const zf = u32AsFloat(args[4]);
+        const yScale = 1 / Math.tan(fovy * 0.5);
+        const xScale = aspect !== 0 ? yScale / aspect : yScale;
+        const m = new Float32Array(16);
+        m[0] = xScale;
+        m[5] = yScale;
+        m[10] = zf / (zn - zf);
+        m[11] = -1;
+        m[14] = (zn * zf) / (zn - zf);
+        return writeMatrix(pOut, m) ? pOut : 0;
+    };
+
+    const lookAt = (args: number[], rightHanded: boolean): number => {
         const pOut = args[0] >>> 0;
         const eye = readVec3(args[1] >>> 0);
         const at = readVec3(args[2] >>> 0);
         const up = readVec3(args[3] >>> 0);
         if (!eye || !at || !up) return 0;
 
-        let zx = eye[0] - at[0];
-        let zy = eye[1] - at[1];
-        let zz = eye[2] - at[2];
+        const sign = rightHanded ? 1 : -1;
+        let zx = sign * (eye[0] - at[0]);
+        let zy = sign * (eye[1] - at[1]);
+        let zz = sign * (eye[2] - at[2]);
         let len = Math.hypot(zx, zy, zz);
         if (len === 0) return 0;
         zx /= len; zy /= len; zz /= len;
@@ -172,6 +190,62 @@ export function createMathExports(): Record<string, ThunkImplementation> {
         ]);
         return writeMatrix(pOut, m) ? pOut : 0;
     };
+    exports['D3DXMatrixInverse'] = (_ctx, _mem, args) => {
+        const pOut = args[0] >>> 0;
+        const pDeterminant = args[1] >>> 0;
+        const m = readMatrix(args[2] >>> 0);
+        if (!pOut || !m) return 0;
+        const inv = new Float64Array(16);
+        inv[0] = m[5] * m[10] * m[15] - m[5] * m[11] * m[14] - m[9] * m[6] * m[15] + m[9] * m[7] * m[14] + m[13] * m[6] * m[11] - m[13] * m[7] * m[10];
+        inv[4] = -m[4] * m[10] * m[15] + m[4] * m[11] * m[14] + m[8] * m[6] * m[15] - m[8] * m[7] * m[14] - m[12] * m[6] * m[11] + m[12] * m[7] * m[10];
+        inv[8] = m[4] * m[9] * m[15] - m[4] * m[11] * m[13] - m[8] * m[5] * m[15] + m[8] * m[7] * m[13] + m[12] * m[5] * m[11] - m[12] * m[7] * m[9];
+        inv[12] = -m[4] * m[9] * m[14] + m[4] * m[10] * m[13] + m[8] * m[5] * m[14] - m[8] * m[6] * m[13] - m[12] * m[5] * m[10] + m[12] * m[6] * m[9];
+        inv[1] = -m[1] * m[10] * m[15] + m[1] * m[11] * m[14] + m[9] * m[2] * m[15] - m[9] * m[3] * m[14] - m[13] * m[2] * m[11] + m[13] * m[3] * m[10];
+        inv[5] = m[0] * m[10] * m[15] - m[0] * m[11] * m[14] - m[8] * m[2] * m[15] + m[8] * m[3] * m[14] + m[12] * m[2] * m[11] - m[12] * m[3] * m[10];
+        inv[9] = -m[0] * m[9] * m[15] + m[0] * m[11] * m[13] + m[8] * m[1] * m[15] - m[8] * m[3] * m[13] - m[12] * m[1] * m[11] + m[12] * m[3] * m[9];
+        inv[13] = m[0] * m[9] * m[14] - m[0] * m[10] * m[13] - m[8] * m[1] * m[14] + m[8] * m[2] * m[13] + m[12] * m[1] * m[10] - m[12] * m[2] * m[9];
+        inv[2] = m[1] * m[6] * m[15] - m[1] * m[7] * m[14] - m[5] * m[2] * m[15] + m[5] * m[3] * m[14] + m[13] * m[2] * m[7] - m[13] * m[3] * m[6];
+        inv[6] = -m[0] * m[6] * m[15] + m[0] * m[7] * m[14] + m[4] * m[2] * m[15] - m[4] * m[3] * m[14] - m[12] * m[2] * m[7] + m[12] * m[3] * m[6];
+        inv[10] = m[0] * m[5] * m[15] - m[0] * m[7] * m[13] - m[4] * m[1] * m[15] + m[4] * m[3] * m[13] + m[12] * m[1] * m[7] - m[12] * m[3] * m[5];
+        inv[14] = -m[0] * m[5] * m[14] + m[0] * m[6] * m[13] + m[4] * m[1] * m[14] - m[4] * m[2] * m[13] - m[12] * m[1] * m[6] + m[12] * m[2] * m[5];
+        inv[3] = -m[1] * m[6] * m[11] + m[1] * m[7] * m[10] + m[5] * m[2] * m[11] - m[5] * m[3] * m[10] - m[9] * m[2] * m[7] + m[9] * m[3] * m[6];
+        inv[7] = m[0] * m[6] * m[11] - m[0] * m[7] * m[10] - m[4] * m[2] * m[11] + m[4] * m[3] * m[10] + m[8] * m[2] * m[7] - m[8] * m[3] * m[6];
+        inv[11] = -m[0] * m[5] * m[11] + m[0] * m[7] * m[9] + m[4] * m[1] * m[11] - m[4] * m[3] * m[9] - m[8] * m[1] * m[7] + m[8] * m[3] * m[5];
+        inv[15] = m[0] * m[5] * m[10] - m[0] * m[6] * m[9] - m[4] * m[1] * m[10] + m[4] * m[2] * m[9] + m[8] * m[1] * m[6] - m[8] * m[2] * m[5];
+        const det = m[0] * inv[0] + m[1] * inv[4] + m[2] * inv[8] + m[3] * inv[12];
+        if (pDeterminant) Mem.writeFloat32(pDeterminant, det);
+        if (det === 0 || !Number.isFinite(det)) return 0;
+        const out = new Float32Array(16);
+        for (let i = 0; i < 16; i++) out[i] = inv[i] / det;
+        return writeMatrix(pOut, out) ? pOut : 0;
+    };
+
+    exports['D3DXMatrixLookAtLH'] = (_ctx, _mem, args) => lookAt(args, false);
+    exports['D3DXMatrixLookAtRH'] = (_ctx, _mem, args) => lookAt(args, true);
+
+    const orthoOffCenter = (pOut: number, l: number, r: number, b: number, t: number, zn: number, zf: number, rightHanded: boolean): number => {
+        const m = new Float32Array(16);
+        m[0] = 2 / (r - l);
+        m[5] = 2 / (t - b);
+        m[10] = (rightHanded ? 1 : -1) / (zn - zf);
+        m[12] = (l + r) / (l - r);
+        m[13] = (t + b) / (b - t);
+        m[14] = zn / (zn - zf);
+        m[15] = 1;
+        return writeMatrix(pOut, m) ? pOut : 0;
+    };
+    exports['D3DXMatrixOrthoLH'] = (_ctx, _mem, args) => {
+        const w = u32AsFloat(args[1]), h = u32AsFloat(args[2]);
+        return orthoOffCenter(args[0] >>> 0, -w / 2, w / 2, -h / 2, h / 2, u32AsFloat(args[3]), u32AsFloat(args[4]), false);
+    };
+    exports['D3DXMatrixOrthoRH'] = (_ctx, _mem, args) => {
+        const w = u32AsFloat(args[1]), h = u32AsFloat(args[2]);
+        return orthoOffCenter(args[0] >>> 0, -w / 2, w / 2, -h / 2, h / 2, u32AsFloat(args[3]), u32AsFloat(args[4]), true);
+    };
+    exports['D3DXMatrixOrthoOffCenterLH'] = (_ctx, _mem, args) => orthoOffCenter(args[0] >>> 0,
+        u32AsFloat(args[1]), u32AsFloat(args[2]), u32AsFloat(args[3]), u32AsFloat(args[4]), u32AsFloat(args[5]), u32AsFloat(args[6]), false);
+    exports['D3DXMatrixOrthoOffCenterRH'] = (_ctx, _mem, args) => orthoOffCenter(args[0] >>> 0,
+        u32AsFloat(args[1]), u32AsFloat(args[2]), u32AsFloat(args[3]), u32AsFloat(args[4]), u32AsFloat(args[5]), u32AsFloat(args[6]), true);
 
     /**
      * Catmull-Rom spline through V1..V2 with V0/V3 as the outer control points, exactly as
