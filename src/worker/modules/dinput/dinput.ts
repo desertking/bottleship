@@ -1169,10 +1169,17 @@ export class DInput implements IModule {
 
             if (!lplpDirectInputDevice) return DIERR_INVALIDPARAM;
 
+            const deviceType = this.resolveDeviceType(entryMem, rguid);
+            if (deviceType === "unknown") {
+                Logger.log(LogCategory.SYSTEM, `IDirectInputA_CreateDevice: no device has instance ${readGuidFromMem(entryMem, rguid)} -> DIERR_DEVICENOTREG`);
+                entryView.setUint32(lplpDirectInputDevice, 0, true);
+                return DIERR_DEVICENOTREG;
+            }
+
             const vtableAddr = this.vtables.IDirectInputDevice2A.address;
             const obj = ComObjectFactory.create<DirectInputDeviceObject>("5944e680-c92e-11cf-bfc7-444553540000", vtableAddr);
             if (!obj) return DIERR_OUTOFMEMORY;
-            obj.deviceType = this.resolveDeviceType(entryMem, rguid);
+            obj.deviceType = deviceType;
 
             const objAddr = allocateComObject(this.process.memory, mem, vtableAddr);
             const freshMem = this.getMemory();
@@ -2684,6 +2691,9 @@ export class DInput implements IModule {
         if (this.guidEquals(guidBytes, GUID_SYS_KEYBOARD)) return "keyboard";
         if (this.guidEquals(guidBytes, GUID_SYS_MOUSE)) return "mouse";
         if (this.guidEquals(guidBytes, GUID_SYS_GAMEPAD)) return "gamepad";
+        const family = GUID_SYS_KEYBOARD.every((b, i) => i === 0 || guidBytes[i] === b);
+        if (family && (guidBytes[0] === 0x80 || guidBytes[0] === 0x81)) return "mouse";
+        if (family && (guidBytes[0] === 0x82 || guidBytes[0] === 0x83)) return "keyboard";
         return "unknown";
     }
 
