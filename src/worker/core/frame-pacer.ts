@@ -290,6 +290,8 @@ class FramePacerImpl {
         if (!this.enabled || !this.running) return Promise.resolve();
         const forced = (globalThis as Record<string, unknown>).__forcePresentInterval;
         const n = Math.max(0, (typeof forced === 'number' ? forced : refreshes) | 0);
+        const minMs = (globalThis as Record<string, unknown>).__minPresentIntervalMs;
+        if (typeof minMs === 'number' && minMs > 0) return this.holdMinInterval(n, minMs);
         if (n === PRESENT_INTERVAL_IMMEDIATE) return this.waitImmediate();
         // NOT `async`, and interval 1 RETURNS waitForFrameSlot rather than awaiting it.
         // An async wrapper costs a microtask turn before the wait even begins, and a
@@ -298,6 +300,19 @@ class FramePacerImpl {
         // half rate, with the worker idle half the time. The common path must add nothing.
         if (n <= PRESENT_INTERVAL_ONE) return this.waitForFrameSlot();
         return this.holdRefreshes(n);
+    }
+
+    private lastCappedPresentMs = 0;
+
+    private async holdMinInterval(n: number, minMs: number): Promise<void> {
+        if (n === PRESENT_INTERVAL_IMMEDIATE) await this.waitImmediate();
+        else if (n <= PRESENT_INTERVAL_ONE) await this.waitForFrameSlot();
+        else await this.holdRefreshes(n);
+        const tolerance = Math.min(4, minMs * 0.15);
+        while (this.enabled && this.running && performance.now() - this.lastCappedPresentMs < minMs - tolerance) {
+            await this.awaitRafPermit();
+        }
+        this.lastCappedPresentMs = performance.now();
     }
 
     private async holdRefreshes(n: number): Promise<void> {
