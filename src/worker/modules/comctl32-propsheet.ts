@@ -316,6 +316,7 @@ export function resetPropSheetState(): void {
     sheetsByFrame.clear();
     nextSheetId = 1;
     cachedDlgProcAddr = 0;
+    pageHandleResolver = null;
     notifyTrace.length = 0;
 }
 
@@ -332,6 +333,9 @@ let cachedDlgProcAddr = 0;
  * that reads it back, CallWindowProc's it or subclasses around it lands in real
  * default processing rather than on a synthetic handle.
  */
+// @transient(re-bound by every PropertySheet call)
+let pageHandleResolver: ((hpage: number) => number) | null = null;
+
 export function getPropSheetDlgProcAddress(): number {
     if (!cachedDlgProcAddr) {
         cachedDlgProcAddr = resolveModuleWndProcStub('comctl32', 'PropertySheetDlgProc');
@@ -1456,8 +1460,52 @@ export function propSheetDlgProc(
             // would make it swallow every message it just asked us about.
             return answer(hDlg, 0);
 
-        case PSM_ADDPAGE:
-        case PSM_REMOVEPAGE:
+        case PSM_ADDPAGE: {
+            const hpage = lParam >>> 0;
+            const pspPtr = hpage && pageHandleResolver ? pageHandleResolver(hpage) : 0;
+            const page = pspPtr ? collectPage(mem, pspPtr, hpage, sheet.unicode) : null;
+            if (!page || !page.dlgProc || !page.templatePtr) return answer(hDlg, 0);
+            sheet.pages.push(page);
+            fillTabControl(sheet);
+            if (sheet.activeIndex >= 0) tabMessage(sheet, TCM_SETCURSEL, sheet.activeIndex, 0);
+            repaintSheet(sheet);
+            return answer(hDlg, 1);
+        }
+
+        case PSM_REMOVEPAGE: {
+            const index = lParam
+                ? sheet.pages.findIndex((p) => p.hpage === (lParam >>> 0))
+                : (wParam | 0);
+            const page = sheet.pages[index];
+            if (!page) return answer(hDlg, 0);
+            const wasActive = index === sheet.activeIndex;
+            if (page.hwndPage && windows.has(page.hwndPage)) {
+                const info = windows.get(page.hwndPage);
+                for (const child of [...(info?.children ?? [])]) finalizeWindowDestroy(child);
+                finalizeWindowDestroy(page.hwndPage);
+            }
+            page.hwndPage = 0;
+            sheet.pages.splice(index, 1);
+            fillTabControl(sheet);
+            if (wasActive) {
+                sheet.activeIndex = -1;
+                sheet.activeValid = false;
+                if (sheet.pages.length === 0) {
+                    repaintSheet(sheet);
+                    return answer(hDlg, 0);
+                }
+                const next = Math.min(index, sheet.pages.length - 1);
+                return runSheetRoutine(ctx, mem, (function* () {
+                    yield* setCurSel(sheet, next, 1);
+                    return answer(hDlg, 0);
+                })(), 'PropSheet:PSM_REMOVEPAGE');
+            }
+            if (index < sheet.activeIndex) sheet.activeIndex--;
+            if (sheet.activeIndex >= 0) tabMessage(sheet, TCM_SETCURSEL, sheet.activeIndex, 0);
+            repaintSheet(sheet);
+            return answer(hDlg, 0);
+        }
+
         case PSM_SETWIZBUTTONS:
             Logger.warn(LogCategory.SYSTEM,
                 `PropertySheet: msg WM_USER+${msg - WM_USER} is not implemented`);
@@ -1519,6 +1567,7 @@ export function propertySheet(
     ctx: any, mem: Uint8Array, args: number[], unicode: boolean,
     resolveHandle: (hpage: number) => number,
 ): number | ThunkResult {
+    pageHandleResolver = resolveHandle;
     const headerPtr = args[0] >>> 0;
     const label = unicode ? 'PropertySheetW' : 'PropertySheetA';
     const STACK_CLEANUP = 4;

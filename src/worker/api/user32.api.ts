@@ -383,8 +383,6 @@ export const user32Module: ModuleDescriptor = {
         makeFunc("ChangeDisplaySettingsExA", 5),
         makeFunc("GetGuiResources", 2),
         makeFunc("RegisterRawInputDevices", 3),
-        // Raw input (modern WinDrv.dll, e.g. OldUnreal 227, imports these). Stubs are enough
-        // to load the DLL; GetRawInputData returning 0 = "no raw input" is benign for input.
         makeFunc("GetRawInputData", 5),
         makeFunc("GetRawInputBuffer", 3),
         makeFunc("GetRawInputDeviceList", 3),
