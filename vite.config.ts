@@ -9,6 +9,7 @@ import { fileURLToPath } from "url";
 import { execSync } from "node:child_process";
 import type { ServerResponse } from "node:http";
 import { isUnc, listWgb, underAnyRoot, wgbListRoots, wgbRoots } from "./tools/wgb-roots";
+import { stripVerboseLogs } from "./deploy/strip-verbose-logs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const APP_VERSION: string = JSON.parse(fs.readFileSync(path.join(__dirname, "package.json"), "utf8")).version;
@@ -220,12 +221,28 @@ function copyPublicDirExceptApps(): Plugin {
   };
 }
 
+function stripVerboseLogsPlugin(): Plugin {
+  return {
+    name: "strip-verbose-logs",
+    apply: "build",
+    enforce: "pre",
+    transform(code, id) {
+      if (process.env.BS_VERBOSE === "1") return null;
+      const file = id.split("?")[0]!;
+      if (!/\/src\/.*\.tsx?$/.test(file.replace(/\\/g, "/"))) return null;
+      const result = stripVerboseLogs(code, file);
+      return result ? { code: result.code, map: null } : null;
+    },
+  };
+}
+
 export default defineConfig({
   define: {
     __BUILD_SHA__: JSON.stringify(BUILD_SHA),
     __APP_VERSION__: JSON.stringify(APP_VERSION),
   },
   plugins: [
+    stripVerboseLogsPlugin(),
     audioWorkletPlugin(),
     harnessHealthPlugin(),
     serveWgbFromDisk(),
@@ -237,6 +254,7 @@ export default defineConfig({
   ],
   worker: {
     format: "es",
+    plugins: () => [stripVerboseLogsPlugin()],
     // Safari does not support dynamic import() / chunk-loading inside module
     // workers — it rejects the first worker chunk load with a misleading
     // "AbortError: Cross-origin script load denied by CORS policy". Inlining
