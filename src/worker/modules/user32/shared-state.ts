@@ -180,6 +180,7 @@ export function finalizeWindowDestroy(hwnd: number): void {
     // Handles are pool-reused: a retained client image left behind would be restored under
     // a DIFFERENT window that later gets this handle.
     System.getInstance().gdiContext?.dropWindowClientBacking?.(hwnd >>> 0);
+    System.getInstance().gdiContext?.setGLOwnedWindow?.(hwnd >>> 0, false);
     windowDestroyFinalizer?.(hwnd >>> 0);
 }
 

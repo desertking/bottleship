@@ -536,6 +536,10 @@ export class AddressSpace {
     // list and removals as tombstones; both are folded in only once REBUILD_THRESHOLD of
     // them accumulate, which bounds the linear part of a query as well.
     private idxBuilt = false;
+    private regionGen = 0;
+
+    /** Bumped by every change to the region list, a region's extent or its permissions. */
+    get regionGeneration(): number { return this.regionGen; }
     private idxBuckets: RegionEntry[] = [];
     private idxSorted: RegionEntry[] = [];
     private idxMaxEnd = new Float64Array(0);
@@ -547,12 +551,14 @@ export class AddressSpace {
 
     /** Record a membership change. Cheap; the sort happens only when the deltas pile up. */
     private noteRegionAdded(entry: RegionEntry): void {
+        this.regionGen++;
         if (!this.idxBuilt) return;                 // nothing built yet — nothing to patch
         this.idxRecent.push(entry);
         this.maybeRebuildRegionIndex();
     }
 
     private noteRegionRemoved(entry: RegionEntry): void {
+        this.regionGen++;
         if (!this.idxBuilt) return;
         const i = this.idxRecent.indexOf(entry);
         if (i >= 0) this.idxRecent.splice(i, 1);
@@ -567,6 +573,7 @@ export class AddressSpace {
     }
 
     private invalidateRegionIndex(): void {
+        this.regionGen++;
         this.idxBuilt = false;
         this.idxRecent.length = 0;
         this.idxRemoved.clear();
@@ -689,6 +696,7 @@ export class AddressSpace {
 
         const oldSize = bucket.size;
         bucket.size = requestedSize;
+        this.regionGen++;
         bucket.allocationSize = requestedSize;
 
         Logger.log(LogCategory.SYSTEM,

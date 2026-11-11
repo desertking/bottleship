@@ -19,6 +19,9 @@
 import { ThunkImplementation, WriteBufHandler, X86Context } from "../../core/thunking/thunk-dispatcher";
 import { Logger, LogCategory } from "../../core/logger";
 import { APIRegistry } from "../../core/api-registry";
+import type { OpenGLContext } from "./context";
+import { bindWriteBufRun } from "../../core/thunking/wbuf-run";
+import type { GLRingRun } from "./ring-run";
 
 /**
  * [export name, DWORD count the caller pushes]. The count must match
@@ -74,6 +77,26 @@ const ZERO_ARG_RING_FUNCTIONS: ReadonlyArray<string> = [
 ];
 
 /**
+ * The ring handler skips the export table's display-list wrapper while no list is being
+ * compiled: that wrapper only records, and replay re-enters through the export table.
+ */
+function plainImpl(
+    name: string,
+    wrapped: ThunkImplementation,
+    raw: Record<string, ThunkImplementation> | undefined,
+    ctx: OpenGLContext | undefined,
+): ThunkImplementation | null {
+    const plain = raw?.[name];
+    return ctx && typeof plain === "function" && plain !== wrapped ? plain : null;
+}
+
+function bindRun(name: string, handler: WriteBufHandler, impl: ThunkImplementation, argCount: number, runner: GLRingRun | undefined): void {
+    if (!runner) return;
+    const op = runner.callOp(impl, argCount, name);
+    if (op) bindWriteBufRun(handler, runner, op);
+}
+
+/**
  * Patch the listed stubs to the JMP trampoline and drain them through the module's
  * OWN export table. Reusing the export (not a second copy of the logic) is what keeps
  * the ring path and the trap path from drifting, and it inherits index.ts's
@@ -87,6 +110,9 @@ const ZERO_ARG_RING_FUNCTIONS: ReadonlyArray<string> = [
 export function registerWriteBufferGLStateFunctions(
     dispatcher: any,
     exports: Record<string, ThunkImplementation>,
+    raw?: Record<string, ThunkImplementation>,
+    ctx?: OpenGLContext,
+    runner?: GLRingRun,
 ): void {
     if (typeof dispatcher?.registerWriteBufferFunction !== "function") return;
     if ((globalThis as { __noGlStateWbuf?: boolean }).__noGlStateWbuf) {
@@ -99,6 +125,7 @@ export function registerWriteBufferGLStateFunctions(
     for (const [name, argCount] of RING_FUNCTIONS) {
         const impl = exports[name];
         if (typeof impl !== "function") continue;
+        const plain = plainImpl(name, impl, raw, ctx);
 
         // A wrong arity here corrupts both the ring stride and the stub's RET N — a stack
         // skew that surfaces far from this file. Check it against the same descriptor the
@@ -119,8 +146,9 @@ export function registerWriteBufferGLStateFunctions(
             for (let i = 0; i < argCount; i++) args[i] = mem32[base + i] >>> 0;
             // Every entrypoint listed above ignores the X86Context — the drain has no
             // trap frame to hand it, which is exactly why nothing that reads one qualifies.
-            impl(null as unknown as X86Context, mem8, args);
+            (plain !== null && ctx!.compilingList === null ? plain : impl)(null as unknown as X86Context, mem8, args);
         };
+        bindRun(name, handler, plain ?? impl, argCount, runner);
 
         dispatcher.registerWriteBufferFunction("opengl32", name, argCount, handler, true /* stdcall */);
         count++;
@@ -131,8 +159,12 @@ export function registerWriteBufferGLStateFunctions(
             const impl = exports[name];
             if (typeof impl !== "function") continue;
             if ((apiRegistry.getArgCount("opengl32", name) ?? 0) !== 0) continue;
+            const plain = plainImpl(name, impl, raw, ctx);
             const none: number[] = [];
-            const handler: WriteBufHandler = (mem8) => { impl(null as unknown as X86Context, mem8, none); };
+            const handler: WriteBufHandler = (mem8) => {
+                (plain !== null && ctx!.compilingList === null ? plain : impl)(null as unknown as X86Context, mem8, none);
+            };
+            bindRun(name, handler, plain ?? impl, 0, runner);
             dispatcher.registerZeroArgWriteBufferFunction("opengl32", name, handler);
             count++;
         }
