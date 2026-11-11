@@ -1,3 +1,4 @@
+import { registerFastPathGLFunctions } from "./fast-draw";
 import { IModule } from "../../core/module";
 import { Process } from "../../core/process";
 import { ThunkImplementation } from "../../core/thunking/thunk-dispatcher";
@@ -17,6 +18,7 @@ import { createArrayExports } from "./arrays";
 import { createMultitextureExports } from "./multitexture";
 import { registerWriteBufferGLStateFunctions } from "./wbuf-state";
 import { GL_COMPILE } from "./constants";
+import { GLRingRun } from "./ring-run";
 
 export class OpenGL32 implements IModule {
     name = "opengl32";
@@ -51,10 +53,12 @@ export class OpenGL32 implements IModule {
             "glIsList",
         ]);
 
+        const raw: Record<string, ThunkImplementation> = { ...this.exports };
         for (const [name, impl] of Object.entries(this.exports)) {
+            if (listControl.has(name)) continue;
             this.exports[name] = (sysCtx, mem, args) => {
                 const ctx = this.context;
-                if (!ctx || ctx.replayingList || listControl.has(name)) {
+                if (!ctx || ctx.replayingList) {
                     return impl(sysCtx, mem, args);
                 }
 
@@ -75,11 +79,13 @@ export class OpenGL32 implements IModule {
         // Register Tier-0 write-buffer stubs for high-frequency immediate-mode functions.
         // Stubs may not exist yet (PE loading is deferred); registerWriteBufferGLFunctions
         // uses the pending-registration mechanism and will be applied at applyPendingRegistrations().
-        registerWriteBufferGLFunctions(process.dispatcher, this.context);
+        const runner = (globalThis as { __noGlRingRun?: boolean }).__noGlRingRun ? undefined : new GLRingRun(this.context);
+        registerWriteBufferGLFunctions(process.dispatcher, this.context, runner);
 
         // State / bind / array-pointer entrypoints drain through the table above, so this
         // must run AFTER the display-list wrapper has replaced every entry.
-        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports);
+        registerWriteBufferGLStateFunctions(process.dispatcher, this.exports, raw, this.context, runner);
+        registerFastPathGLFunctions(process.dispatcher, this.exports);
     }
 
     setBackend(backend: WebGPUBackend): void {
