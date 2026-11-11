@@ -298,7 +298,10 @@ export class D3D9StateTracker {
             current = this.getTextureMatrix(type);
         }
         if (!current || matrix.length < 16) return false;
-        return this.setTransform(type, multiplyMatrices(matrix, current));
+        // setTransform answers "changed"; a product equal to the current matrix (an identity
+        // multiply) is still a successful call.
+        this.setTransform(type, multiplyMatrices(matrix, current));
+        return true;
     }
 
     getWorldMatrix(): Float32Array { return this.worldMatrix; }
@@ -487,7 +490,7 @@ function identityMatrix(): Float32Array {
     ]);
 }
 
-function multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
+export function multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
     const out = new Float32Array(16);
     for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 4; col++) {
