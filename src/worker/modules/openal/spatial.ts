@@ -23,6 +23,7 @@
  * voice every frame pays a handful of Atomics.store and nothing else.
  */
 
+import { startEmulationBeat } from '../dsound/emulation-beat';
 import {
     setCtrl, setCtrlFloat, createListenerSab, floatToI32,
     CTRL_3D_POS_X, CTRL_3D_POS_Y, CTRL_3D_POS_Z,
@@ -181,6 +182,7 @@ export function createALListenerSab(): SharedArrayBuffer {
     const sab = createListenerSab();
     (self as unknown as { postMessage(m: unknown): void })
         .postMessage({ type: "audio_listener_sab", payload: { sab } });
+    startEmulationBeat(sab);
     return sab;
 }
 

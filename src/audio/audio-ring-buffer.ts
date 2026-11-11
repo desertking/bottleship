@@ -116,6 +116,7 @@ export const STATE_PAUSED = 2;
 export const FLAG_CIRCULAR = 1;
 /** Streaming flag: worklet outputs silence when caught up to write cursor instead of wrapping */
 export const FLAG_STREAMING = 2;
+export const FLAG_LAP_MUTE = 4;
 
 /** Frames BEHIND its read head the ring mixer still reads: its band-limited interpolator's
  *  window (bottleship-audio-worklet.ts) spans this many frames either side of the head. A
@@ -148,6 +149,7 @@ export const LCTRL_DISTANCE_MODEL = 16;
 export const LCTRL_SPEED_OF_SOUND = 17;
 /** Listener flags: see LFLAG_* */
 export const LCTRL_FLAGS = 18;
+export const LCTRL_EMULATION_BEAT = 19;
 
 /**
  * LCTRL_FLAGS bit 0: the orientation basis is LEFT-handed, so the listener's right is
