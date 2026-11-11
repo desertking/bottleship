@@ -9,7 +9,7 @@
 
 import { Process } from '../../core/process';
 import { ThunkImplementation } from '../../core/thunking/thunk-dispatcher';
-import { type GuestRoutine, runGuestRoutine } from '../../core/thunking/guest-routine';
+import { type GuestCall, type GuestRoutine, runGuestRoutine } from '../../core/thunking/guest-routine';
 import { resolveHleExportAddress } from '../../core/thunking/export-resolver';
 import { Mem } from '../../core/memory/mem-accessor';
 import { Logger, LogCategory } from '../../core/logger';
@@ -17,6 +17,13 @@ import { createD3DXTextBuffer } from './buffer';
 import { getShaderConstantTable } from './shaders';
 
 const E_FAIL = 0x80004005;
+const HRESULT_FILE_NOT_FOUND = 0x80070002;
+const GENERIC_READ = 0x80000000;
+const OPEN_EXISTING = 3;
+const FILE_SHARE_READ = 1;
+const FILE_ATTRIBUTE_NORMAL = 0x80;
+const INVALID_HANDLE_VALUE = 0xffffffff;
+const INVALID_FILE_SIZE = 0xffffffff;
 const D3DERR_INVALIDCALL = 0x8876086c;
 
 /** The compiler d3dx9_43 binds to (d3dx9_42 used d3dcompiler_42). */
@@ -181,8 +188,12 @@ export function createCompileShaderExports(process: Process): Record<string, Thu
     //
     // D3DXMACRO/D3D_SHADER_MACRO and ID3DXInclude/ID3DInclude share their layouts, and
     // ID3DBlob is ID3DXBuffer's vtable, so everything passes through unconverted.
-    exports['D3DXCompileShader'] = (ctx, mem, args) => {
-        const [pSrcData, srcDataLen, pDefines, pInclude, pFunctionName, pProfile, flags,
+    type SourceLoad = Generator<GuestCall, { src: number; len: number; release: () => void } | number, number>;
+    const compile = (ctx: Parameters<ThunkImplementation>[0], mem: Uint8Array, args: number[],
+        stackCleanup: number, load?: () => SourceLoad): ReturnType<ThunkImplementation> => {
+        let release: (() => void) | undefined;
+        let [pSrcData, srcDataLen] = [args[0] >>> 0, args[1] >>> 0];
+        const [, , pDefines, pInclude, pFunctionName, pProfile, flags,
             ppShader, ppErrorMsgs, ppConstantTable] = args.map((a) => a >>> 0);
         if (ppShader) Mem.writeUint32(ppShader, 0);
         if (ppErrorMsgs) Mem.writeUint32(ppErrorMsgs, 0);
@@ -206,6 +217,11 @@ export function createCompileShaderExports(process: Process): Record<string, Thu
             try {
                 Mem.writeUint32(codeOut, 0);
                 Mem.writeUint32(errorOut, 0);
+                if (load) {
+                    const loaded = yield* load();
+                    if (typeof loaded === 'number') return loaded;
+                    [pSrcData, srcDataLen, release] = [loaded.src, loaded.len, loaded.release];
+                }
                 const d3dCompile = yield* bindCompiler(scratch + 8);
                 if (!d3dCompile) {
                     if (ppErrorMsgs) {
@@ -249,9 +265,52 @@ export function createCompileShaderExports(process: Process): Record<string, Thu
                 return hr;
             } finally {
                 process.memory.free(scratch);
+                release?.();
             }
-        })(), 40, 'D3DXCompileShader');
+        })(), stackCleanup, 'D3DXCompileShader');
     };
+
+    exports['D3DXCompileShader'] = (ctx, mem, args) => compile(ctx, mem, args, 40);
+
+    const compileFromFile = (ctx: Parameters<ThunkImplementation>[0], mem: Uint8Array, args: number[], wide: boolean) => {
+        const [pSrcFile, pDefines, pInclude, pFunctionName, pProfile, flags, ppShader, ppErrorMsgs, ppConstantTable] =
+            args.map((a) => a >>> 0);
+        const dispatcher = process.dispatcher;
+        const kernel32 = (name: string) => resolveHleExportAddress(dispatcher, 'kernel32', name);
+        const load = function* (): SourceLoad {
+            const handle = (yield {
+                fn: kernel32(wide ? 'CreateFileW' : 'CreateFileA'),
+                args: [pSrcFile, GENERIC_READ, FILE_SHARE_READ, 0, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, 0],
+                tag: 'CreateFile',
+            }) >>> 0;
+            if (handle === INVALID_HANDLE_VALUE || handle === 0) return HRESULT_FILE_NOT_FOUND;
+            let buffer = 0;
+            try {
+                const size = (yield { fn: kernel32('GetFileSize'), args: [handle, 0], tag: 'GetFileSize' }) >>> 0;
+                if (size === 0 || size === INVALID_FILE_SIZE) return E_FAIL;
+                buffer = process.memory.alloc(size + 8, 'HEAP', 'rw') >>> 0;
+                if (!buffer) return E_FAIL;
+                const ok = yield { fn: kernel32('ReadFile'), args: [handle, buffer, size, buffer + size + 4, 0], tag: 'ReadFile' };
+                const read = Mem.readUint32(buffer + size + 4) ?? 0;
+                if (!ok || read !== size) {
+                    process.memory.free(buffer);
+                    return E_FAIL;
+                }
+                Mem.writeUint8(buffer + size, 0);
+                const owned = buffer;
+                buffer = 0;
+                return { src: owned, len: size, release: () => process.memory.free(owned) };
+            } finally {
+                if (buffer) process.memory.free(buffer);
+                yield { fn: kernel32('CloseHandle'), args: [handle], tag: 'CloseHandle' };
+            }
+        };
+        return compile(ctx, mem, [pSrcFile, 0, pDefines, pInclude, pFunctionName, pProfile, flags,
+            ppShader, ppErrorMsgs, ppConstantTable], 36, load);
+    };
+
+    exports['D3DXCompileShaderFromFileA'] = (ctx, mem, args) => compileFromFile(ctx, mem, args, false);
+    exports['D3DXCompileShaderFromFileW'] = (ctx, mem, args) => compileFromFile(ctx, mem, args, true);
 
     return exports;
 }
