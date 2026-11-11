@@ -115,6 +115,10 @@
   "src/worker/backends/webgpu/postfx/registry.ts": [
     "COLOR_GRADE"
   ],
+  "src/worker/backends/webgpu/shared/bgra-upload-swizzle.ts": [
+    "devicesByQueue",
+    "uploaders"
+  ],
   "src/worker/backends/webgpu/shared/capability-generation.ts": [
     "generation"
   ],
@@ -276,6 +280,7 @@
   ],
   "src/worker/core/cpu/hypercall-data.ts": [
     "BULK_MEMORY_HANDLERS",
+    "CHAR_NEXT_HANDLERS",
     "WASM_WRITE_HANDLERS",
     "handlerIdNames",
     "hypercallDataManager"
@@ -385,6 +390,43 @@
   "src/worker/core/hle-lib/lib-registry.ts": [
     "libRegistry"
   ],
+  "src/worker/core/hle-lib/libs/dxa-keyframe/descriptor.ts": [
+    "liveMem",
+    "liveMemViews"
+  ],
+  "src/worker/core/hle-lib/libs/dxa-keyframe/kernel.ts": [
+    "keyframeResult",
+    "normalTable",
+    "scratch",
+    "scratchF32"
+  ],
+  "src/worker/core/hle-lib/libs/dxa-model-box/descriptor.ts": [
+    "enableFlag",
+    "grannyChecked",
+    "grannyOk",
+    "importSlots",
+    "liveMem",
+    "liveMemViews",
+    "pendingCount",
+    "pendingModel"
+  ],
+  "src/worker/core/hle-lib/libs/dxa-model-box/kernel.ts": [
+    "modelBoxResult",
+    "part",
+    "partBits",
+    "union",
+    "unionBits"
+  ],
+  "src/worker/core/hle-lib/libs/dxa-transforms/descriptor.ts": [
+    "deviceAddr",
+    "matrix",
+    "pendingBank",
+    "pendingDevice",
+    "product",
+    "rendererAddr",
+    "storeBytes",
+    "storeView"
+  ],
   "src/worker/core/hle-lib/libs/eagl/descriptor.ts": [
     "CONVERTER_PATTERN"
   ],
@@ -400,9 +442,60 @@
     "structuralBailDone",
     "tokenTableBase"
   ],
+  "src/worker/core/hle-lib/libs/granny-deform/aabb-kernel.ts": [
+    "aabbResult",
+    "box",
+    "boxBits",
+    "corner",
+    "variant"
+  ],
+  "src/worker/core/hle-lib/libs/granny-deform/descriptor.ts": [
+    "aabbEntry",
+    "liveMem",
+    "liveMemViews",
+    "worldPosePending",
+    "worldPoseSites"
+  ],
+  "src/worker/core/hle-lib/libs/granny-deform/kernel.ts": [
+    "f64Bits",
+    "f64Value",
+    "f64Words",
+    "matrixSlotAddr",
+    "matrixSlotKnown",
+    "matrixSlotMin",
+    "weightScales"
+  ],
+  "src/worker/core/hle-lib/libs/granny-deform/sse-kernel.ts": [
+    "slotState"
+  ],
+  "src/worker/core/hle-lib/libs/granny-deform/wasm-kernel.ts": [
+    "current",
+    "failure",
+    "loading"
+  ],
+  "src/worker/core/hle-lib/libs/granny-deform/worldpose-kernel.ts": [
+    "C",
+    "CU",
+    "T",
+    "TU",
+    "W",
+    "WU",
+    "worldPoseComposite",
+    "worldPoseWorld"
+  ],
   "src/worker/core/hle-lib/libs/psx-adpcm/kernel.ts": [
     "coefTables",
     "scratch"
+  ],
+  "src/worker/core/hle-lib/libs/vorbis-mdct/descriptor.ts": [
+    "enableFlag",
+    "pendingN",
+    "pendingSingle"
+  ],
+  "src/worker/core/hle-lib/libs/vorbis-mdct/kernel.ts": [
+    "F",
+    "I",
+    "arena"
   ],
   "src/worker/core/hle-lib/libs/zlib/descriptor.ts": [
     "declineCount",
@@ -1192,7 +1285,8 @@
     "_mvpScratch",
     "_views",
     "_viewsBuffer",
-    "_viewsOffset"
+    "_viewsOffset",
+    "validatedSpans"
   ],
   "src/worker/modules/opengl32/frame-capture.ts": [
     "armed",
