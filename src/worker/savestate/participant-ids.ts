@@ -19,6 +19,7 @@ export const PARTICIPANT_IDS = [
     'user32-accelerators',
     'gdi32',
     'gdi32-palettes',
+    'ole32',
     'ddraw',
     'winmm',
     'dmusic',
