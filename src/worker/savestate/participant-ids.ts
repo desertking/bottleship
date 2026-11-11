@@ -17,6 +17,7 @@ export const PARTICIPANT_IDS = [
     'user32-input',
     'user32-system',
     'user32-accelerators',
+    'comctl32',
     'gdi32',
     'gdi32-palettes',
     'ole32',
