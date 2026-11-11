@@ -47,6 +47,7 @@ import {
     DDGFS_CANFLIP,
 } from "./constants";
 import { readRect, surfaceAt, type Rect } from "./helpers";
+import { noteGuestPrimaryWrite } from "./gdi-visibility";
 import { absToRel } from "./helpers";
 import { copySurfaceRegion, copySurfaceRegionWithColorKey, copySurfaceRegionWithRop, copyCompressedSurfaceRegion, buildFullRect, rectCoversSurface } from "./surface-helpers";
 import { RectPool } from "./rect-pool";
@@ -506,7 +507,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
         // Diagnostic: log flip resolution
         {
             const s = srcState as any;
-            Logger.log(LogCategory.DDRAW,
+            Logger.verboseLazy(LogCategory.DDRAW, () =>
                 `IDirectDrawSurface7_Flip: chain=${chain.length} src=0x${srcState.surfacePtr.toString(16)} dst=0x${dstState.surfacePtr.toString(16)} srcMode=${s.mode ?? '?'} srcGpuTex=${!!srcState.gpuTexture} dstGpuTex=${!!dstState.gpuTexture} srcGpuDirty=${s.gpuDirty ?? '?'} srcVer=${s.version ?? '?'} srcGpuWriteVer=${s.gpuWrittenVersion ?? '?'}`);
         }
 
@@ -958,14 +959,6 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
             (isRenderSurface(srcState) && srcState.gpuDirty)
         );
 
-        if (needsResync) {
-            // Just mark dirty - upload will happen later in batch
-            context.deferredUploadManager.markDirty(srcState);
-            Logger.verbose(LogCategory.DDRAW,
-                `Blt: Deferring upload for src=0x${srcState.surfacePtr.toString(16)} until present`);
-        }
-        // ----------------------------
-
         // CPU-First: Deterministic GPU fast path decision
         const srcMode = isRenderSurface(srcState) ? srcState.mode : "bitmap";
         const dstMode = isRenderSurface(dstState) ? dstState.mode : "bitmap";
@@ -974,7 +967,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
         const noRop = rop3 === undefined;
         const willUseGpu = shouldUseGpu && hasBackend && noRop;
 
-        Logger.verbose(LogCategory.DDRAW,
+        Logger.verboseLazy(LogCategory.DDRAW, () =>
             `IDirectDrawSurface7_Blt: src=0x${srcState.surfacePtr.toString(16)}(mode=${srcMode}) ` +
             `dst=0x${dstState.surfacePtr.toString(16)}(mode=${dstMode}) ` +
             `srcRect=(${effSrcRect.left},${effSrcRect.top},${effSrcRect.right},${effSrcRect.bottom}) ` +
@@ -1018,7 +1011,7 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
             }
             const srcModeStr = isRenderSurface(srcState) ? srcState.mode : "bitmap";
             const dstModeStr = isRenderSurface(dstState) ? dstState.mode : "bitmap";
-            Logger.verbose(LogCategory.DDRAW,
+            Logger.verboseLazy(LogCategory.DDRAW, () =>
                 `IDirectDrawSurface7_Blt: Using CPU DEFAULT PATH (src mode=${srcModeStr} dst mode=${dstModeStr} ` +
                 `useColorKey=${useColorKey} isStretch=${isStretch})`);
 
@@ -1381,6 +1374,36 @@ export function createSurfaceBltFlipExports(context: DDrawContext): Record<strin
 
         // Sync fast path (common case: SYSMEM surfaces, no GPU readback)
         return doBltFast();
+    };
+
+    const afterPrimaryWrite = (
+        result: number | Promise<number>, thisPtr: number,
+        rectOf: (state: DirectDrawSurfaceState) => Rect | null,
+    ): number | Promise<number> => {
+        const state = surfaceAt(context.resourceProvider, thisPtr)?.getState();
+        if (!state) return result;
+        const rect = rectOf(state);
+        const note = (hr: number): number => {
+            if (hr === DD_OK && rect) noteGuestPrimaryWrite(context, state.caps, rect, state.clipperHandle !== undefined);
+            return hr;
+        };
+        return typeof result === "number" ? note(result) : result.then(note);
+    };
+    const blt = exports["IDirectDrawSurface7_Blt"];
+    exports["IDirectDrawSurface7_Blt"] = (ctx, mem, args): number | Promise<number> => {
+        const lpDestRect = args[1];
+        const rect = lpDestRect ? readRect(mem, lpDestRect) : null;
+        return afterPrimaryWrite(blt(ctx, mem, args) as number | Promise<number>, args[0],
+            (state) => rect ?? buildFullRect(state));
+    };
+    const bltFast = exports["IDirectDrawSurface7_BltFast"];
+    exports["IDirectDrawSurface7_BltFast"] = (ctx, mem, args): number | Promise<number> => {
+        const src = surfaceAt(context.resourceProvider, args[3])?.getState();
+        const srcRect = args[4] ? readRect(mem, args[4]) : (src ? buildFullRect(src) : null);
+        return afterPrimaryWrite(bltFast(ctx, mem, args) as number | Promise<number>, args[0], () => srcRect ? {
+            left: args[1], top: args[2],
+            right: args[1] + (srcRect.right - srcRect.left), bottom: args[2] + (srcRect.bottom - srcRect.top),
+        } : null);
     };
 
     return exports;
