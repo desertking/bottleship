@@ -20,6 +20,7 @@ import { sehOnCatchCompletion, dispatchCxxException } from '../seh-dispatch';
 import { JMP_REL8, JMP_LOOP, HLT } from './thunk-constants';
 import { parseStdcallCleanup, normalizeApiName } from './thunk-utils';
 import { BusyWaitDetector } from './busy-wait-detector';
+import { PollKind, PollSpinDetector } from './poll-spin-detector';
 import { WinApiCallRing } from './winapi-call-ring';
 import { dumpExceptionContext } from './exception-context-dumper';
 import { guardStackWrite } from '../memory/stack-write-guard';
@@ -32,6 +33,7 @@ import {
 } from './unimplemented-return';
 import { thunkChecksumManager } from '../memory/thunk-checksum';
 import { invalidateGuestCode } from '../memory/guest-code';
+import { writeBufRunOf, type WriteBufRunConsumer } from './wbuf-run';
 import { hypercallDataManager } from '../cpu/hypercall-data';
 import { preemptionManager } from '../cpu/preemption-manager';
 import {
@@ -105,7 +107,7 @@ export interface FastPathRegistrar {
         dllName: string,
         functionName: string,
         impl: FastPathImplementation,
-        options?: { trivial?: boolean },
+        options?: { trivial?: boolean; poll?: PollKind },
     ): void;
 }
 
@@ -453,6 +455,8 @@ export class ThunkDispatcher {
     // Trivial fast-path flag: 1 = skip scheduler boundary (state-setting thunks like SetRenderState).
     // Boundary still fires every TRIVIAL_BOUNDARY_INTERVAL calls or on Draw*/async thunks.
     private trivialFastPathTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
+    private pollFastPathTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
+    private pollSpin = new PollSpinDetector();
     private fastPathSinceLastBoundary = 0;
 
     // --- Tier-0 Write-Buffer Tables (parallel to fastPathTable) ---
@@ -465,6 +469,11 @@ export class ThunkDispatcher {
     private writeBufBarrierTable: Uint8Array = new Uint8Array(MAX_THUNK_ID);
     private writeBufPairRuns: WriteBufPairRunRegistration[] = [];
     private writeBufPairRunByFirst: Array<WriteBufPairRunBinding[] | null> = new Array(MAX_THUNK_ID).fill(null);
+    private readonly writeBufRunTables: { owners: Array<WriteBufRunConsumer | null>; ops: Uint8Array; argCounts: Uint8Array } = {
+        owners: new Array(MAX_THUNK_ID).fill(null),
+        ops: new Uint8Array(MAX_THUNK_ID),
+        argCounts: this.writeBufArgCountTable,
+    };
     // Write-buffer ring addresses (populated from thunkMemoryManager regions)
     private writeBufControlAddr = 0;
     private writeBufDataBase = 0;
@@ -558,7 +567,7 @@ export class ThunkDispatcher {
 
     // Pending registrations for stubs that aren't created yet
     private pendingRegistrations: Map<string, { impl: ThunkImplementation; dllName: string; functionName: string }> = new Map();
-    private pendingFastPathRegistrations: Map<string, { impl: FastPathImplementation; dllName: string; functionName: string; trivial?: boolean }> = new Map();
+    private pendingFastPathRegistrations: Map<string, { impl: FastPathImplementation; dllName: string; functionName: string; trivial?: boolean; poll?: PollKind }> = new Map();
     private pendingWriteBufRegistrations: Map<string, { handler: WriteBufHandler; dllName: string; functionName: string; argCount: number; isStdcall: boolean; zeroArg?: boolean; ptrDeref?: boolean; floatCount?: number; shaderConstant?: boolean; coalesceArgMask?: number; shadowSpec?: ShadowTrampolineSpec; barrier?: boolean; structCapture?: { ptrArgIndex: number; payloadDwords: number }; multiStructCapture?: { ptrArgIndices: number[]; payloadDwords: number }; upDraw?: boolean; ownerDisarm?: boolean }> = new Map();
     private pendingConstStubRegistrations: Map<string, { dllName: string; functionName: string; value: number; popBytes: number }> = new Map();
     private pendingIncRefStubRegistrations: Map<string, { dllName: string; functionName: string; spec: IncRefStubSpec }> = new Map();
@@ -1075,6 +1084,9 @@ export class ThunkDispatcher {
         this.recordShadowStackAtEntry(functionId, espAtEntry);
         this.boundaryKind = ThunkBoundaryKind.THUNK_STUB;
         this.boundaryCleanup = cleanupBytes;
+        const pollKind = this.pollFastPathTable[functionId];
+        if (pollKind === PollKind.None) this.pollSpin.other();
+        else if (pollKind !== PollKind.Neutral) this.notePollFastPath(pollKind, cpu);
 
         // Deferred boundary: trivial state-setting thunks skip the scheduler boundary
         // unless we've accumulated enough calls. Draw* and async thunks always notify.
@@ -1083,6 +1095,14 @@ export class ThunkDispatcher {
         }
         this.fastPathSinceLastBoundary = 0;
         this.notifySchedulerBoundary(cpu);
+    }
+
+    private notePollFastPath(kind: number, cpu: any): void {
+        if (!this.pollSpin.poll(readRetiredInsns(cpu))) return;
+        if ((globalThis as { __noPollSpinYield?: boolean }).__noPollSpinYield) return;
+        if (this.ensureScheduler().yieldForPollSpin(kind === PollKind.WallClock)) {
+            preemptionManager.requestImmediateExit();
+        }
     }
 
     /**
@@ -1513,6 +1533,26 @@ export class ThunkDispatcher {
         return out;
     }
 
+    private trapBarrier: ((functionId: number, ringPending: boolean) => void) | null = null;
+
+    setTrapBarrier(barrier: ((functionId: number, ringPending: boolean) => void) | null): void {
+        this.trapBarrier = barrier;
+    }
+
+    private runTrapBarrier(functionId: number): void {
+        const mem32 = this.cachedMem32;
+        const headWordIdx = this.writeBufControlAddr >> 2;
+        let ringPending = false;
+        if (this.writeBufControlAddr !== 0) {
+            if (!mem32 || headWordIdx >= mem32.length) ringPending = true;
+            else {
+                const head = mem32[headWordIdx]!;
+                ringPending = head !== 0 && head !== this.wbufTail;
+            }
+        }
+        this.trapBarrier!(functionId, ringPending);
+    }
+
     wbufDeferring(): boolean {
         return (globalThis as { __wbufDefer?: boolean }).__wbufDefer === true && this.writeBufCapacity > 0
             && !this.wbufSplitting();
@@ -1580,8 +1620,15 @@ export class ThunkDispatcher {
         return id;
     }
 
-    private bindQueuePayloadHandler(id: number, handler: WriteBufHandler): void {
+    private setWriteBufHandler(id: number, handler: WriteBufHandler): void {
         this.writeBufHandlerTable[id] = handler;
+        const run = writeBufRunOf(handler);
+        this.writeBufRunTables.owners[id] = run ? run.consumer : null;
+        this.writeBufRunTables.ops[id] = run ? run.op : 0;
+    }
+
+    private bindQueuePayloadHandler(id: number, handler: WriteBufHandler): void {
+        this.setWriteBufHandler(id, handler);
         this.writeBufArgCountTable[id] = WBUF_ARG_PAYLOAD;
         // A recorded call may read state the ring set around it: the coalescer must not merge
         // two setters across it (the front applied them one trap at a time).
@@ -1617,7 +1664,12 @@ export class ThunkDispatcher {
         q32[w + 3] = h2 >>> 0;
         q32[w + 4] = h3 >>> 0;
         q32[w + 5] = byteCount >>> 0;
-        if (headBytes > 0) this.wbufQueueU8!.set(src.subarray(srcOffset, srcOffset + headBytes), this.wbufQueueEnd + 24);
+        if (headBytes > 64) this.wbufQueueU8!.set(src.subarray(srcOffset, srcOffset + headBytes), this.wbufQueueEnd + 24);
+        else if (headBytes > 0) {
+            const q8 = this.wbufQueueU8!;
+            const at = this.wbufQueueEnd + 24;
+            for (let i = 0; i < headBytes; i++) q8[at + i] = src[srcOffset + i]!;
+        }
         if (tail !== null) this.wbufQueueU8!.set(tail, this.wbufQueueEnd + 24 + headBytes);
         this.wbufQueueEnd += stride;
         this.wbufDeferStats.enqueuedCalls++;
@@ -1631,7 +1683,7 @@ export class ThunkDispatcher {
         const sep = key.indexOf(":");
         id = this.findStubsByName(key.slice(0, sep), key.slice(sep + 1))[0]?.functionId ?? 0;
         if (id > 0 && id < MAX_THUNK_ID) {
-            this.writeBufHandlerTable[id] = reg.handler;
+            this.setWriteBufHandler(id, reg.handler);
             this.writeBufArgCountTable[id] = reg.argCount;
             this.wbufQueueOnly[id] = 1;
             this.noteWriteBufTransportSafety(id, reg.dllName);
@@ -1753,7 +1805,15 @@ export class ThunkDispatcher {
     private appendRingBytes(base: number, from: number, to: number): void {
         const bytes = to - from;
         this.ensureWbufQueue(this.wbufQueueEnd + bytes);
-        this.wbufQueueU8!.set(this.cachedMem8!.subarray(base + from, base + to), this.wbufQueueEnd);
+        const src = toPlainGuestMemory(this.cachedMem8!);
+        const dst = this.wbufQueueU8!;
+        const at = this.wbufQueueEnd;
+        if (bytes <= 64) {
+            const lo = base + from;
+            for (let i = 0; i < bytes; i++) dst[at + i] = src[lo + i]!;
+        } else {
+            dst.set(src.subarray(base + from, base + to), at);
+        }
         this.wbufQueueEnd += bytes;
         this.wbufDeferStats.transports++;
         this.wbufDeferStats.bytesQueued += bytes;
@@ -1872,8 +1932,41 @@ export class ThunkDispatcher {
         // would have to match, which is why this is a separate, separately-armed tier.
         if (this.wbufSequenceWant > 0) this.recordWriteBufSequence(rMem32, rBase, offset, head);
         const coalescing = this.wbufCoalescingEnabled && this.buildWbufCoalesceIndex(rMem32, rBase, offset, head);
+        const plain = !coalescing && !transport && !verbose;
+        const handlers = this.writeBufHandlerTable;
+        const argCounts = this.writeBufArgCountTable;
+        const pairRuns = this.writeBufPairRunByFirst;
+        const barriers = this.writeBufBarrierTable;
+        const transportSafe = this.wbufTransportSafe;
+        const runTables = this.writeBufRunTables;
+        const runOwners = runTables.owners;
         while (offset < head) {
             const funcId: number = rMem32[(rBase + offset) >> 2] >>> 0;
+            if (plain && funcId > 0 && funcId < MAX_THUNK_ID) {
+                const run = runOwners[funcId];
+                if (run !== null) {
+                    const next = run.run(rMem8, rMem32, rBase, offset, head, runTables);
+                    if (next > offset) {
+                        if (transportSafe[funcId] !== 1) this.drainUnsafeSeen++;
+                        this.wbufHitsTotal++;
+                        offset = next;
+                        continue;
+                    }
+                }
+                const argCount = argCounts[funcId];
+                const handler = handlers[funcId];
+                if (argCount > 0 && argCount <= 8 && handler && pairRuns[funcId] === null) {
+                    if (barriers[funcId]) {
+                        segment++;
+                        this.wbufBarrierEntriesTotal++;
+                    }
+                    if (transportSafe[funcId] !== 1) this.drainUnsafeSeen++;
+                    handler(rMem8, rMem32, rBase + offset + 4);
+                    offset += (argCount + 1) * 4;
+                    this.wbufHitsTotal++;
+                    continue;
+                }
+            }
             if (funcId > 0 && funcId < MAX_THUNK_ID) {
                 // Exact pair fusion is attempted before either ordinary handler mutates state.
                 // A decline is therefore a strict rollback point: resume at the same offset.
@@ -2183,8 +2276,7 @@ export class ThunkDispatcher {
     private tryResetWbufHead(mem32: Uint32Array, headWordIdx: number, head: number): void {
         if (!head || this.wbufTail !== head) return; // not fully drained yet
         if (this.wbufTrampLo !== 0) {
-            const sched = System.getInstance().scheduler;
-            if (sched && (sched as any).hasParkedThreadInRange?.(this.wbufTrampLo, this.wbufTrampHi)) {
+            if (this.ensureScheduler().hasParkedThreadInRange(this.wbufTrampLo, this.wbufTrampHi)) {
                 this.wbufResetDeferredTotal++;
                 return;
             }
@@ -2305,6 +2397,7 @@ export class ThunkDispatcher {
         // The ring is drained here so that all pending state changes are applied before
         // the flush trigger (DrawPrimitive, glEnd, wglSwapBuffers) executes.
         // Cost when ring is empty: ~2 ns (one branch + one u32 read).
+        if (this.trapBarrier !== null) this.runTrapBarrier(functionId);
         if (this.wbufDeferring()) this.deferredTrapBoundary(functionId);
         else if (this.wbufSplitting()) this.drainWriteBuffer();
         else {
@@ -2498,6 +2591,7 @@ export class ThunkDispatcher {
      */
     private _handlePortWriteSlow(functionId: number, schedulerEnterAlreadyCalled: boolean): void {
         const system = System.getInstance();
+        this.pollSpin.other();
 
         // 0. Exit check (a pause is handled in handlePortWrite: the call completes)
         if (system.isExiting) {
@@ -4530,12 +4624,12 @@ export class ThunkDispatcher {
         }
     }
 
-    registerFastPath(dllName: string, functionName: string, impl: FastPathImplementation, options?: { trivial?: boolean }): void {
+    registerFastPath(dllName: string, functionName: string, impl: FastPathImplementation, options?: { trivial?: boolean; poll?: PollKind }): void {
         // Always record in pendingFastPathRegistrations so applyPendingRegistrations can
         // re-bind this to the new stub IDs after Process.reset() regenerates stubs.
         // Without this, fast-paths registered once at worker boot are lost on game load.
         const key = `${dllName}:${functionName}`.toLowerCase();
-        this.pendingFastPathRegistrations.set(key, { impl, dllName, functionName, trivial: options?.trivial });
+        this.pendingFastPathRegistrations.set(key, { impl, dllName, functionName, trivial: options?.trivial, poll: options?.poll });
 
         const matchingStubs = this.findStubsByName(dllName, functionName);
         if (matchingStubs.length === 0) {
@@ -4546,7 +4640,19 @@ export class ThunkDispatcher {
             if (stub.functionId < MAX_THUNK_ID) {
                 this.fastPathTable[stub.functionId] = impl;
                 if (options?.trivial) this.trivialFastPathTable[stub.functionId] = 1;
+                this.pollFastPathTable[stub.functionId] = options?.poll ?? PollKind.None;
                 Logger.verbose(LogCategory.THUNK, `Registered fast-path [${stub.functionId}] ${dllName}:${functionName}${options?.trivial ? ' (trivial)' : ''}`);
+            }
+        }
+    }
+
+    unregisterFastPath(dllName: string, functionName: string): void {
+        this.pendingFastPathRegistrations.delete(`${dllName}:${functionName}`.toLowerCase());
+        for (const stub of this.findStubsByName(dllName, functionName)) {
+            if (stub.functionId < MAX_THUNK_ID) {
+                this.fastPathTable[stub.functionId] = null;
+                this.trivialFastPathTable[stub.functionId] = 0;
+                this.pollFastPathTable[stub.functionId] = PollKind.None;
             }
         }
     }
@@ -4673,7 +4779,7 @@ export class ThunkDispatcher {
 
             // Register the drain handler
             const id = stub.functionId;
-            this.writeBufHandlerTable[id]  = handler;
+            this.setWriteBufHandler(id, handler);
 
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = argCount;
@@ -5082,7 +5188,7 @@ export class ThunkDispatcher {
 
             // Register drain handler — floatCount is the argCount for stride calculation
             const id = stub.functionId;
-            this.writeBufHandlerTable[id]  = handler;
+            this.setWriteBufHandler(id, handler);
 
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = floatCount;
@@ -5158,7 +5264,7 @@ export class ThunkDispatcher {
         invalidateGuestCode(stubAddr, 16);
 
         const id = stub.functionId;
-        this.writeBufHandlerTable[id]  = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = WBUF_ARG_SHADER_CONSTANT;
@@ -5197,7 +5303,7 @@ export class ThunkDispatcher {
             mem8[stubAddr + 9] = (rel32 >> 24) & 0xFF;
             invalidateGuestCode(stubAddr, 16);
             const id = stub.functionId;
-            this.writeBufHandlerTable[id] = handler;
+            this.setWriteBufHandler(id, handler);
             this.noteWriteBufTransportSafety(id, dllName);
             this.writeBufArgCountTable[id] = 1;
             this.writeBufCoalesceMaskTable[id] = 0;
@@ -5258,7 +5364,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `StructCapture stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         // Standard stride formula (n+1)*4 with n = scalars + payload dwords.
@@ -5310,7 +5416,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `MultiStructCapture stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = argCount + ptrArgIndices.length * payloadDwords;
@@ -5343,7 +5449,7 @@ export class ThunkDispatcher {
             Logger.verbose(LogCategory.THUNK, `UpDraw stub not found for ${dllName}:${funcName}, registration deferred`);
             return;
         }
-        this.writeBufHandlerTable[id] = handler;
+        this.setWriteBufHandler(id, handler);
 
         this.noteWriteBufTransportSafety(id, dllName);
         this.writeBufArgCountTable[id] = WBUF_ARG_UP_DRAW;
@@ -6225,6 +6331,7 @@ export class ThunkDispatcher {
      * legit FPO pointer and is NOT caught, and a wedge that never reaches another thunk is only
      * caught by the hang watchdog.
      */
+    private lastOddEbp = -1;
     private checkEbpSanity(ebp: number, thunkName: string): void {
         const base = this.curStackBase, top = this.curStackTop;
         if (top <= base) return;                        // bounds unknown for this thread → skip
@@ -6241,6 +6348,8 @@ export class ThunkDispatcher {
         // so the real catch below is preserved.
         if (ebp >= MEM_THUNK_CODE_BASE && ebp < (MEM_THUNK_DATA_BASE + MEM_THUNK_DATA_SIZE)) return;
         // FPO/alt-stack tolerance: EBP into committed writable memory is not corruption.
+        if (ebp === this.lastOddEbp) return;
+        this.lastOddEbp = ebp;
         const as: any = System.getInstance().process?.addressSpace;
         if (as?.validateRange?.(ebp >>> 0, 4, "rw")) return;
         const note =
@@ -8405,6 +8514,7 @@ export class ThunkDispatcher {
                 if (this.trivialFastPathTable[s.functionId]) {
                     this.trivialFastPathTable[functionId] = 1;
                 }
+                this.pollFastPathTable[functionId] = this.pollFastPathTable[s.functionId];
 
                 hypercallDataManager.registerFunction(stub.dllName, funcName, functionId);
 
@@ -8454,6 +8564,7 @@ export class ThunkDispatcher {
                     const targetFastPath = this.fastPathTable[s.functionId];
                     if (targetFastPath) {
                         this.fastPathTable[functionId] = targetFastPath;
+                        this.pollFastPathTable[functionId] = this.pollFastPathTable[s.functionId];
                     }
                     // Register with WASM hypercall dispatch
                     hypercallDataManager.registerFunction(stub.dllName, funcName, functionId);
@@ -8520,6 +8631,7 @@ export class ThunkDispatcher {
 
         this.fastPathTable[functionId] = pending.impl;
         if (pending.trivial) this.trivialFastPathTable[functionId] = 1;
+        this.pollFastPathTable[functionId] = pending.poll ?? PollKind.None;
     }
 
     private applyPendingConstStubForStub(stub: ThunkStub): void {
@@ -8906,6 +9018,7 @@ export class ThunkDispatcher {
                 if (stub.functionId < MAX_THUNK_ID) {
                     this.fastPathTable[stub.functionId] = pending.impl;
                     if (pending.trivial) this.trivialFastPathTable[stub.functionId] = 1;
+                    this.pollFastPathTable[stub.functionId] = pending.poll ?? PollKind.None;
                     Logger.verbose(LogCategory.THUNK, `Applied pending fast-path [${stub.functionId}] ${pending.dllName}:${pending.functionName}${pending.trivial ? ' (trivial)' : ''}`);
                     applied++;
                 }
@@ -9130,8 +9243,11 @@ export class ThunkDispatcher {
         // first time the user loads a game — slow-path hits soar for D3D state setters.
         this.dispatchTable.fill(null);
         this.fastPathTable.fill(null);
+        this.pollFastPathTable.fill(PollKind.None);
         this.writeBufHandlerTable.fill(null);
         this.writeBufArgCountTable.fill(0);
+        this.writeBufRunTables.owners.fill(null);
+        this.writeBufRunTables.ops.fill(0);
         this.writeBufCoalesceMaskTable.fill(0);
         this.writeBufPairRunByFirst.fill(null);
         this.wbufCoalescingEnabled = false;
