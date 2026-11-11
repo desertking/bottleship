@@ -102,6 +102,7 @@ export class SyncObjectManager {
     private eventAliasGroups = new WeakMap<KernelEventObject, Set<number>>();
     private semaphoreHandles = new Set<number>();
     private mutexHandles = new Set<number>();
+    private contendedMutexes = new Set<number>();
 
     /**
      * Every event/semaphore/mutex with its live state — the other half of a thread dump's
@@ -290,6 +291,27 @@ export class SyncObjectManager {
             initialOwner ? 1 : 0,
         );
         return handle;
+    }
+
+    foreignMutexOwner(handle: number, threadId: number): number | null {
+        if (!this.mutexHandles.has(handle)) return null;
+        const mirrored = hypercallDataManager.readMutexMirrorState(handle);
+        const owner = mirrored ? mirrored.owner : this._getMutex(handle)?.ownerThreadId ?? null;
+        return owner === null || owner === threadId ? null : owner;
+    }
+
+    markOwnedMutexesContended(threadId: number): void {
+        for (const handle of this.mutexHandles) {
+            const mirrored = hypercallDataManager.readMutexMirrorState(handle);
+            if (!mirrored || mirrored.owner !== threadId || mirrored.hasWaiters) continue;
+            hypercallDataManager.setMutexMirrorHasWaiters(handle, true);
+            this.contendedMutexes.add(handle);
+        }
+    }
+
+    takeContendedMark(handle: number): boolean {
+        if (!this.contendedMutexes.delete(handle)) return false;
+        return hypercallDataManager.readMutexMirrorState(handle)?.owner === null;
     }
 
     releaseMutex(handle: number, ownerThreadId: number): boolean {
