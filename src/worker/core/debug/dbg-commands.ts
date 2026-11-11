@@ -1015,6 +1015,14 @@ export const dbg = {
                 return { reset: true };
             }
             case "bootStats": return (globalThis as Record<string, any>).__aotBoot ?? null;
+            case "retry": return { pending: aotCache.pendingRetries(), ...aotCache.retryStats };
+            case "pack": {
+                const bytes = aotCache.pack();
+                if (!bytes) return { error: "no units" };
+                let bin = "";
+                for (let i = 0; i < bytes.length; i += 0x8000) bin += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
+                return { bytes: bytes.length, base64: btoa(bin) };
+            }
             case "save": return aotCache.save(aotGameId());
             case "load": return aotCache.load(aotGameId());
             case "clear": aotCache.clear(); return { cleared: true };
