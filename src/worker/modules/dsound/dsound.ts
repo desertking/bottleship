@@ -1,4 +1,5 @@
 import { IModule } from "../../core/module";
+import { startEmulationBeat } from './emulation-beat';
 import { Process } from "../../core/process";
 import { ThunkImplementation, ThunkResult, X86Context } from "../../core/thunking/thunk-dispatcher";
 import { Logger, LogCategory } from "../../core/logger";
@@ -35,6 +36,7 @@ import {
     FLAG_CIRCULAR,
     FLAG_STREAMING,
     MIX_HISTORY_FRAMES,
+    FLAG_LAP_MUTE,
     STATE_STOPPED,
     STATE_PLAYING,
     STATE_PAUSED,
@@ -77,6 +79,7 @@ import {
 import { ensureAudioStatsSab } from "../audio-stats-sab";
 import { Mem } from "../../core/memory/mem-accessor";
 import { isValidAddress } from "../../core/memory/address-guard";
+import { PollKind } from "../../core/thunking/poll-spin-detector";
 
 const DS_OK = 0;
 const DSERR_INVALIDPARAM = 0x88780007;
@@ -278,6 +281,13 @@ const apiCursorCaches = new WeakMap<object, ApiCursorCache>();
 
 // @transient(writeSpanToLaps: the run of spans an app wrote back to back since its last cursor query -- its start, bytes so far, end, and that query's time; a load starts a new run)
 const spanChains = new WeakMap<object, { start: number; bytes: number; end: number; queryAt: number | undefined }>();
+
+const API_CURSOR_COALESCE_MS = 0.5;
+
+function apiCursorCoalesceMs(): number {
+    const v = (globalThis as { __apiCursorCoalesceMs?: number }).__apiCursorCoalesceMs;
+    return v === undefined ? API_CURSOR_COALESCE_MS : v;
+}
 
 function apiDebugFlags(): number {
     const g = globalThis as {
@@ -544,6 +554,7 @@ export class DSound implements IModule {
         // Create listener SAB and share with audio worklet
         this.listenerSab = createListenerSab();
         self.postMessage({ type: "audio_listener_sab", payload: { sab: this.listenerSab } });
+        startEmulationBeat(this.listenerSab);
         ensureAudioStatsSab();
         Logger.log(LogCategory.SYSTEM, `DirectSound: Created 3D listener SAB`);
 
@@ -2285,7 +2296,7 @@ export class DSound implements IModule {
         // They MUST stay traps (guest consumes the out-params immediately after RET).
         {
             const dispatcher = this.process.dispatcher as unknown as {
-                registerFastPath?: (dll: string, fn: string, impl: unknown, opts?: { trivial?: boolean }) => void;
+                registerFastPath?: (dll: string, fn: string, impl: unknown, opts?: { trivial?: boolean; poll?: PollKind }) => void;
             };
             if (dispatcher?.registerFastPath) {
                 dispatcher.registerFastPath('dsound', 'idirectsoundbuffer8_getstatus',
@@ -2312,7 +2323,7 @@ export class DSound implements IModule {
                             view.setUint32(statusPtr, status, true);
                         }
                         return DS_OK;
-                    }, { trivial: true });
+                    }, { trivial: true, poll: PollKind.WallClock });
 
                 dispatcher.registerFastPath('dsound', 'idirectsoundbuffer8_getcurrentposition',
                     (esp: number, view: DataView): number => {
@@ -2327,7 +2338,7 @@ export class DSound implements IModule {
                         this.dbgAudioCalls.lastPlay = playCursor;
                         this.dbgAudioCalls.lastWrite = writeCursor;
                         return DS_OK;
-                    }, { trivial: true });
+                    }, { trivial: true, poll: PollKind.WallClock });
             }
         }
 
@@ -2941,10 +2952,10 @@ export class DSound implements IModule {
             const raw = getCtrl(sab, CTRL_PLAY_CURSOR) % ring;
             if ((flags & FLAG_STREAMING) === 0) {
                 setCtrl(sab, CTRL_WRITE_CURSOR, (raw + ring - blockAlign) % ring);
-                setCtrl(sab, CTRL_FLAGS, flags | FLAG_STREAMING);
+                setCtrl(sab, CTRL_FLAGS, flags | FLAG_STREAMING | FLAG_LAP_MUTE);
             }
         } else if (flags & FLAG_STREAMING) {
-            setCtrl(sab, CTRL_FLAGS, flags & ~FLAG_STREAMING);
+            setCtrl(sab, CTRL_FLAGS, flags & ~(FLAG_STREAMING | FLAG_LAP_MUTE));
         }
     }
 
@@ -3223,7 +3234,7 @@ export class DSound implements IModule {
         const src = mem.subarray(buffer.ptr, buffer.ptr + buffer.bytes);
         for (let at = 0; at < ring; at += buffer.bytes) writeRingData(buffer.sab, at, src, buffer.bytes);
         // Every lap is now written: re-arm the hold from a full ring.
-        setCtrl(buffer.sab, CTRL_FLAGS, getCtrl(buffer.sab, CTRL_FLAGS) & ~FLAG_STREAMING);
+        setCtrl(buffer.sab, CTRL_FLAGS, getCtrl(buffer.sab, CTRL_FLAGS) & ~(FLAG_STREAMING | FLAG_LAP_MUTE));
     }
 
     /**
@@ -3472,7 +3483,8 @@ export class DSound implements IModule {
             const ctrl = cache.ctrl;
             const raw = Atomics.load(ctrl, CTRL_PLAY_CURSOR) % ring;
             const debugFlags = apiDebugFlags();
-            if (now === cache.now && raw === cache.raw && debugFlags === cache.debugFlags
+            if ((now === cache.now || (now > cache.now && now - cache.now < apiCursorCoalesceMs()))
+                && raw === cache.raw && debugFlags === cache.debugFlags
                 && ring === cache.ring && buffer.bytes === cache.bytes && buffer.frequency === cache.frequency
                 && buffer.isLooping === cache.isLooping && buffer.streamed === cache.streamed
                 && buffer.format === cache.format && buffer.premixAdvancedAtMs === cache.premixAdvancedAtMs
