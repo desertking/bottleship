@@ -8,7 +8,8 @@ import { surfaceAt } from './helpers';
 import { DirectDrawClipperObject } from './com-objects';
 import { windows as sharedWindows } from '../user32/shared-state';
 
-import { DDSCL_FULLSCREEN, DDSCL_EXCLUSIVE } from './constants';
+import { DDSCL_FULLSCREEN, DDSCL_EXCLUSIVE, DDSCAPS_PRIMARYSURFACE } from './constants';
+import { System } from '../../core/system';
 
 const DDSCL_EXCLUSIVE_FULLSCREEN = DDSCL_FULLSCREEN | DDSCL_EXCLUSIVE;
 
@@ -123,4 +124,46 @@ export function shouldSuppress3DGdiOverlay(
     if (!(renderActive as { suppressGdiOverlay?: boolean } | null)?.suppressGdiOverlay) return false;
     if (!ddrawHasPrimary(ddrawCtx)) return true; // pure 3D presenter — it owns the canvas outright
     return ddrawOwnsScreen(ddrawCtx);
+}
+
+/** What decides whether a guest write to a surface lands on top of GDI window output. */
+export interface PrimaryWriteFacts {
+    /** The written surface is the primary (DDSCAPS_PRIMARYSURFACE). */
+    isPrimary: boolean;
+    /** DDSCL_EXCLUSIVE|DDSCL_FULLSCREEN is in effect. */
+    exclusiveFullscreen: boolean;
+    /** The GDI surface is the buffer on screen (no Flip since the last FlipToGDISurface). */
+    gdiSurfaceVisible: boolean;
+    /** The write was clipped against the window list (a Blt through an attached clipper). */
+    clipped: boolean;
+}
+
+/**
+ * A single-buffered exclusive-fullscreen primary IS the memory GDI paints windows into, so
+ * a guest write to it replaces whatever a window painted there: the last writer wins. Our
+ * GDI output lives on a separate overlay plane, so the write has to take that plane's
+ * pixels away or window chrome the game has already painted over stays on top of its frame.
+ * A Blt through a clipper is clipped to the window's visible region and leaves windows above
+ * it alone; Lock/Unlock writes are never clipped.
+ */
+export function primaryWriteCoversGdi(f: PrimaryWriteFacts): boolean {
+    return f.isPrimary && f.exclusiveFullscreen && f.gdiSurfaceVisible && !f.clipped;
+}
+
+export function noteGuestPrimaryWrite(
+    ddrawCtx: DDrawContext | null | undefined,
+    caps: number,
+    rect: { left: number; top: number; right: number; bottom: number },
+    clipped: boolean,
+): void {
+    if (!primaryWriteCoversGdi({
+        isPrimary: (caps & DDSCAPS_PRIMARYSURFACE) !== 0,
+        exclusiveFullscreen: isDDrawExclusiveFullscreen(ddrawCtx),
+        gdiSurfaceVisible: ddrawCtx?.gdiSurfaceVisible !== false,
+        clipped,
+    })) return;
+    const w = rect.right - rect.left;
+    const h = rect.bottom - rect.top;
+    if (w <= 0 || h <= 0) return;
+    System.getInstance().gdiContext?.clearOverlayRect?.(rect.left, rect.top, w, h, { skipRepair: true });
 }
