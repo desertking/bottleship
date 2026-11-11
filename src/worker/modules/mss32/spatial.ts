@@ -1,4 +1,5 @@
 import { MSSContext } from "./context";
+import { startEmulationBeat } from '../dsound/emulation-beat';
 import { MSSListener3D } from "./types";
 import {
     createListenerSab,
@@ -33,6 +34,7 @@ export function ensureListener3D(ctx: MSSContext): number {
     if (!ctx.listenerSab) {
         ctx.listenerSab = createListenerSab();
         self.postMessage({ type: "audio_listener_sab", payload: { sab: ctx.listenerSab } });
+        startEmulationBeat(ctx.listenerSab);
     }
     return ctx.listener3D.handle;
 }

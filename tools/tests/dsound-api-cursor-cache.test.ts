@@ -30,7 +30,12 @@ afterAll(() => {
 afterEach(() => {
     for (const f of FLAGS) delete (globalThis as Record<string, unknown>)[f];
     delete (globalThis as Record<string, unknown>).__detAudio;
+    delete (globalThis as Record<string, unknown>).__apiCursorCoalesceMs;
 });
+
+function exactQueries(): void {
+    (globalThis as Record<string, unknown>).__apiCursorCoalesceMs = 0;
+}
 
 function makeDs(mem: Uint8Array): Ds {
     const ds = Object.create(DSound.prototype) as Ds;
@@ -235,6 +240,7 @@ function runScenario(seed: number, steps: number, skewMs = 0): { mismatches: num
 
 describe("dsound GetCurrentPosition reuse", () => {
     test("matches the full computation at every query, cursors and state alike", () => {
+        exactQueries();
         for (const seed of [1, 2, 3, 0xdead, 0xbeef, 77]) {
             const { mismatches, queries, repeats } = runScenario(seed, 6000);
             expect(queries).toBe(6000);
@@ -244,6 +250,7 @@ describe("dsound GetCurrentPosition reuse", () => {
     });
 
     test("negative control: a clock skew between the twins is caught", () => {
+        exactQueries();
         expect(runScenario(1, 2000, 0.003).mismatches).toBeGreaterThan(0);
     });
 
@@ -262,7 +269,10 @@ describe("dsound GetCurrentPosition reuse", () => {
             const first = real.query();
             for (let i = 0; i < 50; i++) expect(real.query()).toEqual(first);
             expect(computed).toBe(1);
-            clock += 0.005;
+            clock += 0.3;
+            expect(real.query()).toEqual(first);
+            expect(computed).toBe(1);
+            clock += 0.25;
             real.query();
             expect(computed).toBe(2);
         } finally {
@@ -270,7 +280,7 @@ describe("dsound GetCurrentPosition reuse", () => {
         }
     });
 
-    test("negative control: a change at the same time is not answered from the previous query", () => {
+    test("negative control: a change inside the window is not answered from the previous query", () => {
         const changes: Array<(x: Twin) => void> = [
             () => { (globalThis as Record<string, unknown>).__noCursorSmoothing = true; },
             x => { x.buffer.isLooping = false; },
@@ -288,6 +298,7 @@ describe("dsound GetCurrentPosition reuse", () => {
             both({ ref, real }, x => Atomics.store(ctrlOf(x.buffer), CTRL_PLAY_CURSOR, 4096 + 3528));
             ref.query();
             const before = real.query();
+            clock += 0.2;
             change(ref);
             change(real);
             const expected = ref.query();
@@ -295,5 +306,62 @@ describe("dsound GetCurrentPosition reuse", () => {
             expect(real.query()).toEqual(expected);
             delete (globalThis as Record<string, unknown>).__noCursorSmoothing;
         }
+    });
+});
+
+function runWindowScenario(seed: number, steps: number, harnessWindowMs: number): { mismatches: number; backwards: number; hits: number } {
+    const t = twins();
+    const r = rng(seed);
+    let raw = 0;
+    let mismatches = 0;
+    let backwards = 0;
+    let hits = 0;
+    let lastCompute = -Infinity;
+    let lastRaw = -1;
+    let expected: Cursors | null = null;
+    let previous: Cursors | null = null;
+    clock = 1000;
+    for (let i = 0; i < steps; i++) {
+        const p = r();
+        if (p < 0.6) clock += r() * 0.2;
+        else if (p < 0.85) clock += r() * 12;
+        else {
+            raw = (raw + 128 * BLOCK_ALIGN * (1 + Math.floor(r() * 4))) % RING;
+            both(t, x => Atomics.store(ctrlOf(x.buffer), CTRL_PLAY_CURSOR, raw));
+        }
+        if (expected === null || raw !== lastRaw || !(clock - lastCompute < harnessWindowMs)) {
+            expected = t.ref.query();
+            lastCompute = clock;
+            lastRaw = raw;
+        } else {
+            hits++;
+        }
+        const got = t.real.query();
+        if (got.playCursor !== expected.playCursor || got.writeCursor !== expected.writeCursor
+            || stateOf(t.ref.buffer) !== stateOf(t.real.buffer)) {
+            mismatches++;
+        }
+        if (previous !== null) {
+            const moved = (got.playCursor - previous.playCursor + SIZE) % SIZE;
+            if (moved > SIZE / 2) backwards++;
+        }
+        previous = got;
+    }
+    return { mismatches, backwards, hits };
+}
+
+describe("dsound GetCurrentPosition within the 0.5 ms window", () => {
+    test("answers from the last computation until 0.5 ms have passed, monotone, write lead unchanged", () => {
+        for (const seed of [1, 2, 3, 0xdead, 0xbeef, 77]) {
+            const { mismatches, backwards, hits } = runWindowScenario(seed, 6000, 0.5);
+            expect(hits).toBeGreaterThan(1000);
+            expect(mismatches).toBe(0);
+            expect(backwards).toBe(0);
+        }
+    });
+
+    test("negative control: a window wider than 0.5 ms is caught", () => {
+        (globalThis as Record<string, unknown>).__apiCursorCoalesceMs = 2;
+        expect(runWindowScenario(1, 3000, 0.5).mismatches).toBeGreaterThan(0);
     });
 });
