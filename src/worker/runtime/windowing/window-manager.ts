@@ -950,6 +950,10 @@ export class WindowManager {
         this.messageQueue.setInputPollCallback(callback);
     }
 
+    setRawInputDiscardCallback(callback: (handle: number) => void): void {
+        this.messageQueue.setRawInputDiscardCallback(callback);
+    }
+
     setKeyStateCallback(callback: (packed: Uint8Array, threadId: number) => void): void {
         this.messageQueue.setKeyStateCallback(callback);
     }

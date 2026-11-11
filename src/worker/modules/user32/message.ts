@@ -62,6 +62,7 @@ const ERROR_INVALID_PARAMETER = 87;
 const WM_TIMER = 0x0113;
 const WM_SETCURSOR_MSG = 0x0020;
 const WM_PAINT = 0x000F;
+const WM_ACTIVATE_MSG = 0x0006;
 const WM_SETTEXT_MSG = 0x000C;
 const WM_GETTEXT_MSG = 0x000D;
 const WM_GETTEXTLENGTH_MSG = 0x000E;
@@ -1416,6 +1417,12 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                 timerDiag.dispatched++;
             }
 
+            if (message === WM_ACTIVATE_MSG && (wParam & 0xFFFF) !== 0
+                && System.getInstance().windowManager.getActiveHwnd() !== (hwnd >>> 0)
+                && !(globalThis as { __noStaleActivateDrop?: boolean }).__noStaleActivateDrop) {
+                return { value: 0, stackCleanup: 4 };
+            }
+
             // Posted WM_PAINT is suppressed once the window (or an ancestor) is
             // hidden. A stale paint queued before a page switch must not resurrect
             // that page's owner-draw controls on the shared overlay.
@@ -1611,6 +1618,8 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
             const WM_NCDESTROY = 0x0082;
 
             const window = getWindowByHandle(hwnd);
+            const rawInput = message === 0x00ff ? System.getInstance().inputManager.rawInput : null;
+            const rawInputThread = rawInput ? System.getInstance().scheduler.getCurrentThreadId() : 0;
             // The BUTTON class proc's WM_PAINT: a BS_OWNERDRAW button is drawn by ONE
             // WM_DRAWITEM to its parent (Wine button.c OB_Paint), which is a guest
             // callback — so this is where an InvalidateRect/UpdateWindow on such a button
@@ -1650,12 +1659,14 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                     repaintDialogAfterContentChange(window.parent ?? hwnd);
                 }
                 if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                 return { value: result >>> 0, stackCleanup: 4 };
             }
             if (window && window.wndProc) {
                 // Sentinel WndProc: system control, handle in JS — do NOT call into x86
                 if (isSentinelWndProc(window.wndProc)) {
                     if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                    rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                     return { value: 0, stackCleanup: 4 };
                 }
 
@@ -1677,16 +1688,23 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                             clearWindowUpdate(hwnd);
                             if (control) handleSystemControlMessage(control, WM_PAINT, 0, 0, mem);
                         }
+                        // RIM_INPUTSINK has no application DefWindowProc obligation.
+                        // Keep the packet alive throughout the suspended guest proc.
+                        rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                         return wndRet >>> 0;
                     },
                 );
-                if (dispatchResult) return dispatchResult;
+                if (dispatchResult) {
+                    if (!dispatchResult.suspendedForCallback) rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
+                    return dispatchResult;
+                }
             }
 
             // Window has no wndProc (or was already gone) — no guest delivery happens, so
             // finalize a deferred-destroy window here instead of waiting for a wndProc that
             // will never run.
             if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+            rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
         }
 
         maybeLogTimerDiag();

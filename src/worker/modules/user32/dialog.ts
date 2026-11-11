@@ -13,7 +13,7 @@ import { registerDialogItemExports } from './dialog-items';
 import { registerMessageBoxExports } from './dialog-messagebox';
 import { System } from '../../core/system';
 import { WindowInfo, windows, controlImageHandles, getAbsoluteWindowPosition, getGroupSiblingRange, getVirtualScreenRect, killWindowTimers, noteTimerMessageRemoved, finalizeWindowDestroy, buttonCheckStates, findChildByControlId, isEffectivelyVisible } from './shared-state';
-import { validateWindow } from './paint-region';
+import { hasPendingUpdate, validateWindow } from './paint-region';
 import { translateKeyMessage } from './translate-message';
 import { WH_CBT, HCBT_CREATEWND, getHooksOfType } from './hooks';
 import { parseDlgTemplate, dluToPixelX, dluToPixelY, getDialogBaseUnits, logDlgTemplateDump, ParsedDlgTemplate } from './dialog-template';
@@ -2118,6 +2118,9 @@ export function createDialogExports(): Record<string, ThunkImplementation> {
     // @transient(non-empty only while a DlgProc callback runs, and the safe point allows no callback in flight)
     const dlgProcInFlight = new Set<string>();
 
+    // @transient(a dialog whose DlgProc declined WM_PAINT, consumed by the very next WM_PAINT)
+    const dlgProcDeclinedPaint = new Set<number>();
+
     /**
      * DefDlgProc — the window procedure of the `#32770` class, and the ONLY route to a
      * subclassed dialog's DlgProc. Win32 keeps the app's procedure in DWLP_DLGPROC and
@@ -2150,13 +2153,6 @@ export function createDialogExports(): Record<string, ThunkImplementation> {
             return (windows.get(hDlg)?.extraBytes?.[0] ?? 0) >>> 0;
         };
 
-        // WM_PAINT's default processing is itself a multi-step guest sequence (erase +
-        // owner-draw chain) that has to own THIS thunk's return path, so it cannot run
-        // from another callback's completion — the dialog then composites empty. The
-        // dialog procedure still receives WM_PAINT through normal dispatch; only the
-        // DefDlgProc → DWLP_DLGPROC hop for it is ours to skip.
-        if (Msg === WM_PAINT) return defDlgDefaultProcessing(ctx, mem, args);
-
         // Our dispatch calls a dialog's DlgProc directly while it is still the window
         // proc, so only the subclassed case — where DWLP_DLGPROC is the sole remaining
         // route to it — is called from here; otherwise every message would arrive twice.
@@ -2164,6 +2160,9 @@ export function createDialogExports(): Record<string, ThunkImplementation> {
         const key = `${hDlg}:${Msg}:${wParam}:${lParam}`;
         const canReachDlgProc = !!dlgProc && dlgProc !== ((win?.wndProc ?? 0) >>> 0)
             && !isSentinelWndProc(dlgProc) && !!callbackManager && !dlgProcInFlight.has(key);
+        if (Msg === WM_PAINT && (!canReachDlgProc || dlgProcDeclinedPaint.delete(hDlg))) {
+            return defDlgDefaultProcessing(ctx, mem, args);
+        }
         if (Msg === WM_COMMAND && !canReachDlgProc) dialogKeyLedger.dlgProcSkipped++;
         if (canReachDlgProc && callbackManager) {
             const stackCleanup = 16;
@@ -2182,6 +2181,13 @@ export function createDialogExports(): Record<string, ThunkImplementation> {
                         postEsp: (ctx.esp + 4 + stackCleanup) >>> 0,
                         complete: (ret: number): number | null => {
                             dlgProcInFlight.delete(key);
+                            if (Msg === WM_PAINT && !ret) {
+                                if (windows.has(hDlg) && hasPendingUpdate(hDlg)) {
+                                    dlgProcDeclinedPaint.add(hDlg);
+                                    System.getInstance().windowManager.postMessage(hDlg, WM_PAINT, 0, 0);
+                                }
+                                return 0;
+                            }
                             const out = finish(ret >>> 0);
                             // Default processing that suspended for guest callbacks of
                             // its own owns the resume from here.
