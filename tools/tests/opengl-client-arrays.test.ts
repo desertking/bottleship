@@ -5,7 +5,8 @@
  * an emulator. The load-bearing assertions are the INVALIDATION ones: a lock is a hint,
  * and a cache that outlives the promise behind it renders stale geometry.
  */
-import { describe, expect, it } from "bun:test";
+import { afterEach, describe, expect, it } from "bun:test";
+import { AddressSpace } from "../../src/worker/core/memory/address-space";
 import {
     gatherVertices, decodeIndices, sequentialIndices, guestViews,
     cvaLock, cvaUnlock, createCvaState, VertexSpace, validateClientArrayRange,
@@ -559,3 +560,103 @@ describe("EXT_compiled_vertex_array cache", () => {
         expect(dst[0]).toBe(6);
     });
 });
+
+describe("draw-range validation memo", () => {
+    function withSpace(perms: "rw" | "noaccess") {
+        const { ctx, mem } = makeCtx(1 << 21);
+        const space = new AddressSpace(() => mem);
+        space.mapRegion(0x140000, 0x1000, "rw", "HEAP" as never, "test");
+        const lookups = { n: 0 };
+        const getRegion = space.getRegion.bind(space);
+        (space as any).getRegion = (a: number) => { lookups.n++; return getRegion(a); };
+        (ctx as any).process = { getCurrentMemory: () => mem, addressSpace: space };
+        ctx.vertexArray = { size: 3, type: GL_FLOAT, stride: 12, pointer: 0x140000, enabled: true };
+        if (perms === "noaccess") space.protect(0x140000, 0x1000, "noaccess");
+        return { ctx, space, lookups };
+    }
+
+    afterEach(() => { delete (globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo; });
+
+    it("looks the region map up once for a repeated span", () => {
+        const { ctx, lookups } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        const first = lookups.n;
+        for (let i = 0; i < 5; i++) expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        expect(lookups.n).toBe(first);
+        expect(validateClientArrayRange(ctx, 1, 9)).toBe(true);
+        expect(lookups.n).toBeGreaterThan(first);
+    });
+
+    it("a protection change after the memo rejects the same span again", () => {
+        const { ctx, space } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        space.protect(0x140000, 0x1000, "noaccess");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(false);
+    });
+
+    it("an unchanged map does not need the generation to move: without it the stale answer would stand", () => {
+        const { ctx, space } = withSpace("rw");
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        const gen = space.regionGeneration;
+        space.protect(0x140000, 0x1000, "noaccess");
+        expect(space.regionGeneration).not.toBe(gen);
+        Object.defineProperty(space, "regionGeneration", { get: () => gen });
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(true);
+        (globalThis as { __noGlRangeMemo?: boolean }).__noGlRangeMemo = true;
+        expect(validateClientArrayRange(ctx, 0, 9)).toBe(false);
+    });
+});
+
+
+describe("EXT_compiled_vertex_array cache, direct fill", () => {
+    function scene(seed: number) {
+        const { ctx, mem } = makeCtx();
+        let s = seed >>> 0;
+        const rnd = (k: number) => { s = (s * 1103515245 + 12345) >>> 0; return s % k; };
+        const n = 48;
+        const dv = new DataView(mem.buffer);
+        for (let i = 0; i < n * 4; i++) dv.setFloat32(0x1000 + i * 4, (rnd(2000) - 1000) / 37, true);
+        for (let i = 0; i < n * 4; i++) mem[0x3000 + i] = rnd(256);
+        for (let i = 0; i < n * 4; i++) dv.setFloat32(0x4000 + i * 4, rnd(1000) / 999, true);
+        for (let i = 0; i < n * 3; i++) dv.setFloat32(0x5000 + i * 4, (rnd(200) - 100) / 100, true);
+        for (let i = 0; i < n * 2; i++) dv.setFloat32(0x6000 + i * 4, rnd(512) / 64, true);
+        const posSize = 3 + rnd(2);
+        ctx.vertexArray = { size: posSize, type: GL_FLOAT, stride: posSize === 3 ? 12 : 16, pointer: 0x1000, enabled: true };
+        ctx.colorArray = rnd(2)
+            ? { size: 3 + rnd(2), type: GL_UNSIGNED_BYTE, stride: 4, pointer: 0x3000, enabled: true }
+            : { size: 4, type: GL_FLOAT, stride: 16, pointer: 0x4000, enabled: true };
+        ctx.normalArray = { size: 3, type: GL_FLOAT, stride: 12, pointer: 0x5000, enabled: rnd(2) === 1 };
+        ctx.texCoordArrays[0] = { size: 2, type: GL_FLOAT, stride: 8, pointer: 0x6000, enabled: true };
+        const mv = ctx.modelviewStack.stack[0];
+        for (let i = 0; i < 16; i++) mv[i] = i % 5 === 0 ? 1 : (rnd(100) - 50) / 400;
+        return { ctx, n, rnd };
+    }
+
+    function frame(seed: number, direct: boolean): number[] {
+        (globalThis as { __noCvaDirectFill?: boolean }).__noCvaDirectFill = !direct;
+        const { ctx, n, rnd } = scene(seed);
+        cvaLock(ctx, 0, n);
+        const out: number[] = [];
+        for (let d = 0; d < 12; d++) {
+            const lo = rnd(n), hi = Math.min(n - 1, lo + rnd(16));
+            const count = hi - lo + 1;
+            const dst = new Float32Array(count * VERT_FLOATS);
+            const space = gatherVertices(ctx, sequentialIndices(lo, count), count, dst, 0, true);
+            out.push(space, ...dst);
+        }
+        delete (globalThis as { __noCvaDirectFill?: boolean }).__noCvaDirectFill;
+        return out;
+    }
+
+    it("fills the cache directly with the same vertices the staged fill produced", () => {
+        for (let seed = 1; seed <= 40; seed++) expect(frame(seed, true)).toEqual(frame(seed, false));
+    });
+
+    it("the comparison sees one wrong component", () => {
+        const a = frame(3, true);
+        const b = frame(3, false);
+        b[1 + 5] += 0.5;
+        expect(a).not.toEqual(b);
+    });
+});
+
