@@ -2282,9 +2282,13 @@ export const exports: Record<string, ThunkImplementation> = (() => {
         return 0x10000; // 64 KB — plausible "largest free block"
     };
 
-    // BOOL HeapValidate(HANDLE hHeap, DWORD dwFlags, LPCVOID lpMem)
-    // Returns TRUE — our heap is always "valid"
-    exports['HeapValidate'] = () => 1;
+    exports['HeapValidate'] = (ctx, mem, args) => {
+        const lpMem = args[2] >>> 0;
+        if (!lpMem) return 1;
+        if (isInVirtualAllocRegion(lpMem)) return 0;
+        if (getSlabSizeForPtr(lpMem) !== undefined) return 1;
+        return System.getInstance().process?.memory.getSize(lpMem) !== undefined ? 1 : 0;
+    };
 
     // BOOL HeapQueryInformation(HANDLE HeapHandle, HEAP_INFORMATION_CLASS HeapInformationClass,
     //   PVOID HeapInformation, SIZE_T HeapInformationLength, PSIZE_T ReturnLength)
