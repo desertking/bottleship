@@ -129,6 +129,10 @@ const HANDLER_CDECL_FMOD = 42;
 const HANDLER_CDECL_POW = 43;
 const HANDLER_CDECL_CEIL = 44;
 const HANDLER_CDECL_FLOOR = 45;
+// user32 CharNextA/CharNextW: bound only when the engine reports get_char_next_abi() == 1.
+const HANDLER_CHAR_NEXT_A = 46;
+const HANDLER_CHAR_NEXT_W = 47;
+const CHAR_NEXT_HANDLERS = new Set([HANDLER_CHAR_NEXT_A, HANDLER_CHAR_NEXT_W]);
 // String/memory hypercalls (Tier 3)
 const HANDLER_WCSLEN = 51;
 const HANDLER_WCSCPY = 52;
@@ -408,6 +412,9 @@ const HANDLER_MAP: Record<string, number> = {
     'crtdll._wcsnicmp': HANDLER_WCSNICMP,
     'msvcrt.wcsncpy': HANDLER_WCSNCPY,
     'crtdll.wcsncpy': HANDLER_WCSNCPY,
+    // A text loop that walks a buffer with CharNextA pays one call per character.
+    'user32.charnexta': HANDLER_CHAR_NEXT_A,
+    'user32.charnextw': HANDLER_CHAR_NEXT_W,
     // Heap arena hypercalls
     'kernel32.heapalloc': HANDLER_HEAP_ALLOC,
     'kernel32.heapfree': HANDLER_HEAP_FREE,
@@ -1155,6 +1162,12 @@ export class HypercallDataManager {
         return typeof probe === "function" ? Number(probe()) : 0;
     }
 
+    /** 1 when this engine build carries the CharNextA/CharNextW handlers, else 0. */
+    private charNextAbi(): number {
+        const probe = (this.cpu as any)?.wm?.exports?.get_char_next_abi;
+        return typeof probe === "function" ? Number(probe()) : 0;
+    }
+
     /**
      * Register a function for WASM handling.
      * Called after stubs are generated so functionId is known.
@@ -1170,6 +1183,7 @@ export class HypercallDataManager {
         // dispatch answers with an untouched EAX rather than declining. Registering only
         // when the engine reports the ABI keeps such a build on its JS fallbacks.
         if (BULK_MEMORY_HANDLERS.has(handlerId) && this.bulkMemoryAbi() !== BULK_MEMORY_ABI) return;
+        if (CHAR_NEXT_HANDLERS.has(handlerId) && this.charNextAbi() !== 1) return;
 
         this.refreshViews();
         if (!this.view) return;
