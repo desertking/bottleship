@@ -80,6 +80,9 @@ import { PF_HALT_TARGET } from '../bootloader';
 import { grantSrwOnWake, ensureSrwWaitEvent } from '../../modules/kernel32/srw-lock';
 import type { WinMM, PendingTimerCallback as PostedTimerCallback } from '../../modules/winmm';
 
+const MUTEX_PROBE_HANDOFF_MS = 2;
+const POLL_SPIN_YIELD_MS = 2;
+
 // Max virtual-time advance per idle pollTimeouts() pump. Bounds the jump when the
 // idle anchor is stale after a pause / background-throttle gap. See pollTimeouts().
 const IDLE_PUMP_MAX_MS = 250;
@@ -1832,6 +1835,7 @@ export class Scheduler {
                 current = this.getCurrentThread();
                 if (current?.state === ThreadState.TERMINATED) current = null;
             } else {
+                this.syncObjects.markOwnedMutexesContended(current.id);
                 this.transitionTo(current, ThreadState.READY, null, context);
             }
         } else if (current && this.currentThreadId === current.id && current.context === null &&
@@ -2629,6 +2633,17 @@ export class Scheduler {
         }
     }
 
+    private probeWaitsOnRunningMutexOwner(handles: number[], threadId: number): boolean {
+        if (handles.length === 0) return false;
+        for (const handle of handles) {
+            const owner = this.syncObjects.foreignMutexOwner(handle, threadId);
+            if (owner === null) return false;
+            const ownerThread = this.threads.get(owner);
+            if (!ownerThread || (ownerThread.state !== ThreadState.READY && ownerThread.state !== ThreadState.RUNNING)) return false;
+        }
+        return true;
+    }
+
     waitForObjectsWithContext(
         handles: number[], waitAll: boolean, timeoutMs: number,
         returnAddr: number, postReturnEsp: number,
@@ -2646,6 +2661,9 @@ export class Scheduler {
         if (decision.ready) { this.syncObjects.consumeWait(decision, thread.id); return decision.result; }
 
         if (alertable && thread.apcQueue.length > 0) return WAIT_IO_COMPLETION;
+        if (timeoutMs === 0 && this.probeWaitsOnRunningMutexOwner(resolved, thread.id)) {
+            timeoutMs = MUTEX_PROBE_HANDOFF_MS;
+        }
         if (timeoutMs === 0) {
             // A zero-timeout wait is only a probe: preserve WAIT_TIMEOUT and never
             // park the caller.  On Windows the polling thread is still preemptible,
@@ -3440,6 +3458,9 @@ export class Scheduler {
         if (!thread) return false;
         const ok = this.syncObjects.releaseMutex(handle, thread.id);
         if (ok) this.wakeWaitingThreadsForHandle(handle);
+        if (ok && this.syncObjects.takeContendedMark(handle) && !this.hasWaitersForHandle(handle)) {
+            hypercallDataManager.setMutexMirrorHasWaiters(handle, false);
+        }
         return ok;
     }
 
@@ -4516,6 +4537,21 @@ export class Scheduler {
     requestSwitchToThread(threadId: number): void {
         // Simple: just request a switch. Round-robin will get there.
         this.switchRequested = true;
+    }
+
+    yieldForPollSpin(wallClock: boolean): boolean {
+        const thread = this.getCurrentThread();
+        if (!thread || thread.state !== ThreadState.RUNNING) return false;
+        if (this.hasOtherRunnableThreads(thread.id)) {
+            if (wallClock || this.insnQuantumFraction(thread, 0.5)) this.requestSwitch();
+            return false;
+        }
+        if (!wallClock) return false;
+        const ms = this.computeYieldMs(POLL_SPIN_YIELD_MS);
+        if (!(ms > 0)) return false;
+        this.creditVirtualTimeForSoleRunnableSleep(ms);
+        this.requestYieldToHost(ms, "pollSpin");
+        return true;
     }
 
     requestYieldToHost(ms: number = 1, source: string = "req"): void {
