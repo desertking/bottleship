@@ -83,6 +83,42 @@ describe('split codec', () => {
     });
 });
 
+describe("split codec: integer fast path", () => {
+    const refs = { idOf: () => undefined, twinOf: () => undefined };
+    function reference(v: number): number[] {
+        if (Number.isInteger(v) && v >= -0x80000000 && v <= 0xffffffff) {
+            const u = v >>> 0;
+            return [4, v < 0 ? 1 : 0, u & 255, (u >>> 8) & 255, (u >>> 16) & 255, u >>> 24];
+        }
+        const b = new Uint8Array(8);
+        new DataView(b.buffer).setFloat64(0, v, true);
+        return [5, ...b];
+    }
+    const values = [0, -0, 1, -1, 255, 65535, 0x7fffffff, -0x80000000, -0x80000001, 0xffffffff, 0x100000000,
+        1.5, -2.25, NaN, Infinity, -Infinity, 2 ** 53, 3e-9];
+    for (let i = 0; i < 200; i++) values.push(Math.floor((Math.random() - 0.5) * 2 ** 34), (Math.random() - 0.5) * 1e6);
+
+    it("encodes every number byte for byte like the generic path", () => {
+        for (const v of values) {
+            const enc = new SplitEncoder(refs as never);
+            enc.value(v);
+            expect([...enc.bytes.subarray(0, enc.length)]).toEqual(reference(v));
+            const dec = new SplitDecoder(enc.bytes.slice(0, enc.length), 0, enc.length, refs as never);
+            const back = dec.value() as number;
+            if (Number.isNaN(v)) expect(Number.isNaN(back)).toBe(true);
+            else expect(back).toBe(v === 0 ? 0 : v);
+        }
+    });
+
+    it("the byte comparison notices a wrong sign flag", () => {
+        const enc = new SplitEncoder(refs as never);
+        enc.value(-5);
+        const bytes = [...enc.bytes.subarray(0, enc.length)];
+        bytes[1] = 0;
+        expect(bytes).not.toEqual(reference(-5));
+    });
+});
+
 describe('split codec: tail', () => {
     it('a large last typed array leaves as a tail that decodes like an inline copy', () => {
         const ctors = [Uint8Array, Int8Array, Uint16Array, Int16Array, Uint32Array, Int32Array, Float32Array,
