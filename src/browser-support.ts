@@ -1,4 +1,5 @@
 // Capability-based browser-support gate for the host shell.
+import { requestAdapterWithRetry } from "./gpu-adapter-retry";
 
 export type BrowserSupportInfo = {
   supported: boolean;
@@ -145,7 +146,7 @@ export async function probeWebGPU(): Promise<WebGPUProbeResult> {
   const gpu = (navigator as Navigator & { gpu: GPU }).gpu;
   let adapter: GPUAdapter | null = null;
   try {
-    adapter = await gpu.requestAdapter();
+    adapter = await requestAdapterWithRetry(gpu);
   } catch (e) {
     return {
       ok: false,
