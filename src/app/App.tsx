@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { SessionWorker } from './session-worker';
 import { AudioPauseSync } from "../audio/pause-sync";
+import { createStallWatch, stallHintLabel } from './stall-watch';
 import { ChildSessionSurface } from './child-session-surface';
 import { hardwareKeyText, hardwareKeyVk } from "./hardware-key-vk";
 import { cx } from "../ui/cx";
@@ -198,6 +199,7 @@ const POINTER_LOCK_EXIT_COOLDOWN_MS = 1300;
 /** Bundle URL a pending re-exec must re-open once window.loadApp exists (dev/harness boots). */
 let reExecBundleUrl: string | null = null;
 let globalWorker: Worker | null = null;
+const STALL_HINT_ENABLED = typeof window === "undefined" || new URLSearchParams(window.location.search).get("stallHint") !== "0";
 let globalSab: SharedArrayBuffer | null = null;
 let globalInputView: Int32Array | null = null;
 let globalOffscreen: OffscreenCanvas | null = null;
@@ -2015,6 +2017,7 @@ export default function App() {
         worker.postMessage(
           {
             type: "init",
+            gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null,
             canvas: globalOffscreen,
             inputBuffer,
             width,
@@ -2024,13 +2027,14 @@ export default function App() {
         );
       } catch (err) {
         console.warn('BottleShip: Failed to transfer control (maybe already transferred), signaling worker anyway');
-        worker.postMessage({ type: "init" });
+        worker.postMessage({ type: "init", gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null });
       }
     } else {
       console.log('BottleShip: Already have offscreen canvas, signaling worker');
       const { width, height } = resolutionRef.current;
       worker.postMessage({
         type: "init",
+        gameBase: (window as { __bsGameBase?: string }).__bsGameBase ?? null,
         inputBuffer,
         width,
         height
@@ -2195,6 +2199,13 @@ export default function App() {
         event.stopPropagation();
         if (state === 1) toggleFullscreenRef.current();
         return;
+      }
+
+      // F1–F10 and Ctrl/Cmd+R belong to the guest while it runs: F5 is a quick-save or
+      // quick-load key in many games, and the UA default (reload, help, find, address bar)
+      // would take the session down. Still forwarded below.
+      if (/^F([1-9]|10)$/.test(event.code) || ((event.ctrlKey || event.metaKey) && event.code === "KeyR")) {
+        event.preventDefault();
       }
 
       // Right Ctrl = deliberate host-release key for pointer lock. When locked, release and
@@ -2984,6 +2995,30 @@ export default function App() {
     await audioPauseSync?.set(newPausedState);
   }, [isPaused]);
 
+  const [emulationStalled, setEmulationStalled] = useState(false);
+  useEffect(() => {
+    if (workerStatus !== "ready" || loadingProgress || exitInfo || isPaused) { setEmulationStalled(false); return; }
+    if (!STALL_HINT_ENABLED) return;
+    const worker = globalWorker;
+    if (!worker) return;
+    const watch = createStallWatch(
+      (seq) => worker.postMessage({ type: "liveness_ping", seq }),
+      setEmulationStalled,
+    );
+    const onMessage = (event: MessageEvent) => {
+      if (event.data?.type === "liveness_pong") {
+        watch.pong(event.data.seq, event.data.presents, event.data.busyMs, performance.now());
+      }
+    };
+    worker.addEventListener("message", onMessage);
+    const timer = window.setInterval(() => watch.tick(performance.now()), 250);
+    return () => {
+      window.clearInterval(timer);
+      worker.removeEventListener("message", onMessage);
+      setEmulationStalled(false);
+    };
+  }, [workerStatus, loadingProgress, exitInfo, isPaused]);
+
   // A running game is not user activity as far as the OS is concerned, so the screen
   // dims mid-session on a phone or tablet. The lock is dropped by the browser on tab
   // hide and must be re-taken when we come back.
@@ -3576,6 +3611,12 @@ export default function App() {
         {/* The HUD's keyboard action only exists on this screen, so the sheet has to be
             mounted here too — not only in the library return. */}
         <VirtualKeyboardSheet open={oskOpen} onClose={() => setOskOpen(false)} />
+        {emulationStalled && !loadingProgress && !errorMessage && !exitInfo && (
+          <div className={s["stall-hint"]} role="status" aria-live="polite">
+            <span className={s["stall-hint__spinner"]} aria-hidden />
+            {stallHintLabel(document.documentElement.lang || new URLSearchParams(window.location.search).get("lang"))}
+          </div>
+        )}
         {loadingProgress && !errorMessage && !exitInfo && (() => {
           const activeStage = loadPhaseStageIndex(loadingProgress.phase);
           const status = loadPhaseStatus(loadingProgress.phase, gameDisplayName);

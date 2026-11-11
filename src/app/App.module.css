@@ -569,3 +569,40 @@
   .loading-overlay__bar-wrap.is-indeterminate .loading-overlay__bar { animation: none; width: 60%; }
   .loading-overlay__step.is-active .loading-overlay__step-dot { animation: none; }
 }
+
+.stall-hint {
+  position: absolute;
+  right: 12px;
+  bottom: 12px;
+  z-index: 9;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: var(--r-pill);
+  background: rgba(10, 13, 18, 0.72);
+  color: var(--fg-1);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  letter-spacing: 0.04em;
+  pointer-events: none;
+  animation: stall-hint-in 0.25s var(--ease);
+}
+
+.stall-hint__spinner {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  border: 2px solid rgba(143, 230, 240, 0.25);
+  border-top-color: var(--cyan);
+  animation: stall-hint-spin 0.9s linear infinite;
+}
+
+@keyframes stall-hint-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes stall-hint-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
