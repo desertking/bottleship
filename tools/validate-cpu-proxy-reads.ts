@@ -97,7 +97,7 @@ const PINNED = new Map<string, number>([
     ["core/thunking/callback-manager.ts", 19],
     ["core/thunking/dispatcher-forensics.ts", 9],
     ["core/thunking/exception-context-dumper.ts", 2],
-    ["core/thunking/thunk-dispatcher.ts", 67],
+    ["core/thunking/thunk-dispatcher.ts", 65],
     ["emulator.worker.ts", 24],
     ["harness/cmds/breakpoints.ts", 4],
     ["harness/cmds/fpu.ts", 3],
@@ -113,6 +113,7 @@ const PINNED = new Map<string, number>([
     ["modules/crt-vc9-setjmp.ts", 3],
     ["modules/ffmpeg/avcodec-decode-hle.ts", 1],
     ["modules/kernel32/exception.ts", 1],
+    ["modules/kernel32/fiber.ts", 1],
     ["modules/kernel32/process/version-verify.ts", 1],
     ["modules/msvcrt.ts", 2],
 ]);
