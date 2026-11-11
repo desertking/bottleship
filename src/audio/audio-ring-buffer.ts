@@ -116,6 +116,7 @@ export const STATE_PAUSED = 2;
 export const FLAG_CIRCULAR = 1;
 /** Streaming flag: worklet outputs silence when caught up to write cursor instead of wrapping */
 export const FLAG_STREAMING = 2;
+export const FLAG_LAP_MUTE = 4;
 
 // ─── Listener SAB field indices (Int32Array element offsets) ─────────────────
 
@@ -142,6 +143,7 @@ export const LCTRL_DISTANCE_MODEL = 16;
 export const LCTRL_SPEED_OF_SOUND = 17;
 /** Listener flags: see LFLAG_* */
 export const LCTRL_FLAGS = 18;
+export const LCTRL_EMULATION_BEAT = 19;
 
 /**
  * LCTRL_FLAGS bit 0: the orientation basis is LEFT-handed, so the listener's right is
