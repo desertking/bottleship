@@ -44,6 +44,12 @@ import { isValidGuestEip } from '../../core/scheduler/scheduler-context';
 import { WAIT_FAILED, WAIT_BLOCKED_NO_SWITCH } from '../../core/scheduler/types';
 import { deliverPendingApcs } from '../kernel32/sync';
 
+// Input message ranges (GetInputState).
+const WM_KEYFIRST = 0x0100;
+const WM_KEYLAST = 0x0109;
+const WM_MOUSEFIRST = 0x0200;
+const WM_MOUSELAST = 0x020e;
+
 // MsgWaitForMultipleObjectsEx flags + the shared wait vocabulary.
 const MWMO_WAITALL = 0x0001;
 const MWMO_ALERTABLE = 0x0002;
@@ -55,6 +61,7 @@ const ERROR_INVALID_PARAMETER = 87;
 const WM_TIMER = 0x0113;
 const WM_SETCURSOR_MSG = 0x0020;
 const WM_PAINT = 0x000F;
+const WM_ACTIVATE_MSG = 0x0006;
 const WM_SETTEXT_MSG = 0x000C;
 const WM_GETTEXT_MSG = 0x000D;
 const WM_GETTEXTLENGTH_MSG = 0x000E;
@@ -1135,6 +1142,20 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
         return ((present << 16) | present) >>> 0;
     };
 
+    /**
+     * BOOL GetInputState(void): whether keyboard or mouse input is waiting in the calling
+     * thread's queue. Games poll it to decide whether to pump messages this frame; without
+     * an implementation it failed with 0 and such a loop never saw its key presses.
+     */
+    exports['GetInputState'] = () => {
+        const system = System.getInstance();
+        const currentThreadId = system.scheduler.getCurrentThreadId();
+        system.inputManager.poll(true);
+        const wm = system.windowManager;
+        return wm.hasMessages(WM_KEYFIRST, WM_KEYLAST, currentThreadId)
+            || wm.hasMessages(WM_MOUSEFIRST, WM_MOUSELAST, currentThreadId) ? 1 : 0;
+    };
+
     exports['WaitMessage'] = (ctx, mem, args) => {
         const system = System.getInstance();
         const currentThreadId = system.scheduler.getCurrentThreadId();
@@ -1388,6 +1409,12 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                 timerDiag.dispatched++;
             }
 
+            if (message === WM_ACTIVATE_MSG && (wParam & 0xFFFF) !== 0
+                && System.getInstance().windowManager.getActiveHwnd() !== (hwnd >>> 0)
+                && !(globalThis as { __noStaleActivateDrop?: boolean }).__noStaleActivateDrop) {
+                return { value: 0, stackCleanup: 4 };
+            }
+
             // Posted WM_PAINT is suppressed once the window (or an ancestor) is
             // hidden. A stale paint queued before a page switch must not resurrect
             // that page's owner-draw controls on the shared overlay.
@@ -1583,6 +1610,8 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
             const WM_NCDESTROY = 0x0082;
 
             const window = getWindowByHandle(hwnd);
+            const rawInput = message === 0x00ff ? System.getInstance().inputManager.rawInput : null;
+            const rawInputThread = rawInput ? System.getInstance().scheduler.getCurrentThreadId() : 0;
             // The BUTTON class proc's WM_PAINT: a BS_OWNERDRAW button is drawn by ONE
             // WM_DRAWITEM to its parent (Wine button.c OB_Paint), which is a guest
             // callback — so this is where an InvalidateRect/UpdateWindow on such a button
@@ -1622,12 +1651,14 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                     repaintDialogAfterContentChange(window.parent ?? hwnd);
                 }
                 if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                 return { value: result >>> 0, stackCleanup: 4 };
             }
             if (window && window.wndProc) {
                 // Sentinel WndProc: system control, handle in JS — do NOT call into x86
                 if (isSentinelWndProc(window.wndProc)) {
                     if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+                    rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                     return { value: 0, stackCleanup: 4 };
                 }
 
@@ -1649,16 +1680,23 @@ export function createMessageExports(): Record<string, ThunkImplementation> {
                             clearWindowUpdate(hwnd);
                             if (control) handleSystemControlMessage(control, WM_PAINT, 0, 0, mem);
                         }
+                        // RIM_INPUTSINK has no application DefWindowProc obligation.
+                        // Keep the packet alive throughout the suspended guest proc.
+                        rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
                         return wndRet >>> 0;
                     },
                 );
-                if (dispatchResult) return dispatchResult;
+                if (dispatchResult) {
+                    if (!dispatchResult.suspendedForCallback) rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
+                    return dispatchResult;
+                }
             }
 
             // Window has no wndProc (or was already gone) — no guest delivery happens, so
             // finalize a deferred-destroy window here instead of waiting for a wndProc that
             // will never run.
             if (message === WM_NCDESTROY) finalizeWindowDestroy(hwnd);
+            rawInput?.releaseBackground(lParam, hwnd, rawInputThread);
         }
 
         maybeLogTimerDiag();
