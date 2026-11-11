@@ -1,0 +1,9 @@
+{
+  "source": "manual (MSDN arity)",
+  "module": "snmpapi",
+  "functions": [
+    {"name": "SnmpUtilOidCpy", "argCount": 2},
+    {"name": "SnmpUtilOidNCmp", "argCount": 3},
+    {"name": "SnmpUtilVarBindFree", "argCount": 1}
+  ]
+}
