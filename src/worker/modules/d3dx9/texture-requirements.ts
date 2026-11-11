@@ -16,6 +16,8 @@ import { ThunkImplementation } from '../../core/thunking/thunk-dispatcher';
 import { Mem } from '../../core/memory/mem-accessor';
 import { Logger, LogCategory } from '../../core/logger';
 import { devices } from '../d3d9/shared-state';
+import { createGuestTexture } from '../d3d9/resource-registry';
+import { System } from '../../core/system';
 import { checkDxDeviceFormat } from '../../backends/webgpu/shared/dx-format-support';
 
 const D3D_OK = 0;
@@ -142,6 +144,31 @@ export function createTextureRequirementExports(): Record<string, ThunkImplement
         });
         Logger.verbose(LogCategory.D3D9, `D3DXCheckTextureRequirements -> 0x${(hr >>> 0).toString(16)}`);
         return hr;
+    };
+
+    // (pDevice, Width, Height, MipLevels, Usage, Format, Pool, ppTexture)
+    exports['D3DXCreateTexture'] = (_ctx, _mem, args) => {
+        const [devicePtr, width, height, mipLevels, usage, format, pool, ppTexture] = args.map((a) => a >>> 0);
+        if (ppTexture) Mem.writeUint32(ppTexture, 0);
+        if (!devicePtr || !ppTexture) return D3DERR_INVALIDCALL;
+        const memory = System.getInstance().process?.memory;
+        const scratch = memory ? memory.alloc(16, 'HEAP', 'rw') >>> 0 : 0;
+        if (!memory || !scratch) return D3DERR_INVALIDCALL;
+        try {
+            Mem.writeUint32(scratch, width);
+            Mem.writeUint32(scratch + 4, height);
+            Mem.writeUint32(scratch + 8, mipLevels);
+            Mem.writeUint32(scratch + 12, format);
+            const hr = adjust({
+                devicePtr, pWidth: scratch, pHeight: scratch + 4, pDepth: 0, pMipLevels: scratch + 8,
+                usage, pFormat: scratch + 12, rType: D3DRTYPE_TEXTURE, square: false,
+            });
+            if (hr !== D3D_OK) return hr;
+            return createGuestTexture(devicePtr, Mem.readUint32(scratch) ?? 0, Mem.readUint32(scratch + 4) ?? 0,
+                Mem.readUint32(scratch + 8) ?? 0, usage, Mem.readUint32(scratch + 12) ?? 0, pool, ppTexture);
+        } finally {
+            memory.free(scratch);
+        }
     };
 
     // (pDevice, pSize, pMipLevels, Usage, pFormat, Pool) — one extent, six faces.
