@@ -9,7 +9,7 @@ export const RAM = 32 * 1024 * 1024, PD = 0x80000, PT = 0x81000;
 export const IDS = {
     memcpy: 56, memset: 57, memcmp: 62, memmove: 84, memchr: 85,
     strlen: 58, wcslen: 51, strcmp: 59, stricmp: 61, wcsicmp: 54,
-    wcschr: 55, strcpy: 60, wcscpy: 52,
+    wcschr: 55, strcpy: 60, wcscpy: 52, charNextA: 46, charNextW: 47,
 };
 function image(halt) {
     const bytes = new Uint8Array(0x2000), v = new DataView(bytes.buffer);
