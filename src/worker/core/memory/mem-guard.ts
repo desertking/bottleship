@@ -24,7 +24,10 @@ export class MemoryGuard {
             return data.length;
         }
 
-        const absoluteAddress = address + mem.byteOffset;
+        const process = System.getInstance().process;
+        const guestMemory = process?.getCurrentMemory?.();
+        const guestOffset = guestMemory && guestMemory.buffer === mem.buffer ? guestMemory.byteOffset : 0;
+        const absoluteAddress = address + mem.byteOffset - guestOffset;
         const writeSize = data.length;
 
         if (!this.isValidRange(mem, address, 1)) {
@@ -41,7 +44,6 @@ export class MemoryGuard {
 
         // Check if write would overlap protected regions (thunk/callback/spin)
         // This prevents games from writing to system code regions via direct memory access
-        const process = System.getInstance().process;
         let regions = null;
         try {
             regions = process?.thunkMemoryManager?.getRegions() ?? null;
