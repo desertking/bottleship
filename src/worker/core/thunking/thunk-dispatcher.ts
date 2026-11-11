@@ -4839,7 +4839,7 @@ export class ThunkDispatcher {
     private registerWbufDynarecIntrinsic(
         stubAddr: number,
         functionId: number,
-        kind: 0 | 1,
+        kind: 0 | 1 | 2,
         argCount: number,
         isStdcall: boolean,
         hotSlot?: 0 | 1 | 2,
@@ -5308,6 +5308,7 @@ export class ThunkDispatcher {
             this.writeBufArgCountTable[id] = 1;
             this.writeBufCoalesceMaskTable[id] = 0;
             this.writeBufBarrierTable[id] = 0;
+            this.registerWbufDynarecIntrinsic(stubAddr, id, 2, 0, true);
             patched++;
         }
         return patched > 0;

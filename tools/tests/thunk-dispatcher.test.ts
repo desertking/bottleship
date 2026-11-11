@@ -216,7 +216,12 @@ describe('ThunkDispatcher — zero-argument WBUF registration', () => {
         };
         const pm = preemptionManager as any;
         const oldExports = pm.wasmExports;
-        pm.wasmExports = { jit_dirty_cache: () => {}, jit_wbuf_intrinsic_clear_registry: () => {} };
+        const intrinsics: number[][] = [];
+        pm.wasmExports = {
+            jit_dirty_cache: () => {}, jit_wbuf_intrinsic_clear_registry: () => {},
+            jit_wbuf_intrinsic_set_enabled: () => {},
+            jit_wbuf_intrinsic_register: (...args: number[]) => { intrinsics.push(args); return 1; },
+        };
         try {
             const d = new ThunkDispatcher({ add_listener: () => {} } as any, generator as any) as any;
             const { mem } = bindMemory(d, 0x10000);
@@ -231,6 +236,8 @@ describe('ThunkDispatcher — zero-argument WBUF registration', () => {
                 expect(d.writeBufHandlerTable[s.functionId]).toBe(handler);
                 expect(d.writeBufArgCountTable[s.functionId]).toBe(1);
             }
+            expect(intrinsics.map(a => [a[0], a[1], a[2], a[3], a[4]])).toEqual(
+                stubs.slice(0, 2).map(s => [s.address, s.functionId, 2, 0, 1]));
             expect(mem[stubs[2]!.address + 5]).not.toBe(0xE9);
             expect(d.writeBufHandlerTable[stubs[2]!.functionId]).toBeFalsy();
 
