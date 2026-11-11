@@ -488,7 +488,7 @@ function identityMatrix(): Float32Array {
     ]);
 }
 
-function multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
+export function multiplyMatrices(a: Float32Array, b: Float32Array): Float32Array {
     const out = new Float32Array(16);
     for (let row = 0; row < 4; row++) {
         for (let col = 0; col < 4; col++) {
