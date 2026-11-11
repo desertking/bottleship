@@ -12,6 +12,7 @@ import { TimeService } from '../time';
 import { markJoystickInputLost } from '../../modules/dinput/device-presence';
 import { broadcastGamepadDeviceChange } from '../../modules/user32/device-notify';
 import { GamepadPresenceTracker } from './gamepad-presence';
+import { RawInputManager } from './raw-input';
 import { isExclusiveMouseAcquired } from '../../core/pointer-policy';
 import { hypercallDataManager } from '../../core/cpu/hypercall-data';
 import {
@@ -303,6 +304,7 @@ interface TmeHoverEntry {
 }
 
 export class InputManager {
+    public readonly rawInput: RawInputManager;
     private inputView: Int32Array | null = null;
     private keyTextView: Uint16Array | null = null;
     private windowManager: WindowManager;
@@ -414,6 +416,8 @@ export class InputManager {
 
     constructor(windowManager: WindowManager, private readonly currentThreadId: () => number = () => 0) {
         this.windowManager = windowManager;
+        this.rawInput = new RawInputManager(windowManager);
+        windowManager.setRawInputDiscardCallback?.(handle => this.rawInput.release(handle));
     }
 
     setShouldEnqueueMessagesGetter(getter: () => boolean): void {
@@ -431,6 +435,11 @@ export class InputManager {
     setInputBuffer(buffer: SharedArrayBuffer | null): void {
         this.inputView = buffer ? new Int32Array(buffer) : null;
         this.keyTextView = this.inputView ? keyTextView(this.inputView) : null;
+        this.rawInput.seedMouse(
+            this.inputView?.[INPUT_INDEX.dinputDX] ?? 0,
+            this.inputView?.[INPUT_INDEX.dinputDY] ?? 0,
+            this.inputView?.[INPUT_INDEX.buttons] ?? 0,
+        );
         // A new buffer carries an unknown initial pad level — seed, never announce.
         this.gamepadPresence.reset();
         if (this.inputView) {
@@ -540,6 +549,8 @@ export class InputManager {
         const mouseY           = this.inputView[INPUT_INDEX.mouseY];
         const buttons          = this.inputView[INPUT_INDEX.buttons];
         const mouseInside      = this.inputView[INPUT_INDEX.mouseInside] !== 0;
+        const rawAccumX        = this.inputView[INPUT_INDEX.dinputDX];
+        const rawAccumY        = this.inputView[INPUT_INDEX.dinputDY];
         const gamepadConnected = this.inputView[INPUT_INDEX.gamepadConnected] === 1;
         const gamepadButtons   = this.inputView[INPUT_INDEX.gamepadButtons];
         const gamepadAxis0     = this.inputView[INPUT_INDEX.gamepadAxis0];
@@ -583,6 +594,7 @@ export class InputManager {
         // relative axes stay on the raw slots: a guest warp must not produce a delta.
         const cursorX = this.currentMouseX;
         const cursorY = this.currentMouseY;
+        this.rawInput.feedMouse(rawAccumX, rawAccumY, buttons, Math.round(-mouseWheel * 1.2), cursorX, cursorY);
 
         // DirectInput mouse: accumulate wheel + buffer events.
         // The SAB slot carries browser PIXEL deltaY (~100px per notch, + = scroll down).
@@ -672,14 +684,35 @@ export class InputManager {
         }
 
         const keyStateSnapshot = this.buildPackedKeyState(this.packedKeyStateScratch);
+        if (keyboardChanged && this.rawInput.isRegistered(6)) {
+            for (let word = 0; word < KEY_BITFIELD_COUNT; word++) {
+                const changed = this.keyBitfieldSnapshot[word] ^ this.prevKeyBitfield[word];
+                if (!changed) continue;
+                for (let bit = 0; bit < 32; bit++) {
+                    if (!(changed & (1 << bit))) continue;
+                    const vk = word * 32 + bit;
+                    if (vk === 0x10 || vk === 0x11 || vk === 0x12) continue;
+                    this.postRawKey(vk, (this.keyBitfieldSnapshot[word] & (1 << bit)) !== 0);
+                }
+            }
+        }
 
         // Keyboard target = the FOCUS window (Win32 routes keystrokes to GetFocus(),
         // which may be a child), falling back to active. Mouse routing is resolved
         // separately below (capture → WindowFromPoint).
-        const targetWin = this.windowManager.getKeyboardTargetWindow();
+        const rawRegistered = this.rawInput.isRegistered(2) || this.rawInput.isRegistered(6);
+        const targetWin = rawRegistered && !this.windowManager.getForegroundHwnd()
+            ? undefined : this.windowManager.getKeyboardTargetWindow();
         if (!targetWin) {
             // Save bitfield state even when no window
             this.prevKeyBitfield.set(this.keyBitfieldSnapshot);
+            if (rawRegistered) {
+                // Background INPUTSINK is not a deferred legacy click/move. Track
+                // the level so focus restoration cannot replay or swallow edges.
+                this.lastButtons = buttons;
+                this.lastMouseX = cursorX;
+                this.lastMouseY = cursorY;
+            }
             return;
         }
 
@@ -697,7 +730,9 @@ export class InputManager {
         // click TWICE, and the copy its menu did not consume is read by whatever runs next
         // — in a Q3-lineage title that is the cinematic, which any key event skips.
         // A guest SetCursorPos warp is not device input and still posts its own move.
-        const deviceMouseMessages = !isExclusiveMouseAcquired();
+        const deviceMouseMessages = !isExclusiveMouseAcquired() && !this.rawInput.suppressesLegacy(2);
+        const deviceKeyboardMessages = !this.rawInput.suppressesLegacy(6);
+        if (!deviceKeyboardMessages) this.pendingKeyEvents.length = 0;
 
         // Flush buffered keyboard events now that we can enqueue
         if (enqueue && this.pendingKeyEvents.length > 0) {
@@ -793,7 +828,7 @@ export class InputManager {
         // WM_ACTIVATE synthesis here — dialog activation messages are delivered by
         // user32 (activation-messages.ts) when the dialog is created/shown.
         const anyButtonWentDown = (leftDown && !wasLeftDown) || (rightDown && !wasRightDown) || (middleDown && !wasMiddleDown);
-        if (anyButtonWentDown && deviceMouseMessages) {
+        if (anyButtonWentDown && !isExclusiveMouseAcquired() && !this.rawInput.suppressesMouseActivation()) {
             // Activate the target's top-level ancestor rather than attempting
             // SetActiveWindow on a WS_CHILD button (a no-op on Win32).
             const targetTopLevel = this.windowManager.getTopLevelAncestor(mouseTargetHwnd);
@@ -849,7 +884,7 @@ export class InputManager {
         }
 
         // Pass 2: Generate WM_KEYDOWN/WM_KEYUP from bitfield diff
-        if (keyboardChanged) {
+        if (keyboardChanged && deviceKeyboardMessages) {
             const newKeyEvents: Array<{ vk: number; pressed: boolean; lParam: number }> = [];
             for (let word = 0; word < KEY_BITFIELD_COUNT; word++) {
                 const curr = this.keyBitfieldSnapshot[word];
@@ -912,6 +947,14 @@ export class InputManager {
             return isVkSet(bits, right) && !isVkSet(bits, left) ? right : left;
         }
         return vk;
+    }
+
+    private postRawKey(vk: number, pressed: boolean): void {
+        const legacyVk = vk >= 0xa0 && vk <= 0xa5 ? 0x10 + ((vk - 0xa0) >> 1) : vk;
+        const flags = (pressed ? 0 : 1) | (vk === 0x13 ? 4 : isExtendedKey(vk) ? 2 : 0);
+        const systemKey = legacyVk === 0x12 || legacyVk === 0x79 || !!this.keyStates[0x12];
+        this.rawInput.feedKeyboard(legacyVk, vkToScanCode(vk), flags,
+            (systemKey ? 0x0104 : WM_KEYDOWN) + (pressed ? 0 : 1));
     }
 
     /**
@@ -1026,9 +1069,13 @@ export class InputManager {
         // the schedule in the future for as long as the key stays down. Re-arm instead.
         if (this.repeatNextAt - now > TYPEMATIC_DELAY_MS) this.repeatNextAt = now + TYPEMATIC_DELAY_MS;
         if (now < this.repeatNextAt) return;
-        const targetWin = this.windowManager.getKeyboardTargetWindow();
-        if (!targetWin) return;
-        if (!(forceEnqueue || (this.shouldEnqueueMessages?.() ?? true))) return;
+        const rawRegistered = this.rawInput.isRegistered(6);
+        const anyRawRegistered = rawRegistered || this.rawInput.isRegistered(2);
+        const targetWin = anyRawRegistered && !this.windowManager.getForegroundHwnd()
+            ? undefined : this.windowManager.getKeyboardTargetWindow();
+        if (!targetWin && !rawRegistered) return;
+        const enqueueLegacy = forceEnqueue || (this.shouldEnqueueMessages?.() ?? true);
+        if (!enqueueLegacy && !this.rawInput.isRegistered(6)) return;
 
         // Repeats that could not be delivered on time coalesce into the repeat count,
         // matching how Windows folds a backed-up queue into one WM_KEYDOWN.
@@ -1039,7 +1086,10 @@ export class InputManager {
         const scan = vkToScanCode(vk);
         const ext = isExtendedKey(vk) ? 0x01000000 : 0;
         const lParam = ((repeatCount & 0xFFFF) | (scan << 16) | ext | 0x40000000) >>> 0;
-        this.windowManager.postInputMessage(
+        if (this.rawInput.isRegistered(6)) {
+            for (let i = 0; i < repeatCount; i++) this.postRawKey(vk, true);
+        }
+        if (targetWin && enqueueLegacy && !this.rawInput.suppressesLegacy(6)) this.windowManager.postInputMessage(
             targetWin.hwnd, WM_KEYDOWN, vk, lParam, 0, 0, 0,
             this.buildPackedKeyState(this.packedKeyStateScratch),
         );
@@ -1185,6 +1235,12 @@ export class InputManager {
      * Reset input manager state - clear all last state values
      */
     reset(): void {
+        this.rawInput.reset();
+        this.rawInput.seedMouse(
+            this.inputView?.[INPUT_INDEX.dinputDX] ?? 0,
+            this.inputView?.[INPUT_INDEX.dinputDY] ?? 0,
+            this.inputView?.[INPUT_INDEX.buttons] ?? 0,
+        );
         this.lastSeq = 0;
         this.lastMouseX = 0;
         this.lastMouseY = 0;

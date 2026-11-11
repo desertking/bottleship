@@ -7,6 +7,7 @@
  */
 import { Logger, LogCategory } from "../../core/logger";
 import { invalidateTextExtentCache } from "./text-extent-cache";
+import { parseSfntCoverage, type SfntCoverage } from './sfnt-coverage.mjs';
 
 const SFNT_TTCF = 0x74746366; // 'ttcf'
 const SFNT_V1 = 0x00010000;
@@ -113,13 +114,17 @@ export function parseSfntFace(data: Uint8Array): SfntFace | null {
 }
 
 // The worker owns one guest process, so its FontFaceSet also scopes FR_PRIVATE fonts.
-interface InstalledFont { faces: FontFace[]; family: string; fullName: string | null; references: Map<number, number> }
+interface InstalledFont { faces: FontFace[]; family: string; fullName: string | null; references: Map<number, number>; coverage: SfntCoverage | null }
 // @refuse(fonts added at run time are not part of a v1 savestate)
 const installedFonts = new Map<string, InstalledFont>();
 // @refuse(fonts added at run time are not part of a v1 savestate)
 const pendingFonts = new Map<string, Promise<InstalledFont | null>>();
 // @participant(gdi32)
 let fontGeneration = 0;
+// @refuse(fonts added at run time are not part of a v1 savestate)
+const memoryFontResources = new Map<number, string>();
+// @transient(handle counter for memory fonts, which a save refuses while any exist)
+let nextMemoryFontResource = 0x6f000000;
 
 /** A new guest container must not inherit installed faces or pending loads from the old one. */
 export function resetFontResources(): void {
@@ -130,6 +135,7 @@ export function resetFontResources(): void {
     invalidateTextExtentCache();
     installedFonts.clear();
     pendingFonts.clear();
+    memoryFontResources.clear();
 }
 
 /**
@@ -193,7 +199,7 @@ async function loadFontResource(resolvedPath: string, data: Uint8Array, generati
         if (generation !== fontGeneration) return null;
         Logger.log(LogCategory.GDI32,
             `AddFontResource: installed '${names.join("' / '")}' from "${resolvedPath}"`);
-        return { faces, family: face.family, fullName: face.fullName, references: new Map() };
+        return { faces, family: face.family, fullName: face.fullName, references: new Map(), coverage: parseSfntCoverage(new Uint8Array(buf)) };
     } catch (e) {
         Logger.warn(LogCategory.GDI32, `AddFontResource: FontFace load failed for "${resolvedPath}": ${e}`);
         return null;
@@ -229,6 +235,44 @@ export function isInstalledFontName(faceName: string): boolean {
         if (entry.family.toLowerCase() === name || entry.fullName?.toLowerCase() === name) return true;
     }
     return false;
+}
+
+/** Actual cmap coverage, including explicitly selected non-enumerable memory fonts. */
+export function installedFontCoverage(faceName: string): SfntCoverage | null {
+    const name = faceName.toLowerCase();
+    for (const entry of installedFonts.values()) {
+        if (entry.family.toLowerCase() === name || entry.fullName?.toLowerCase() === name) return entry.coverage;
+    }
+    return null;
+}
+
+/** Font linking searches actual loaded faces, not the host OS's unknown fonts. */
+export function installedFontForCodePages(mask: number): string | null {
+    for (const entry of installedFonts.values()) {
+        if ((entry.coverage?.codePages ?? 0) & mask) return entry.family;
+    }
+    return null;
+}
+
+/** Own the bytes before awaiting the real browser font loader. Single sfnt only. */
+export async function addMemoryFontResource(data: Uint8Array): Promise<number> {
+    // Collection enumeration/multi-face counts are not implemented: fail honestly.
+    if (!parseSfntCoverage(data)) return 0;
+    const owned = new Uint8Array(data);
+    const handle = nextMemoryFontResource++;
+    const key = `memory-font:${handle}`;
+    // AddFontMemResourceEx is private AND non-enumerable, per GDI contract.
+    if (await addFontResource(key, owned, 0x30) !== 1) return 0;
+    memoryFontResources.set(handle, key);
+    return handle;
+}
+
+export function removeMemoryFontResource(handle: number): boolean {
+    const key = memoryFontResources.get(handle >>> 0);
+    if (!key) return false;
+    if (!removeFontResource(key, 0x30)) return false;
+    memoryFontResources.delete(handle >>> 0);
+    return true;
 }
 
 /** Uninstall a font previously added by addFontResource. Returns false when the
