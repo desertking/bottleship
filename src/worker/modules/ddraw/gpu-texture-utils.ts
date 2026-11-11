@@ -11,6 +11,7 @@ import { System } from "../../core/system";
 import { isValidAddress, overlapsThunkCode } from "../../core/memory/address-guard";
 import { toPlainGuestMemory } from "../../core/memory/guest-memory";
 import { tryConvertPixelKernel } from "../../backends/webgpu/shared/dxt-kernel";
+import { tryGpuSwizzleUpload } from "../../backends/webgpu/shared/bgra-upload-swizzle";
 import { DDPF_FOURCC } from "./constants";
 import { lockCostProfiler, LP } from "./lock-cost-profiler";
 import type { DirectDrawSurfaceState } from "./com-objects";
@@ -1852,45 +1853,41 @@ function uploadPartialRegion(
     const textureFormat = format ?? (texture as unknown as { format?: GPUTextureFormat }).format ?? "rgba8unorm";
     const needsSwizzle = textureFormat === "bgra8unorm";
 
-    // Extract dirty rect from full RGBA data
     const dirtyBPR = w * 4;
-    const alignedDirtyBPR = (dirtyBPR + 255) & ~255;
-    const needsPadding = alignedDirtyBPR !== dirtyBPR && h > 1;
-    const dirtySize = needsPadding ? alignedDirtyBPR * h : w * h * 4;
-
-    // Allocate or reuse scratch buffer for dirty region
-    const dirtyData = scratch && scratch.length >= dirtySize
-        ? new Uint8Array(scratch.buffer, scratch.byteOffset, dirtySize)
-        : new Uint8Array(dirtySize);
-
-    // Copy dirty rows from full RGBA data
-    const fullBPR = fullWidth * 4;
-    for (let row = 0; row < h; row++) {
-        const srcOffset = ((y + row) * fullWidth + x) * 4;
-        const dstOffset = needsPadding ? row * alignedDirtyBPR : row * dirtyBPR;
-        const srcRow = rgbaData.subarray(srcOffset, srcOffset + dirtyBPR);
-
-        if (needsSwizzle) {
-            // Swizzle RGBA -> BGRA during copy
-            const rgba32 = new Uint32Array(srcRow.buffer, srcRow.byteOffset, w);
-            const bgra32 = new Uint32Array(dirtyData.buffer, dirtyData.byteOffset + dstOffset, w);
-            for (let i = 0; i < w; i++) {
-                const rgba = rgba32[i];
-                bgra32[i] = (rgba & 0xFF00FF00) | ((rgba & 0x00FF0000) >> 16) | ((rgba & 0x000000FF) << 16);
-            }
-        } else {
-            dirtyData.set(srcRow, dstOffset);
-        }
+    if (needsSwizzle && tryGpuSwizzleUpload(queue, texture, rgbaData, (y * fullWidth + x) * 4, fullWidth * 4, { x, y, w, h })) {
+        return;
     }
-
-    const bytesPerRow = needsPadding ? alignedDirtyBPR : dirtyBPR;
-    beforeQueueWrite(texture);
-    queue.writeTexture(
-        { texture, origin: { x, y, z: 0 } },
-        dirtyData as GPUAllowSharedBufferSource,
-        { bytesPerRow, rowsPerImage: h },
-        { width: w, height: h }
-    );
+    if (!needsSwizzle) {
+        beforeQueueWrite(texture);
+        queue.writeTexture(
+            { texture, origin: { x, y, z: 0 } },
+            rgbaData as GPUAllowSharedBufferSource,
+            { offset: (y * fullWidth + x) * 4, bytesPerRow: fullWidth * 4, rowsPerImage: h },
+            { width: w, height: h }
+        );
+    } else {
+        const dirtySize = w * h * 4;
+        const dirtyData = scratch && scratch.length >= dirtySize
+            ? new Uint8Array(scratch.buffer, scratch.byteOffset, dirtySize)
+            : new Uint8Array(dirtySize);
+        const bgra32 = new Uint32Array(dirtyData.buffer, dirtyData.byteOffset, w * h);
+        const rgba32 = new Uint32Array(rgbaData.buffer, rgbaData.byteOffset, fullWidth * fullHeight);
+        for (let row = 0; row < h; row++) {
+            const src = (y + row) * fullWidth + x;
+            const dst = row * w;
+            for (let i = 0; i < w; i++) {
+                const rgba = rgba32[src + i];
+                bgra32[dst + i] = (rgba & 0xFF00FF00) | ((rgba & 0x00FF0000) >> 16) | ((rgba & 0x000000FF) << 16);
+            }
+        }
+        beforeQueueWrite(texture);
+        queue.writeTexture(
+            { texture, origin: { x, y, z: 0 } },
+            dirtyData as GPUAllowSharedBufferSource,
+            { bytesPerRow: dirtyBPR, rowsPerImage: h },
+            { width: w, height: h }
+        );
+    }
 
     Logger.verbose(LogCategory.DDRAW,
         `Partial upload: rect=({${x},${y}}-{${x + w},${y + h}}) size=${w}×${h} ` +
@@ -1918,60 +1915,16 @@ export function uploadRGB565ToGPU(
     height: number,
     pitch: number
 ): void {
-    const pixels = width * height;
-    const isPacked = pitch === width * 2; // RGB565 is 2 bytes per pixel
-
-    let data: Uint16Array;
-
-    if (isPacked) {
-        // Fast path: direct Uint16Array view (zero-copy!)
-        data = new Uint16Array(mem.buffer, mem.byteOffset + surfacePtr, pixels);
-    } else {
-        // Slow path: need to copy row-by-row due to pitch padding
-        const temp = new Uint16Array(pixels);
-        const src16Base = new Uint16Array(mem.buffer, mem.byteOffset);
-
-        for (let y = 0; y < height; y++) {
-            const srcOffset = (surfacePtr + y * pitch) / 2; // Divide by 2 for Uint16 indexing
-            const dstOffset = y * width;
-            temp.set(src16Base.subarray(srcOffset, srcOffset + width), dstOffset);
-        }
-        data = temp;
-    }
-
-    // Upload RGB565 as-is (no conversion!)
-    const bytesPerRow = width * 2; // r16uint = 2 bytes per pixel
-    const alignedBPR = (bytesPerRow + 255) & ~255;
-    const needsPadding = alignedBPR !== bytesPerRow && height > 1;
-
+    const rowBytes = width * 2;
+    const bytesPerRow = pitch >= rowBytes && (pitch & 1) === 0 ? pitch : rowBytes;
+    const byteLength = height > 0 ? bytesPerRow * (height - 1) + rowBytes : 0;
+    const source = new Uint8Array(mem.buffer, mem.byteOffset + surfacePtr, byteLength);
     beforeQueueWrite(texture);
-    if (needsPadding) {
-        // Add row padding for WebGPU alignment
-        const padded = new Uint16Array(alignedBPR / 2 * height);
-        for (let y = 0; y < height; y++) {
-            padded.set(
-                data.subarray(y * width, (y + 1) * width),
-                y * (alignedBPR / 2)
-            );
-        }
-        queue.writeTexture(
-            { texture },
-            padded as unknown as GPUAllowSharedBufferSource,
-            { bytesPerRow: alignedBPR, rowsPerImage: height },
-            { width, height }
-        );
-    } else {
-        queue.writeTexture(
-            { texture },
-            data as unknown as GPUAllowSharedBufferSource,
-            { bytesPerRow, rowsPerImage: height },
-            { width, height }
-        );
-    }
-
-    const sizeKB = (pixels * 2) / 1024;
-    Logger.verbose(LogCategory.DDRAW,
-        `⚡ uploadRGB565ToGPU: ${width}x${height} (${sizeKB.toFixed(1)}KB) packed=${isPacked} padded=${needsPadding}`
+    queue.writeTexture(
+        { texture },
+        source as unknown as GPUAllowSharedBufferSource,
+        { bytesPerRow, rowsPerImage: height },
+        { width, height }
     );
 }
 
@@ -2023,68 +1976,25 @@ export function uploadToGPUTexture(
         }
     }
 
-    // Full texture upload (fallback)
-    const unpaddedBPR = width * 4;
-    const alignedBPR = (unpaddedBPR + 255) & ~255;
+    const bytesPerRow = width * 4;
     const textureFormat = format ?? (texture as unknown as { format?: GPUTextureFormat }).format ?? "rgba8unorm";
-    const needsSwizzle = textureFormat === "bgra8unorm";
-    const totalPixels = width * height;
-    const needsPadding = alignedBPR !== unpaddedBPR && height > 1;
-
-    // Convert RGBA to BGRA if texture format is bgra8unorm
-    let dataToUpload: Uint8Array;
-    if (needsSwizzle) {
-        // Convert RGBA to BGRA: swap R and B channels
-        const swizzledSize = needsPadding ? alignedBPR * height : totalPixels * 4;
-        const swizzled = scratch && scratch.length >= swizzledSize
-            ? new Uint8Array(scratch.buffer, scratch.byteOffset, swizzledSize)
-            : new Uint8Array(swizzledSize);
-        
+    let dataToUpload = rgbaData;
+    if (textureFormat === "bgra8unorm") {
+        if (tryGpuSwizzleUpload(queue, texture, rgbaData, 0, bytesPerRow, { x: 0, y: 0, w: width, h: height })) return;
+        const totalPixels = width * height;
+        const size = totalPixels * 4;
+        const swizzled = scratch && scratch.length >= size
+            ? new Uint8Array(scratch.buffer, scratch.byteOffset, size)
+            : new Uint8Array(size);
         const rgbaView = new Uint32Array(rgbaData.buffer, rgbaData.byteOffset, totalPixels);
-        const bgraView = new Uint32Array(swizzled.buffer, swizzled.byteOffset, swizzledSize / 4);
-
-        if (needsPadding) {
-            // Swizzle and pad in one pass using 32-bit words
-            const wordsPerRow = width;
-            const alignedWordsPerRow = alignedBPR / 4;
-            for (let y = 0; y < height; y++) {
-                const srcRowStart = y * wordsPerRow;
-                const dstRowStart = y * alignedWordsPerRow;
-                for (let x = 0; x < width; x++) {
-                    const rgba = rgbaView[srcRowStart + x];
-                    // RGBA (0xAA_BB_GG_RR) -> BGRA (0xAA_RR_GG_BB) on little-endian
-                    // In JS Uint32Array on LE: [R, G, B, A] is 0xAABBGGRR
-                    // We need [B, G, R, A] which is 0xAARRGGBB
-                    bgraView[dstRowStart + x] = 
-                        (rgba & 0xFF00FF00) |          // Keep G and A
-                        ((rgba & 0x00FF0000) >> 16) |  // Move B to R position
-                        ((rgba & 0x000000FF) << 16);   // Move R to B position
-                }
-            }
-        } else {
-            // Fast swizzle without padding
-            for (let i = 0; i < totalPixels; i++) {
-                const rgba = rgbaView[i];
-                bgraView[i] = (rgba & 0xFF00FF00) | ((rgba & 0x00FF0000) >> 16) | ((rgba & 0x000000FF) << 16);
-            }
+        const bgraView = new Uint32Array(swizzled.buffer, swizzled.byteOffset, totalPixels);
+        for (let i = 0; i < totalPixels; i++) {
+            const rgba = rgbaView[i];
+            bgraView[i] = (rgba & 0xFF00FF00) | ((rgba & 0x00FF0000) >> 16) | ((rgba & 0x000000FF) << 16);
         }
         dataToUpload = swizzled;
-    } else if (needsPadding) {
-        // Just pad, no swizzle needed
-        const requiredBytes = alignedBPR * height;
-        const paddedData = scratch && scratch.length === requiredBytes ? scratch : new Uint8Array(requiredBytes);
-        for (let y = 0; y < height; y++) {
-            paddedData.set(
-                rgbaData.subarray(y * unpaddedBPR, (y + 1) * unpaddedBPR),
-                y * alignedBPR
-            );
-        }
-        dataToUpload = paddedData;
-    } else {
-        dataToUpload = rgbaData;
     }
 
-    const bytesPerRow = needsPadding ? alignedBPR : unpaddedBPR;
     beforeQueueWrite(texture);
     queue.writeTexture(
         { texture },

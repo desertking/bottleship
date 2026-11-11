@@ -207,6 +207,45 @@ export class DDrawPresenter implements RenderActive {
     }
 
     /** The presented guest surface alone — no video plane, no GDI dialog rects, no stats. */
+    /**
+     * The canvas keeps its last presented image while nothing new is presented, so the
+     * display-rate loop has no reason to re-present a DirectDraw frame for its own sake.
+     */
+    get retainsCanvasBetweenPresents(): boolean { return true; }
+
+    /**
+     * Re-present the last frame onto a fresh swap texture. The display-rate loop calls this
+     * before it blits live dialog rects or the video plane, both of which draw onto the
+     * current canvas texture: a game that is not presenting while its modal is up (a
+     * single-buffered primary that only Unlocks when something changes) would otherwise
+     * show those rects over a blank texture — a dialog floating on black.
+     */
+    repaintLastFrame(): void {
+        const last = this.lastPresented;
+        if (!last || this.blendEnabled) return;
+        const backend = System.getInstance().services.render.getBackend();
+        if (backend?.kind !== "webgpu") return;
+        const webgpu = backend as WebGPUBackend;
+        const device = webgpu.getDevice();
+        const queue = webgpu.getQueue();
+        const gpuContext = webgpu.getContext();
+        if (!device || !queue || !gpuContext) return;
+        const encoder = device.createCommandEncoder();
+        const canvasTex = gpuContext.getCurrentTexture();
+        webgpu.drawTexture(
+            last.view,
+            canvasTex.createView(),
+            encoder,
+            true,
+            undefined,
+            undefined,
+            EmulatorConfig.getInstance().screenBackgroundColor,
+            undefined,
+            { srcW: last.width, srcH: last.height, outW: canvasTex.width, outH: canvasTex.height, toCanvas: true },
+        );
+        queue.submit([encoder.finish()]);
+    }
+
     async capturePresentedLayer(): Promise<Blob | null> {
         return this.lastPresented ? this.captureFromGpu(this.lastPresented) : null;
     }

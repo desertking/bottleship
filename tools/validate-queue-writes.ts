@@ -46,8 +46,8 @@ const PINS: Record<string, Census> = {
     "src/worker/backends/webgpu/ddraw/compute/vertex-converter.ts": { writeTexture: 0, copyExternalImageToTexture: 0, submit: 1, guardedSubmit: 0 },
     // mip levels of a texture (guarded).
     "src/worker/backends/webgpu/ddraw/mip-generator.ts": { writeTexture: 0, copyExternalImageToTexture: 0, submit: 1, guardedSubmit: 1 },
-    // canvas readback, canvas present, phase blend, palette convert (after flush), RGB565 convert (guarded).
-    "src/worker/modules/ddraw/presenter.ts": { writeTexture: 0, copyExternalImageToTexture: 0, submit: 5, guardedSubmit: 2 },
+    // canvas readback, canvas present, last-frame repaint onto the canvas, phase blend, palette convert (after flush), RGB565 convert (guarded).
+    "src/worker/modules/ddraw/presenter.ts": { writeTexture: 0, copyExternalImageToTexture: 0, submit: 6, guardedSubmit: 2 },
     // debug readback; fresh-texture clear; partial, RGB565 x2 and full uploads (guarded).
     "src/worker/modules/ddraw/gpu-texture-utils.ts": { writeTexture: 4, copyExternalImageToTexture: 0, submit: 2, guardedSubmit: 0 },
     // debug surface probe (after flush).

@@ -727,6 +727,8 @@ export class TextureConverter {
 
     // Buffers to destroy after next queue.submit() (avoid "used in submit while destroyed")
     private pendingDestroyBuffers: GPUBuffer[] = [];
+    private pendingPooledBuffers: Array<{ key: string; buffer: GPUBuffer }> = [];
+    private freeBuffers = new Map<string, GPUBuffer[]>();
 
     // Reusable GPU objects for convertFromTexture, per source texture and readback shape.
     // Keyed by texture so a destroyed surface's set becomes unreachable with it.
@@ -1078,18 +1080,9 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
         }
 
         // Create temp buffers per call (bind group per call); correct usage flags.
-        const tempSrc = this.device.createBuffer({
-            size: srcBindSize,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
-        });
-        const tempParams = this.device.createBuffer({
-            size: 48,
-            usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM,
-        });
-        const tempDst = this.device.createBuffer({
-            size: dstSize,
-            usage: GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC,
-        });
+        const tempSrc = this.acquirePooledBuffer(srcBindSize, GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE);
+        const tempParams = this.acquirePooledBuffer(48, GPUBufferUsage.COPY_DST | GPUBufferUsage.UNIFORM);
+        const tempDst = this.acquirePooledBuffer(dstSize, GPUBufferUsage.STORAGE | GPUBufferUsage.COPY_SRC);
 
         // Upload source data; zero tail so unaligned reads never OOB
         // srcRelOffset is just srcAddr (x86 address maps directly to memory index)
@@ -1137,10 +1130,7 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             let lutBuffer: GPUBuffer;
             let lutSize: number;
             if (pixelFormat === PixelFormat.PALETTE8) {
-                tempPalette = this.device.createBuffer({
-                    size: 1024,
-                    usage: GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE,
-                });
+                tempPalette = this.acquirePooledBuffer(1024, GPUBufferUsage.COPY_DST | GPUBufferUsage.STORAGE);
                 if (palette) {
                     this.queue.writeBuffer(tempPalette, 0, palette as unknown as GPUAllowSharedBufferSource);
                 } else {
@@ -1200,10 +1190,6 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
             ddraw.incrementFrameCounter("uploads");
             ddraw.incrementFrameCounter("textureBytes", dstSize);
         }
-
-        // Lifecycle invariant: push to pendingDestroy only after commands are recorded.
-        this.pendingDestroyBuffers.push(tempSrc, tempParams, tempDst);
-        if (tempPalette) this.pendingDestroyBuffers.push(tempPalette);
 
         profiler.end("TextureConverter.convertToTexture");
     }
@@ -1811,6 +1797,22 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
     destroyPendingAfterSubmit(): void {
         for (const b of this.pendingDestroyBuffers) b.destroy();
         this.pendingDestroyBuffers.length = 0;
+        for (const { key, buffer } of this.pendingPooledBuffers) {
+            const free = this.freeBuffers.get(key);
+            if (!free) this.freeBuffers.set(key, [buffer]);
+            else if (free.length < TextureConverter.POOLED_BUFFERS_PER_SHAPE) free.push(buffer);
+            else buffer.destroy();
+        }
+        this.pendingPooledBuffers.length = 0;
+    }
+
+    private static readonly POOLED_BUFFERS_PER_SHAPE = 4;
+
+    private acquirePooledBuffer(size: number, usage: number): GPUBuffer {
+        const key = `${size}:${usage}`;
+        const buffer = this.freeBuffers.get(key)?.pop() ?? this.device.createBuffer({ size, usage });
+        this.pendingPooledBuffers.push({ key, buffer });
+        return buffer;
     }
 
     /**
@@ -1818,6 +1820,8 @@ fn main(@builtin(global_invocation_id) global_id: vec3u) {
      */
     destroy(): void {
         this.destroyPendingAfterSubmit();
+        for (const free of this.freeBuffers.values()) for (const b of free) b.destroy();
+        this.freeBuffers.clear();
         this.lutRGB565.destroy();
         this.lutRGB555.destroy();
         this.lutARGB1555.destroy();
