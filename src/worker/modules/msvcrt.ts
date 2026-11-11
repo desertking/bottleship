@@ -209,6 +209,8 @@ export class Msvcrt implements IModule {
     private acmdlnVarAddr = 0;   // 4-byte pointer-to-string: *acmdlnVarAddr → acmdlnAddr (string data)
     private adjustFdivAddr = 0;  // 4-byte int variable (value 0 = no FDIV bug)
     private encodedNullAddr = 0; // VC9 _encoded_null DATA export (encoded NULL pointer cookie)
+    private sysErrlistAddr = 0;  // _sys_errlist DATA export (char*[44])
+    private sysNerrAddr = 0;     // _sys_nerr DATA export (int)
     private hugeValAddr = 0;     // _HUGE DATA export (8-byte double, DBL_MAX)
     private qsortCodeAddr = 0;
     private bsearchCodeAddr = 0;
@@ -303,6 +305,7 @@ export class Msvcrt implements IModule {
         exports["__p___mb_cur_max"] = () => this.mbCurMaxAddr;
         exports["__p___argc"] = () => this.argcAddr;
         exports["__p___argv"] = () => this.argvPtrVarAddr;
+        exports["__p__environ"] = () => this.environVarAddr;
         exports["_mbctype"] = () => this.mbctypeAddr;
         exports["__p__fmode"] = () => this.fmodeAddr;
         exports["__p__commode"] = () => this.commodeAddr;
@@ -856,6 +859,8 @@ export class Msvcrt implements IModule {
         this.acmdlnVarAddr = 0;
         this.adjustFdivAddr = 0;
         this.hugeValAddr = 0;
+        this.sysErrlistAddr = 0;
+        this.sysNerrAddr = 0;
         this.qsortCodeAddr = 0;
         this.bsearchCodeAddr = 0;
         this.localeAddr = 0;
@@ -1090,6 +1095,20 @@ export class Msvcrt implements IModule {
             Mem.writeUint32(this.hugeValAddr + 4, 0x7ff00000);
         }
         tg.registerDataExport("msvcrt", "_HUGE", this.hugeValAddr);
+
+        if (this.sysErrlistAddr === 0) {
+            const messages = Msvcrt.SYS_ERRLIST;
+            this.sysErrlistAddr = this.process.memory.alloc(messages.length * 4, "THUNK_DATA", "rw");
+            messages.forEach((msg, i) => {
+                const str = this.process.memory.alloc(msg.length + 1, "THUNK_DATA", "rw");
+                this.writeCString(str, msg);
+                Mem.writeUint32(this.sysErrlistAddr + i * 4, str);
+            });
+            this.sysNerrAddr = this.process.memory.alloc(4, "THUNK_DATA", "rw");
+            Mem.writeUint32(this.sysNerrAddr, messages.length - 1);
+        }
+        tg.registerDataExport("msvcrt", "_sys_errlist", this.sysErrlistAddr);
+        tg.registerDataExport("msvcrt", "_sys_nerr", this.sysNerrAddr);
         tg.registerDataExport("msvcrt", "_timezone", this.timezoneState!.timezone);
         tg.registerDataExport("msvcrt", "_daylight", this.timezoneState!.daylight);
         tg.registerDataExport("msvcrt", "_dstbias", this.timezoneState!.dstbias);
@@ -1224,6 +1243,54 @@ export class Msvcrt implements IModule {
         const cp = EmulatorConfig.getInstance().ansiCodePage;
         return Msvcrt.DBCS_CODE_PAGES.has(cp) ? cp : 0;
     }
+
+    /** msvcrt's sys_errlist: _sys_nerr entries plus the trailing "Unknown error" (index _sys_nerr). */
+    private static readonly SYS_ERRLIST: readonly string[] = [
+        "No error",
+        "Operation not permitted",
+        "No such file or directory",
+        "No such process",
+        "Interrupted function call",
+        "Input/output error",
+        "No such device or address",
+        "Arg list too long",
+        "Exec format error",
+        "Bad file descriptor",
+        "No child processes",
+        "Resource temporarily unavailable",
+        "Not enough space",
+        "Permission denied",
+        "Bad address",
+        "Unknown error",
+        "Resource device",
+        "File exists",
+        "Improper link",
+        "No such device",
+        "Not a directory",
+        "Is a directory",
+        "Invalid argument",
+        "Too many open files in system",
+        "Too many open files",
+        "Inappropriate I/O control operation",
+        "Unknown error",
+        "File too large",
+        "No space left on device",
+        "Invalid seek",
+        "Read-only file system",
+        "Too many links",
+        "Broken pipe",
+        "Domain error",
+        "Result too large",
+        "Unknown error",
+        "Resource deadlock avoided",
+        "Unknown error",
+        "Filename too long",
+        "No locks available",
+        "Function not implemented",
+        "Directory not empty",
+        "Illegal byte sequence",
+        "Unknown error",
+    ];
 
     private strerrorMessage(errnoVal: number): string {
         switch (errnoVal) {
@@ -1678,7 +1745,7 @@ export class Msvcrt implements IModule {
     private strlen(ptr: number): number {
         if (!ptr) return 0;
         let len = 0;
-        while (len < 0x100000) {
+        for (;;) {
             const b = Mem.readUint8(ptr + len);
             if (b === 0 || b === null) break;
             len++;
@@ -1687,8 +1754,8 @@ export class Msvcrt implements IModule {
     }
 
     private strcpy(dest: number, src: number): number {
-        const value = this.readCString(src, 0x100000);
-        this.writeCString(dest, value);
+        if (!dest || !src) return dest >>> 0;
+        Mem.memmove(dest, src, this.strlen(src) + 1);
         return dest >>> 0;
     }
 
@@ -1704,9 +1771,8 @@ export class Msvcrt implements IModule {
     }
 
     private strcat(dest: number, src: number): number {
-        const destLen = this.strlen(dest);
-        const value = this.readCString(src, 0x100000);
-        this.writeCString(dest + destLen, value);
+        if (!dest || !src) return dest >>> 0;
+        Mem.memmove(dest + this.strlen(dest), src, this.strlen(src) + 1);
         return dest >>> 0;
     }
 
