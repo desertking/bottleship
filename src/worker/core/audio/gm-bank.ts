@@ -1,6 +1,6 @@
 import { type DlsCollection, type DlsInstrument, type DlsWave, parseDls } from "@bottleship/formats/dmusic/dls";
 import { hasCompressedWaves, parseSoundFont } from "@bottleship/formats/dmusic/sf2";
-import { DEPLOYMENT_CONFIG_URL, loadDeploymentConfig } from "../../../deployment-config";
+import { deploymentConfigUrl, loadDeploymentConfig } from "../../../deployment-config";
 import { Logger, LogCategory } from "../logger";
 import { System } from "../system";
 import { setWaveDecoder } from "./directmusic/synth";
@@ -49,7 +49,7 @@ export function readGuestFile(paths: string[], maxBytes = MAX_BANK_BYTES): Uint8
 export function prefetchGmBankSources(): Promise<string[]> {
     if (sourcesPromise) return sourcesPromise;
     sourcesPromise = loadDeploymentConfig().then((config) => {
-        const base = new URL(DEPLOYMENT_CONFIG_URL, self.location.href);
+        const base = new URL(deploymentConfigUrl(), self.location.href);
         sources = (config.soundFonts ?? []).filter((s) => typeof s === "string" && s.length > 0)
             .map((s) => new URL(s, base).href);
         return sources;

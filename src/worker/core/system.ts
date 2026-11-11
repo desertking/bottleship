@@ -304,7 +304,7 @@ export class System {
      * launcher exit and the app simply vanish. `void` is read as acceptance only so a host
      * that has not been updated keeps working.
      */
-    public onReExecRequest: ((commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[]) => boolean | void) | null = null;
+    public onReExecRequest: ((commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[], launcherExits?: boolean) => boolean | void) | null = null;
 
     /**
      * True when `file` (optionally relative to `directory`) names the image THIS process
@@ -365,9 +365,9 @@ export class System {
      * for the encrypt-on-disk launchers that is the decrypted code itself, so the restart
      * has to replay it or the new process runs ciphertext.
      */
-    public requestReExec(commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[]): boolean {
+    public requestReExec(commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[], launcherExits = false): boolean {
         if (!this.onReExecRequest) return false;
-        const accepted = this.onReExecRequest(commandLine, imagePath, imagePatches) !== false;
+        const accepted = this.onReExecRequest(commandLine, imagePath, imagePatches, launcherExits) !== false;
         if (!accepted) {
             Logger.warn(LogCategory.SYSTEM,
                 `Re-exec refused by the host for "${imagePath ?? this.executablePath}" "${commandLine}"`);
