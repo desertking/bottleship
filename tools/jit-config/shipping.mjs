@@ -106,6 +106,52 @@ export const SHIPPING_CODEGEN_SWITCHES = Object.freeze(new Map([
     ["jit_page_tails", 1],          // compile instructions in the last 15 bytes of a page
     ["jit_hot_edge_regions", 0],    // hot-edge region formation: measured −3..−4 %, OFF
     ["jit_guard_groups", 1],        // one widened TLB check per group of same-base accesses
+    ["jit_ret_memo_inline", 1],     // RET/indirect exits probe the dispatch memo in generated code
+    ["jit_fwait_inline", 1],        // FWAIT is an inline CR0 test, not a spilling block boundary
+    ["jit_multi_entry_loop_safety", 1], // multi-entry wasm loops get the LOOP_COUNTER exit too
+    ["jit_sse_scalar_inline", 1],   // scalar SSE memory/compare/convert forms as wasm float ops
+    ["jit_x87_lean", 1],            // one CR0 test per block; PC rounding only when PC=24
+    ["fpu_fld80_exact_fast", 1],    // FLD m80 as relaxed f64 only when the conversion is exact
+    ["jit_x87_runs", 1],
+    ["jit_carry8_inline", 1],
+    ["jit_sse_convert_inline", 1],
+    ["jit_page_fallthrough", 1],
+    ["jit_fist64_inline", 1],
+    ["jit_flag_locals_auto", 1],
+    ["jit_ftol_call_fusion", 1],
+    ["jit_smc_exit", 1],
+    ["jit_flag_carry_neutral", 1],
+    ["jit_cond_skip", 1],
+    ["jit_x87_entry_state", 1],
+    ["jit_x87_cmp_lean", 1],
+    ["jit_gg_through_runs", 1],
+    ["jit_adc_cf_only", 1],
+    ["jit_incdec_cf_keep", 1],
+    ["jit_loop_eip_lazy", 1],
+    ["jit_flags_fault_mat", 1],
+    ["jit_reg8_lean", 1],
+    ["jit_smc_exit_local", 1],
+    ["jit_adc8_cf_direct", 1],
+    ["jit_pf_inline", 1],
+    ["jit_sse_packed_inline", 1],
+    ["jit_alu16_inline", 1],
+    ["jit_fldcw_inline", 1],
+    ["jit_mmx_inline", 1],
+    ["jit_gg_member_inline_fallback", 1],
+    ["jit_cvttps2pi_inline", 1],
+    ["jit_frndint_inline", 1],
+    ["jit_idiv_inline", 1],
+    ["jit_fld80_inline", 1],
+    ["fpu_fld80_relaxed", 1],       // FLD m80 always as relaxed f64 (arithmetic is f64-backed anyway)
+    ["jit_wbuf_bitmap", 1],
+    ["jit_mmx_logic_inline", 1],
+    ["jit_rmw_misc_inline", 1],
+    ["jit_out_direct", 1],
+    ["jit_budget0_exit", 1],
+    ["jit_page_straddle", 1],       // an instruction straddling into a contiguous next page compiles in the module
+    ["jit_x87_run_tail", 1],        // an x87 run may end with a Normal block's last instruction
+    ["jit_x87_run_guard_share", 1], // one TLB guard per same-base operand group inside an x87 run
+    ["jit_smc_silent", 1],          // a store that leaves a code page's bytes unchanged invalidates nothing
 ]));
 
 /** The all-off reference for the switches. */
