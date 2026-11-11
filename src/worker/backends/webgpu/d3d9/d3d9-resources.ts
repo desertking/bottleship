@@ -36,6 +36,7 @@ export class VertexBufferStore {
     private lockedPtrs: Int32Array;    // -1 = not locked
     private lockedSizes: Uint32Array;
     private lockedOffsets: Uint32Array;
+    private nestedLocks = new Map<number, number>();
     private guestPtrs: Int32Array;     // HEAP backing for Lock/Unlock
     private dirtyFlags: Uint8Array;    // Boolean as byte
     private dirtyStarts: Uint32Array;  // union of locked ranges since last upload
@@ -86,6 +87,7 @@ export class VertexBufferStore {
         this.lockedPtrs[index] = -1;
         this.lockedSizes[index] = 0;
         this.lockedOffsets[index] = 0;
+        this.nestedLocks.delete(index);
         this.guestPtrs[index] = guestPtr;
         this.dirtyFlags[index] = 1;
         this.dirtyStarts[index] = 0;
@@ -190,6 +192,15 @@ export class VertexBufferStore {
     lock(index: number, offset: number, size: number): number {
         const guestBase = this.guestPtrs[index];
         if (guestBase < 0) return -1;
+        if (this.lockedPtrs[index] !== -1) {
+            // Nested Lock (legal in D3D9): keep the union so the first range's bytes are not lost.
+            const start = Math.min(this.lockedOffsets[index], offset);
+            const end = Math.max(this.lockedOffsets[index] + this.lockedSizes[index], offset + size);
+            this.lockedOffsets[index] = start;
+            this.lockedSizes[index] = end - start;
+            this.nestedLocks.set(index, (this.nestedLocks.get(index) ?? 0) + 1);
+            return guestBase + offset;
+        }
         this.lockedPtrs[index] = guestBase + offset;
         this.lockedSizes[index] = size;
         this.lockedOffsets[index] = offset;
@@ -221,9 +232,15 @@ export class VertexBufferStore {
         const offset = this.lockedOffsets[index];
         const data = this.data[index];
         if (data) data.set(src, offset);
-        this.lockedPtrs[index] = -1;
-        this.lockedSizes[index] = 0;
-        this.lockedOffsets[index] = 0;
+        const nested = this.nestedLocks.get(index);
+        if (nested) {
+            if (nested > 1) this.nestedLocks.set(index, nested - 1);
+            else this.nestedLocks.delete(index);
+        } else {
+            this.lockedPtrs[index] = -1;
+            this.lockedSizes[index] = 0;
+            this.lockedOffsets[index] = 0;
+        }
         this.lockedSinceUpload[index] = (this.lockedSinceUpload[index] ?? 0) + size;
         if (this.dirtyFlags[index] && this.dirtyEnds[index] > this.dirtyStarts[index]) {
             this.dirtyStarts[index] = Math.min(this.dirtyStarts[index], offset);
@@ -387,6 +404,7 @@ export class IndexBufferStore {
     private lockedPtrs: Int32Array;
     private lockedSizes: Uint32Array;
     private lockedOffsets: Uint32Array;
+    private nestedLocks = new Map<number, number>();
     private guestPtrs: Int32Array;
     private dirtyFlags: Uint8Array;
     private dirtyStarts: Uint32Array;
@@ -434,6 +452,7 @@ export class IndexBufferStore {
         this.lockedPtrs[index] = -1;
         this.lockedSizes[index] = 0;
         this.lockedOffsets[index] = 0;
+        this.nestedLocks.delete(index);
         this.guestPtrs[index] = guestPtr;
         this.dirtyFlags[index] = 1;
         this.dirtyStarts[index] = 0;
@@ -527,6 +546,15 @@ export class IndexBufferStore {
     lock(index: number, offset: number, size: number): number {
         const guestBase = this.guestPtrs[index];
         if (guestBase < 0) return -1;
+        if (this.lockedPtrs[index] !== -1) {
+            // Nested Lock (legal in D3D9): keep the union so the first range's bytes are not lost.
+            const start = Math.min(this.lockedOffsets[index], offset);
+            const end = Math.max(this.lockedOffsets[index] + this.lockedSizes[index], offset + size);
+            this.lockedOffsets[index] = start;
+            this.lockedSizes[index] = end - start;
+            this.nestedLocks.set(index, (this.nestedLocks.get(index) ?? 0) + 1);
+            return guestBase + offset;
+        }
         this.lockedPtrs[index] = guestBase + offset;
         this.lockedSizes[index] = size;
         this.lockedOffsets[index] = offset;
@@ -558,9 +586,15 @@ export class IndexBufferStore {
         const offset = this.lockedOffsets[index];
         const data = this.data[index];
         if (data) data.set(src, offset);
-        this.lockedPtrs[index] = -1;
-        this.lockedSizes[index] = 0;
-        this.lockedOffsets[index] = 0;
+        const nested = this.nestedLocks.get(index);
+        if (nested) {
+            if (nested > 1) this.nestedLocks.set(index, nested - 1);
+            else this.nestedLocks.delete(index);
+        } else {
+            this.lockedPtrs[index] = -1;
+            this.lockedSizes[index] = 0;
+            this.lockedOffsets[index] = 0;
+        }
         this.lockedSinceUpload[index] = (this.lockedSinceUpload[index] ?? 0) + size;
         if (this.dirtyFlags[index] && this.dirtyEnds[index] > this.dirtyStarts[index]) {
             this.dirtyStarts[index] = Math.min(this.dirtyStarts[index], offset);
