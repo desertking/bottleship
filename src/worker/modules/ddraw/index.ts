@@ -696,7 +696,7 @@ export class DDraw implements IModule {
         registerFastPathD3DFunctions(process.dispatcher, this.context);
 
         // Register FastPath for high-frequency surface functions
-        registerFastPathSurfaceFunctions(process.dispatcher, this.context);
+        registerFastPathSurfaceFunctions(process.dispatcher, this.context, this.exports);
 
         // Directly mapped primary pixels need scanout even without a Flip/Blt call.
         // Keep the callback across reset: initialize() is not repeated for the next process.
