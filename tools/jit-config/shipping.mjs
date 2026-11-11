@@ -34,7 +34,7 @@ export const SHIPPING_JIT = new Map([
     [20, 1],
     [21, 0],                    // PreemptionManager: arithmetic-flag locals OFF
     [22, 1],                    // PreemptionManager: wasm branch hints, guard group 0
-    [23, 0], [24, 0], [25, 9], [26, 0], [27, 32], [28, 1], [29, 0],
+    [23, 0], [24, 0], [25, 13], [26, 0], [27, 32], [28, 1], [29, 0],
     // jit.rs:6329 masks the setter's argument to 20 bits, so the Rust default (u32::MAX) is
     // not a value the engine can be asked to hold. 0xFFFFF is that default as stored, and it
     // is inert for the same reason: mode (idx 29) is 0.
