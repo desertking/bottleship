@@ -203,6 +203,7 @@ export class Oleaut32 implements IModule {
             return S_OK;
         };
         this.exports["VariantClear"] = this.exports["ord_9"];
+        this.exports["VariantInit"] = this.exports["ord_8"];
 
         this.exports["ord_10"] = (ctx, mem, args) => {
             const pvargDest = args[0] >>> 0;
