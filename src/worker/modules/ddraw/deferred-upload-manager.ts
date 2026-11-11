@@ -27,6 +27,7 @@ import { decodeSurfaceFormatToRgba8 } from "../../backends/webgpu/shared/texture
 export class DeferredUploadManager {
     private dirtySurfaces = new Set<DirectDrawSurfaceState>();
     private immediateUploadForPrimary = true; // Low-latency mode for primary surface
+    private conversionBuffer?: Uint8Array;
 
     // Frame diagnostics
     private frameStats = {
@@ -107,14 +108,14 @@ export class DeferredUploadManager {
             surface.height,
             surface.pitch,
             surface.format,
-            surface.rgbaScratch,
+            surface.rgbaScratch ?? this.takeConversionBuffer(surface.width * surface.height * 4),
             surface.srcColorKey,
             palette
         );
         profiler.end("DeferredUpload:immediate:convert");
 
         // Cache for next time
-        if (isRenderSurface(surface)) {
+        if (isRenderSurface(surface) && rgbaData !== this.conversionBuffer) {
             surface.rgbaScratch = rgbaData;
             surface.rgbaScratchVersion = surface.version;
         }
@@ -199,14 +200,14 @@ export class DeferredUploadManager {
                 surface.height,
                 surface.pitch,
                 surface.format,
-                surface.rgbaScratch,
+                surface.rgbaScratch ?? this.takeConversionBuffer(surface.width * surface.height * 4),
                 surface.srcColorKey,
                 palette
             );
             profiler.end("DeferredUpload:batch:convert");
 
             // Cache for next time
-            if (isRenderSurface(surface)) {
+            if (isRenderSurface(surface) && rgbaData !== this.conversionBuffer) {
                 surface.rgbaScratch = rgbaData;
                 surface.rgbaScratchVersion = surface.version;
             }
@@ -284,6 +285,13 @@ export class DeferredUploadManager {
             lockFullSurface: 0,
             totalDirtyArea: 0,
         };
+    }
+
+    private takeConversionBuffer(bytes: number): Uint8Array {
+        if (!this.conversionBuffer || this.conversionBuffer.length !== bytes) {
+            this.conversionBuffer = new Uint8Array(bytes);
+        }
+        return this.conversionBuffer;
     }
 
     /**
