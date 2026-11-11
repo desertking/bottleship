@@ -5,8 +5,8 @@
  * Coupling to Msvcrt is only via CrtTimeHost: v86 handle (difftime returns via
  * the FPU), process allocator (gmtime's static struct-tm scratch), and the
  * string/word writers. The scratch buffers are module statics, reset with the
- * process (resetCrtTimeStatics). These CRT entry points are wall-clock
- * (Date.now()/new Date()).
+ * process (resetCrtTimeStatics). Calendar time comes from TimeService.nowUnixMs(), the
+ * same clock GetTickCount/clock() advance on.
  */
 
 import { Mem } from "../core/memory/mem-accessor";
@@ -84,7 +84,7 @@ export function resetCrtTimeStatics(): void {
 export function registerCrtTimeExports(exports: Record<string, ThunkImplementation>, host: CrtTimeHost): void {
     exports["time"] = (_c, _m, a) => {
         const ptr = a[0] ?? 0;
-        const seconds = Math.floor(Date.now() / 1000) >>> 0;
+        const seconds = Math.floor(TimeService.getInstance().nowUnixMs() / 1000) >>> 0;
         if (ptr) Mem.writeUint32(ptr, seconds);
         return seconds;
     };
@@ -116,7 +116,7 @@ export function registerCrtTimeExports(exports: Record<string, ThunkImplementati
     exports["_ftime"] = (_c, _m, a) => {
         const ptr = a[0] ?? 0;
         if (!ptr) return 0;
-        const now = Date.now();
+        const now = TimeService.getInstance().nowUnixMs();
         const seconds = Math.floor(now / 1000) >>> 0;
         const millis = now % 1000;
         Mem.writeUint32(ptr, seconds);
@@ -292,7 +292,7 @@ export function registerCrtTimeExports(exports: Record<string, ThunkImplementati
     exports["_strdate"] = (_c, _m, a) => {
         const buffer = a[0] ?? 0;
         if (!buffer) return 0;
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const mm = String(now.getMonth() + 1).padStart(2, "0");
         const dd = String(now.getDate()).padStart(2, "0");
         const yy = String(now.getFullYear() % 100).padStart(2, "0");
@@ -303,7 +303,7 @@ export function registerCrtTimeExports(exports: Record<string, ThunkImplementati
     exports["_strtime"] = (_c, _m, a) => {
         const buffer = a[0] ?? 0;
         if (!buffer) return 0;
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const hh = String(now.getHours()).padStart(2, "0");
         const mm = String(now.getMinutes()).padStart(2, "0");
         const ss = String(now.getSeconds()).padStart(2, "0");
@@ -314,7 +314,7 @@ export function registerCrtTimeExports(exports: Record<string, ThunkImplementati
     exports["_wstrdate"] = (_c, _m, a) => {
         const buffer = a[0] ?? 0;
         if (!buffer) return 0;
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const mm = String(now.getMonth() + 1).padStart(2, "0");
         const dd = String(now.getDate()).padStart(2, "0");
         const yy = String(now.getFullYear() % 100).padStart(2, "0");
@@ -325,7 +325,7 @@ export function registerCrtTimeExports(exports: Record<string, ThunkImplementati
     exports["_wstrtime"] = (_c, _m, a) => {
         const buffer = a[0] ?? 0;
         if (!buffer) return 0;
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const hh = String(now.getHours()).padStart(2, "0");
         const mm = String(now.getMinutes()).padStart(2, "0");
         const ss = String(now.getSeconds()).padStart(2, "0");

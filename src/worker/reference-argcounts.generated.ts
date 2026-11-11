@@ -11510,6 +11510,11 @@ export const REFERENCE_ARG_COUNTS: ReferenceArgCountMap = {
     "zonecheckurlexw": 8,
     "zonecomputepanesize": 1
   },
+  "snmpapi": {
+    "snmputiloidcpy": 2,
+    "snmputiloidncmp": 3,
+    "snmputilvarbindfree": 1
+  },
   "tapi32": {
     "lineaccept": 3,
     "lineaddprovider": 3,
@@ -11692,6 +11697,10 @@ export const REFERENCE_ARG_COUNTS: ReferenceArgCountMap = {
     "tapigetlocationinfow": 2,
     "tapirequestmakecall": 4,
     "tapirequestmakecalla": 4
+  },
+  "urlmon": {
+    "cogetclassobjectfromurl": 10,
+    "registerbindstatuscallback": 4
   },
   "user32": {
     "activatekeyboardlayout": 2,
