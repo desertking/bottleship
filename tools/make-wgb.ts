@@ -45,6 +45,7 @@
  *                         A subtree that matches nothing is an error, not an empty import.
  *   --reg-name <str>      Value NAME for it (default: InstallPath). Titles differ —
  *                         GTA III reads HKLM\SOFTWARE\Rockstar Games\GTA 3\InstallDir.
+ *   --fpu-strict         Boot with strict x87 FPU (manifest emulator.fpuStrict)
  *   --cd-path <str>       Guest path the CD-ROM drive (D:\) aliases to, for a title that
  *                         still checks for its disc. Usually "C:\" (the install root).
  *   --cd-label <str>      Volume label of that disc, as GetVolumeInformation reports it for
@@ -407,6 +408,7 @@ const manifest: Record<string, unknown> = {
         screenResolution: { width, height, bpp },
         memory: { ram: ramMB * 1024 * 1024 },
         ...(has('--skip-video') ? { skipVideo: true } : {}),
+        ...(has('--fpu-strict') ? { fpuStrict: true } : {}),
         ...(get('--codepage') ? { codepage: parseInt(get('--codepage')!, 10) } : {}),
         ...(get('--oem-codepage') ? { oemCodepage: parseInt(get('--oem-codepage')!, 10) } : {}),
         ...(get('--lcid') ? { lcid: parseInt(get('--lcid')!, 16) } : {}),
