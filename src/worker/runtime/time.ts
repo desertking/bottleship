@@ -18,6 +18,12 @@ export class TimeService {
     private virtualTimeActive = false;
     private virtualTimeMs = 0;
     private wallOffsetMs = 0;
+    // Calendar time is the guest clock plus a fixed epoch offset, taken from the host
+    // calendar on first use. Windows derives GetSystemTime* and GetTickCount from the same
+    // interrupt time, so their deltas agree; a guest that cross-checks them (timer
+    // tamper detection in benchmarks) sees drift otherwise, because the guest clock is
+    // instruction-paced and runs behind the host calendar whenever emulation is slower.
+    private unixEpochOffsetMs: number | null = null;
 
     static getInstance(): TimeService {
         if (!TimeService.instance) {
@@ -162,6 +168,7 @@ export class TimeService {
         this.manualUnixMs = 0;
         this.lastReturnedMs = 0;
         this.wallOffsetMs = 0;
+        this.unixEpochOffsetMs = null;
         if (this.virtualTimeActive) {
             this.virtualTimeMs = this.wallMs();
         }
@@ -250,11 +257,14 @@ export class TimeService {
         return currentMs;
     }
 
+    /** Calendar time in whole Unix ms, advancing in lockstep with nowMs(). */
     nowUnixMs(): number {
         if (this.mode === "manual") {
             return this.manualUnixMs;
         }
-        return Date.now();
+        const now = this.nowMs();
+        if (this.unixEpochOffsetMs === null) this.unixEpochOffsetMs = Date.now() - now;
+        return Math.floor(this.unixEpochOffsetMs + now);
     }
 
     nowMicros(): number {
@@ -281,6 +291,7 @@ export class TimeService {
     restoreClock(saved: ClockState): void {
         this.wallOffsetMs = saved.nowMs - performance.now();
         this.lastReturnedMs = saved.nowMs;
+        this.unixEpochOffsetMs = null;
         if (this.virtualTimeActive) this.virtualTimeMs = saved.nowMs;
     }
 

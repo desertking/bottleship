@@ -10,6 +10,7 @@ import { WAIT_BLOCKED_NO_SWITCH, WAIT_IO_COMPLETION } from '../../../core/schedu
 import { deliverPendingApcs } from '../sync';
 import { cpuViews } from '../../../core/cpu/cpu-views';
 import { getCPU } from '../../../core/thunking/thunk-utils';
+import { PollKind } from '../../../core/thunking/poll-spin-detector';
 
 
 export const exports: Record<string, ThunkImplementation> = {};
@@ -35,9 +36,9 @@ let lastSleepExStormWarnMs = 0;
  */
 export function registerFastPathTimeFunctions(dispatcher: HleDispatcher): void {
     if (dispatcher && typeof dispatcher.registerFastPath === 'function') {
-        dispatcher.registerFastPath('kernel32', 'GetTickCount', TimeService.fastPathGetTickCount);
-        dispatcher.registerFastPath('winmm', 'timeGetTime', TimeService.fastPathGetTickCount);
-        dispatcher.registerFastPath('kernel32', 'QueryPerformanceCounter', TimeService.fastPathQueryPerformanceCounter);
+        dispatcher.registerFastPath('kernel32', 'GetTickCount', TimeService.fastPathGetTickCount, { poll: PollKind.VirtualClock });
+        dispatcher.registerFastPath('winmm', 'timeGetTime', TimeService.fastPathGetTickCount, { poll: PollKind.VirtualClock });
+        dispatcher.registerFastPath('kernel32', 'QueryPerformanceCounter', TimeService.fastPathQueryPerformanceCounter, { poll: PollKind.VirtualClock });
         dispatcher.registerFastPath('kernel32', 'QueryPerformanceFrequency', TimeService.fastPathQueryPerformanceFrequency);
 
         // Sleep(0) fast path: skip full thunk when no context switch is needed.
@@ -128,7 +129,7 @@ function initTimeFunctions(): void {
             return { value: 0, stackCleanup: 4 };
         }
 
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
 
         // GetSystemTime returns UTC
@@ -150,7 +151,7 @@ function initTimeFunctions(): void {
             return { value: 0, stackCleanup: 4 };
         }
 
-        const now = new Date();
+        const now = new Date(TimeService.getInstance().nowUnixMs());
         const view = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
 
         view.setUint16(lpSystemTime + 0,  now.getFullYear(), true);
