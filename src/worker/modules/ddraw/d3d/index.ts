@@ -273,6 +273,7 @@ export function registerFastPathD3DFunctions(dispatcher: HleDispatcher, context:
     // ============================================================================
     const isLostFn: FastPathImplementation = () =>
         lostSurfaceCount() === 0 ? DD_OK : null;
+    dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_IsLost', isLostFn, { trivial: true });
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface4_IsLost', isLostFn, { trivial: true });
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface7_IsLost', isLostFn, { trivial: true });
 

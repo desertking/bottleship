@@ -54,6 +54,7 @@ import {
     DDERR_WASSTILLDRAWING,
 } from "./constants";
 import { bytesToGuid, readRect, Rect, absToRel, readU16Abs, readU32Abs, surfaceAt } from "./helpers";
+import { noteGuestPrimaryWrite } from "./gdi-visibility";
 import { writeSurfaceDescV1 } from "./structs";
 import { DirectDrawSurfaceObject, DirectDrawSurfaceState, Direct3DTextureObject, Direct3DTexture2Object, DirectDrawGammaControlObject, DirectDrawClipperObject, Direct3DDevice3Object, isBitmapTexture, isRenderSurface } from "./com-objects";
 import { writePixelFormat, writeSurfaceDesc } from "./structs";
@@ -97,6 +98,9 @@ const clearActiveLeaseSnapshot = (state: DirectDrawSurfaceState): void => {
     state.activeLeaseSnapshotSize = undefined;
 };
 
+// @transient(scratch copy buffers keyed by live surface objects; refilled on the next Lock)
+const leaseSnapshotBuffers = new WeakMap<DirectDrawSurfaceState, Uint8Array>();
+
 const captureActiveLeaseSnapshot = (
     mem: Uint8Array,
     state: DirectDrawSurfaceState,
@@ -112,7 +116,12 @@ const captureActiveLeaseSnapshot = (
     mem = toPlainGuestMemory(mem);
     if (lease.base < 0 || lease.size <= 0 || lease.base + lease.size > mem.length) return;
 
-    const snapshot = new Uint8Array(lease.size);
+    let buffer = leaseSnapshotBuffers.get(state);
+    if (!buffer || buffer.length < lease.size) {
+        buffer = new Uint8Array(lease.size);
+        leaseSnapshotBuffers.set(state, buffer);
+    }
+    const snapshot = buffer.length === lease.size ? buffer : buffer.subarray(0, lease.size);
     snapshot.set(mem.subarray(lease.base, lease.base + lease.size));
     state.activeLeaseSnapshot = snapshot;
     state.activeLeaseSnapshotBase = lease.base;
@@ -165,6 +174,22 @@ const surfaceAlreadyLocked = (state: DirectDrawSurfaceState): boolean => {
     // A revoked lease is not a lock: drop the stale id rather than refuse forever.
     state.activeLeaseId = undefined;
     return false;
+};
+
+/**
+ * Only the primary surface IS the screen. Every other surface — an offscreen plain surface
+ * in video memory included — owns its own pixels, and GDI drawn through its DC has to land
+ * in them: an engine that renders text into an offscreen surface and blits it later
+ * otherwise blits the surface's untouched memory and sees its text drawn over the screen.
+ */
+export const usesScreenOverlayDC = (caps: number): boolean => (caps & DDSCAPS_PRIMARYSURFACE) !== 0;
+
+/** The rect a writable Lock exposed (the lease's lock rect, else the whole surface). */
+const writableLockRect = (state: DirectDrawSurfaceState): Rect | null => {
+    if (state.activeLeaseId === undefined) return null;
+    const lease = leaseRegistry.validateLease(state.activeLeaseId);
+    if (!lease || lease.perms === "r") return null;
+    return lease.rect ?? { left: 0, top: 0, right: state.width, bottom: state.height };
 };
 
 const consumeActiveLeaseWriteState = (
@@ -1011,8 +1036,8 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             const estimatedSize = state.pitch * state.height;
 
             const regions = getRegions();
-            Logger.verbose(
-                LogCategory.DDRAW,
+            Logger.verboseLazy(
+                LogCategory.DDRAW, () =>
                 `IDirectDrawSurface_Lock: surface=0x${thisPtr.toString(16)} surfacePtr=0x${state.surfacePtr.toString(16)} ` +
                 `range=0x${state.surfacePtr.toString(16)}..0x${(state.surfacePtr + estimatedSize).toString(16)} ` +
                 `size=${state.width}x${state.height} pitch=${state.pitch} estimatedSize=0x${estimatedSize.toString(16)} ` +
@@ -1639,6 +1664,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             const isTexture = (state.caps & DDSCAPS_TEXTURE) !== 0;
             profiler.start("Unlock:leaseCompare");
             const lcCompare = lockCostProfiler.now();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             profiler.end("Unlock:leaseCompare");
             const wasReadOnly = leaseWriteState.wasReadOnly;
@@ -1647,6 +1673,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             lockCostProfiler.add(LP.ucompare, lcCompare, ucClass);
             const lcState = lockCostProfiler.now();
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
             const previousSurfaceEverWritten = state.surfaceEverWritten;
             const previousWriteGeneration = state.writeGeneration;
             recordSurfaceOp("unlock", wasReadOnly ? "readonly" : didWritePixels ? "wrote" : "nochange",
@@ -1920,8 +1947,10 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
         const obj = context.resourceProvider.getComObjectByAddress(thisPtr) as DirectDrawSurfaceObject | null;
         if (obj) {
             const state = obj.getState();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
 
             if (didWritePixels) {
                 state.surfaceEverWritten = true;
@@ -1970,8 +1999,10 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
         const obj = context.resourceProvider.getComObjectByAddress(thisPtr) as DirectDrawSurfaceObject | null;
         if (obj) {
             const state = obj.getState();
+            const lockRect = writableLockRect(state);
             const leaseWriteState = consumeActiveLeaseWriteState(mem, state);
             const didWritePixels = leaseWriteState.changed;
+            if (didWritePixels && lockRect) noteGuestPrimaryWrite(context, state.caps, lockRect, false);
 
             if (didWritePixels) {
                 state.surfaceEverWritten = true;
@@ -2245,8 +2276,8 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
             Mem.writeUint32(lphDC, existingHdc);
             return DD_OK;
         }
-        if (!(state.caps & (DDSCAPS_TEXTURE | DDSCAPS_SYSTEMMEMORY | DDSCAPS_BACKBUFFER))) {
-            // Preserve the existing primary-surface overlay path.
+        if (usesScreenOverlayDC(state.caps)) {
+            // The primary is the screen: its DC draws where GDI window output goes.
             const hdc = gdiContext.createOverlayDC();
             if (!hdc) return E_FAIL;
             gdiContext.linkDCToSurface(hdc, thisPtr);
@@ -2962,7 +2993,7 @@ export const createSurfaceExports = (context: DDrawContext): Record<string, Thun
  * GetAttachedSurface is called ~972K times in UT99 demo (3.6s total).
  * The result is deterministic per surface: source → attached is fixed for a flipping chain.
  */
-export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, context: DDrawContext): void {
+export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, context: DDrawContext, exports?: Record<string, ThunkImplementation>): void {
     if (!dispatcher || typeof dispatcher.registerFastPath !== 'function') return;
 
     const resourceProvider = context.resourceProvider;
@@ -3037,5 +3068,30 @@ export function registerFastPathSurfaceFunctions(dispatcher: HleDispatcher, cont
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface7_GetAttachedSurface', fastPathGetAttachedSurface);
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_GetAttachedSurface', fastPathGetAttachedSurface);
     dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface4_GetAttachedSurface', fastPathGetAttachedSurface);
+
+    if (!exports) return;
+    const fastPathLockV1: FastPathImplementation = (esp, view, mem8) => {
+        if (esp + 24 > mem8.length) return null;
+        const thisPtr = view.getUint32(esp + 4, true);
+        const obj = resourceProvider.getComObjectByAddressFast(thisPtr) as DirectDrawSurfaceObject | null;
+        if (!(obj instanceof DirectDrawSurfaceObject)) return null;
+        const state = obj.getState();
+        if (isZBufferSurface(state) || surfaceSyncManager.needsCPUSync(state).needed) return null;
+        const impl = exports["IDirectDrawSurface_Lock"];
+        if (!impl) return null;
+        const args = [thisPtr, view.getUint32(esp + 8, true), view.getUint32(esp + 12, true),
+            view.getUint32(esp + 16, true), view.getUint32(esp + 20, true)];
+        const result = impl({ esp } as never, mem8, args);
+        return typeof result === "number" ? result : null;
+    };
+    const fastPathUnlockV1: FastPathImplementation = (esp, view, mem8) => {
+        if (esp + 12 > mem8.length) return null;
+        const impl = exports["IDirectDrawSurface_Unlock"];
+        if (!impl) return null;
+        const result = impl({ esp } as never, mem8, [view.getUint32(esp + 4, true), view.getUint32(esp + 8, true)]);
+        return typeof result === "number" ? result : null;
+    };
+    dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_Lock', fastPathLockV1);
+    dispatcher.registerFastPath('ddraw', 'IDirectDrawSurface_Unlock', fastPathUnlockV1);
 
 }

@@ -1,3 +1,4 @@
+import { loadDeploymentConfig } from "../deployment-config";
 import { parseIoProfile, profileChunkOrder, type WgbIoPolicy } from "@bottleship/formats/wgb/io-profile";
 import { V86 } from "v86";
 import { ThunkGenerator } from "./core/thunking/thunk-generator";
@@ -582,8 +583,8 @@ const gdiPresentOnce = () => {
       // Game owns the screen. Drop stale dirty flags so a later composite (e.g. after
       // returning to the launcher) starts clean, then keep the canvas showing the last
       // frame at display rate (a 3D renderer presents at ~8-12fps and the WebGPU canvas
-      // otherwise goes black between presents; the DDraw presenter lacks repaintLastFrame
-      // and re-presents each Flip, so this is a no-op there). The only GDI that overlays
+      // otherwise goes black between presents; the DDraw presenter keeps its canvas between
+      // presents and only re-presents under dialog rects / video). The only GDI that overlays
       // the frame here is live modal dialog rects (plan.mode === 'rects').
       if (gdiDirty) gdi.clearOverlayDirty();
       if (isVideoPlaneDirty()) dropVideoPlaneDirty();
@@ -599,7 +600,8 @@ const gdiPresentOnce = () => {
       const guestPresentSerial = system.services.render.getGuestPresentSerial();
       const guestPresentedSinceLastFrame = guestPresentSerial !== gdiLastGuestPresentSerial;
       gdiLastGuestPresentSerial = guestPresentSerial;
-      if (videoWillComposite || rectsWillComposite || !guestPresentedSinceLastFrame) {
+      const retainsCanvas = !!(renderActive as { retainsCanvasBetweenPresents?: boolean } | null)?.retainsCanvasBetweenPresents;
+      if (videoWillComposite || rectsWillComposite || (!guestPresentedSinceLastFrame && !retainsCanvas)) {
         (renderActive as { repaintLastFrame?(): void } | null)?.repaintLastFrame?.();
       }
 
@@ -2128,6 +2130,21 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
       Logger.log(LogCategory.SYSTEM, `Restored persisted registry for game "${gameId}"`);
     }
 
+    const deployment = await loadDeploymentConfig();
+    const deploymentRegistry = deployment.registry;
+    if (Array.isArray(deploymentRegistry) && deploymentRegistry.length > 0) {
+      const markerPath = "Software\\BottleShip\\Deployment";
+      const markerName = String(deployment.version ?? "default");
+      const markerKey = deployment.registryOnce ? system.registry.open("HKLM", markerPath) : null;
+      if (markerKey && system.registry.getValue(markerKey, markerName)) {
+        Logger.log(LogCategory.SYSTEM, `Deployment registry "${markerName}" already applied once — keeping the game's own values`);
+      } else {
+        const marker = { root: "HKLM", path: markerPath, values: [{ name: markerName, type: "REG_DWORD", data: 1 }] };
+        system.registry.seed(deployment.registryOnce ? [...deploymentRegistry, marker] : deploymentRegistry);
+        Logger.log(LogCategory.SYSTEM, `Applied ${deploymentRegistry.length} deployment registry key(s)`);
+      }
+    }
+
     // Setup auto-save on registry changes (debounced, cancelled on game switch).
     installRegistryAutosave(gameId);
 
@@ -2398,7 +2415,7 @@ const loadBundle = (payload: { data?: Uint8Array; url?: string; blob?: Blob; blo
  * macrotask, so this is the same proven entry the normal path uses — by then the thunk has
  * returned its SE_ERR_/PROCESS_INFORMATION value and the guest is at a clean boundary.
  */
-const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[]): boolean => {
+const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches?: GuestImagePatch[], launcherExits = false): boolean => {
   // Every route that can restart the guest funnels through here, so this is where a
   // request is recorded. A restart is a page reload, which wipes the log stream, the
   // CDP session and every in-worker ring — so a re-exec LOOP erases its own evidence
@@ -2448,7 +2465,7 @@ const requestSelfReExec = (commandLine: string, imagePath?: string, imagePatches
   // the other pattern — the launcher hands its command line over and exits — so nothing of
   // its namespace outlives it. Snapshot here: this is the CreateProcess call itself, the
   // moment at which the parent provably still holds every handle it opened.
-  pendingInheritedObjects = imagePath ? namedObjects.snapshot() : null;
+  pendingInheritedObjects = imagePath && !launcherExits ? namedObjects.snapshot() : null;
   System.getInstance().isReExecPending = true;
   const payload = lastBundlePayload;
 
@@ -3653,6 +3670,13 @@ const handleWorkerMessage = (event: MessageEvent): void => {
   }
   const message = event.data;
 
+  if (message?.type === "liveness_ping") {
+    let presents = 0;
+    try { presents = System.getInstance().services.render.getGuestPresentSerial(); } catch { presents = 0; }
+    self.postMessage({ type: "liveness_pong", seq: message.seq, presents, busyMs: workerTime.snapshot().inTickMs });
+    return;
+  }
+
   if (message?.type === "dbg") {
     // Guest debugger bridge: window.dbg.<cmd>(...args) on the page -> here.
     handleDbgCommand(message.cmd, message.args);
@@ -3795,6 +3819,9 @@ const handleWorkerMessage = (event: MessageEvent): void => {
   }
 
   if (message?.type === "init") {
+    if (typeof message.gameBase === "string" && message.gameBase) {
+      (globalThis as { __bsGameBase?: string }).__bsGameBase = message.gameBase;
+    }
     // Check if system is already initialized
     if (System.getInstance().process) {
       Logger.log(LogCategory.SYSTEM, "System already initialized, resending ready");
