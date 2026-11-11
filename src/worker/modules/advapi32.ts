@@ -1913,6 +1913,10 @@ export class Advapi32 implements IModule {
             return { value: 0, stackCleanup: 16 }; // FALSE
         };
 
+        // BOOL RevertToSelf(void) - nothing is ever impersonated, so reverting always succeeds.
+        // ATL (CAccessToken/CImpersonate) throws CAtlException(GetLastError) when it gets FALSE.
+        this.exports["RevertToSelf"] = () => ({ value: 1, stackCleanup: 0 });
+
         // GetTokenInformation - retrieve information about an access token
         // BOOL GetTokenInformation(HANDLE, TOKEN_INFORMATION_CLASS, LPVOID, DWORD, PDWORD)
         this.exports["GetTokenInformation"] = (ctx, mem, args) => {
