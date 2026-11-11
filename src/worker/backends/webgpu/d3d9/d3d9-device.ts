@@ -684,9 +684,9 @@ export function createRenderPipelineMaybeAsync(
     return gpuDevice.createRenderPipeline(descriptor);
 }
 
-function d3d9BufferAlignment(): number | undefined {
+function d3d9BufferAlignment(): number {
     const v = (globalThis as { __d3d9BufferAlign?: number }).__d3d9BufferAlign;
-    return v === 16 || v === 32 ? v : undefined;
+    return v === 8 || v === 32 ? v : 16;
 }
 
 export class D3D9Device {
