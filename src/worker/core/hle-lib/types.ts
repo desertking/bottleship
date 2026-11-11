@@ -257,6 +257,12 @@ export interface ShadowSpec {
      */
     validateInGame?: boolean;
     /**
+     * The kernel covers only what the guard admits. Once promoted, a call the guard
+     * turns down runs the original through the trampoline instead of the kernel.
+     * Needs validateInGame.
+     */
+    guardDeclines?: boolean;
+    /**
      * Let the sync-original run re-enter our import thunks instead of aborting
      * on them. Required for a library entry point that ALLOCATES (zlib's
      * `uncompress` mallocs a 32 KiB window through the CRT, whose HeapAlloc IAT
@@ -267,6 +273,12 @@ export interface ShadowSpec {
      * would try to park a thread that the sync-call loop is driving.
      */
     allowGuestImports?: boolean;
+    /**
+     * The function returns nothing and leaves a value in EAX that no kernel can
+     * reproduce (a timestamp sum, a stale pointer). Validation then compares the
+     * declared ranges only.
+     */
+    ignoreEax?: boolean;
 }
 
 export type ShadowHookState = 'shadowing' | 'active' | 'disabled';
