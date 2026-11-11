@@ -2131,6 +2131,7 @@ const loadBundleImpl = async (payload: { data?: Uint8Array; url?: string; blob?:
     }
 
     const deployment = await loadDeploymentConfig();
+    preemptionManager.setDeploymentCodegenSwitches(deployment.codegenSwitches);
     const deploymentRegistry = deployment.registry;
     if (Array.isArray(deploymentRegistry) && deploymentRegistry.length > 0) {
       const markerPath = "Software\\BottleShip\\Deployment";
