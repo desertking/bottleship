@@ -22,6 +22,8 @@
 
 import { Logger, LogCategory } from "../logger";
 import { getContainerDir } from "../../runtime/filesystem/container-store";
+import { gameIdToContainerDir } from "@bottleship/formats/wgb/container-id";
+import { gameBaseUrl } from "../../../deployment-config";
 
 /** v86 places JIT slot i at wasm_table[i + WASM_TABLE_OFFSET] (vendor/v86/src/const.js). */
 const WASM_TABLE_OFFSET = 1024;
@@ -155,6 +157,47 @@ interface AotVersion {
 }
 
 const AOT_ABI = 6;
+const ENGINE_SHA_WAIT_STEPS = 200;
+const ENGINE_SHA_WAIT_MS = 25;
+const PACK_MAGIC = "BSAOT1\0\0";
+const RETRY_INTERVAL_MS = 500;
+const RETRY_WINDOW_MS = 120_000;
+
+/** A unit pack: magic, u32 index length, the index JSON, then every unit's bytes in index order. */
+export function encodeAotPack(version: unknown, units: ReadonlyArray<Pick<AotUnit, "entryPage" | "tableIndex" | "pages" | "bytes">>): Uint8Array {
+    const index = new TextEncoder().encode(JSON.stringify({
+        version,
+        units: units.map((u) => ({ entryPage: u.entryPage, tableIndex: u.tableIndex, pages: u.pages, bytes: u.bytes.length })),
+    }));
+    const total = 8 + 4 + index.length + units.reduce((n, u) => n + u.bytes.length, 0);
+    const out = new Uint8Array(total);
+    out.set(new TextEncoder().encode(PACK_MAGIC), 0);
+    new DataView(out.buffer).setUint32(8, index.length, true);
+    out.set(index, 12);
+    let o = 12 + index.length;
+    for (const u of units) { out.set(u.bytes, o); o += u.bytes.length; }
+    return out;
+}
+
+export function decodeAotPack(data: Uint8Array): { version: unknown; units: AotUnit[] } | null {
+    if (data.length < 12 || new TextDecoder().decode(data.subarray(0, 8)) !== PACK_MAGIC) return null;
+    const indexLength = new DataView(data.buffer, data.byteOffset, data.byteLength).getUint32(8, true);
+    if (12 + indexLength > data.length) return null;
+    let index: { version?: unknown; units?: Array<{ entryPage: number; tableIndex: number; pages: AotPage[]; bytes: number }> };
+    try { index = JSON.parse(new TextDecoder().decode(data.subarray(12, 12 + indexLength))); } catch { return null; }
+    if (!index.version || !Array.isArray(index.units)) return null;
+    const units: AotUnit[] = [];
+    let o = 12 + indexLength;
+    for (const u of index.units) {
+        if (!Number.isInteger(u.bytes) || u.bytes <= 0 || o + u.bytes > data.length) return null;
+        const bytes = new Uint8Array(u.bytes);
+        bytes.set(data.subarray(o, o + u.bytes));
+        o += u.bytes;
+        units.push({ entryPage: u.entryPage, tableIndex: u.tableIndex, pages: u.pages, bytes });
+    }
+    if (o !== data.length) return null;
+    return { version: index.version, units };
+}
 
 export class AotCache {
     private units: AotUnit[] = [];
@@ -372,10 +415,93 @@ export class AotCache {
     }
 
     getUnits(): AotUnit[] { return this.units; }
+
+    private pending: AotUnit[] = [];
+    private retryTimer: ReturnType<typeof setTimeout> | null = null;
+    private retryDeadline = 0;
+    readonly retryStats = { passes: 0, published: 0, dropped: 0 };
+
+    pendingRetries(): number { return this.pending.length; }
+
+    private scheduleRetry(): void {
+        if (this.retryTimer !== null || this.pending.length === 0) return;
+        if ((globalThis as { __aotNoRetry?: boolean }).__aotNoRetry) { this.pending = []; return; }
+        this.retryTimer = setTimeout(() => {
+            this.retryTimer = null;
+            void this.retryPending().catch((e) => Logger.warn(LogCategory.SYSTEM, `[AOT] retry failed: ${e}`));
+        }, RETRY_INTERVAL_MS);
+    }
+
+    /**
+     * Units whose pages did not match at boot hold code that arrives later (a DLL mapped
+     * after the entry point, an unpacked section). Each pass re-hashes their pages; a unit
+     * whose pages all match is published if the JIT has not claimed them meanwhile. The
+     * hash runs on a copy, and the copy is compared against live memory again right before
+     * the synchronous publish, so a page rewritten in between is not published.
+     */
+    private async retryPending(): Promise<void> {
+        this.retryStats.passes++;
+        const mem: Uint8Array | undefined = this.cpu()?.mem8;
+        if (!mem || performance.now() > this.retryDeadline || !this.loadedVersion) {
+            this.retryStats.dropped += this.pending.length;
+            this.pending = [];
+            return;
+        }
+        const matched: Array<{ unit: AotUnit; copies: Array<{ addr: number; bytes: Uint8Array }> }> = [];
+        const still: AotUnit[] = [];
+        for (const u of this.pending) {
+            const copies: Array<{ addr: number; bytes: Uint8Array }> = [];
+            let ok = true;
+            for (const p of u.pages) {
+                const addr = p.physPage * PAGE_SIZE;
+                if (addr + PAGE_SIZE > mem.length) { ok = false; break; }
+                const bytes = new Uint8Array(PAGE_SIZE);
+                bytes.set(mem.subarray(addr, addr + PAGE_SIZE));
+                if (hex(await crypto.subtle.digest("SHA-256", bytes)) !== p.sha) { ok = false; break; }
+                copies.push({ addr, bytes });
+            }
+            if (ok) matched.push({ unit: u, copies });
+            else still.push(u);
+        }
+        this.pending = still;
+        if (matched.length) {
+            let same = false;
+            try { same = this.sameVersion(this.loadedVersion, await this.version()); } catch { same = false; }
+            const live: Uint8Array | undefined = this.cpu()?.mem8;
+            const imports = this.cpu()?.["jit_imports"];
+            const candidates: Array<{ unit: AotUnit; fn: unknown }> = [];
+            for (const { unit, copies } of matched) {
+                if (!same || !live || !imports) { this.retryStats.dropped++; continue; }
+                let unchanged = true;
+                for (const c of copies) {
+                    const cur = live.subarray(c.addr, c.addr + PAGE_SIZE);
+                    for (let i = 0; i < PAGE_SIZE; i++) if (cur[i] !== c.bytes[i]) { unchanged = false; break; }
+                    if (!unchanged) break;
+                }
+                if (!unchanged) { this.pending.push(unit); continue; }
+                try {
+                    const inst = new WebAssembly.Instance(unit.module ?? new WebAssembly.Module(unit.bytes), { "e": imports });
+                    const fn = (inst.exports as any)["f"];
+                    if (typeof fn === "function") candidates.push({ unit, fn });
+                    else this.retryStats.dropped++;
+                } catch { this.retryStats.dropped++; }
+            }
+            let refusedHere = 0;
+            const published = this.publishCandidates(candidates, () => { refusedHere++; });
+            this.retryStats.published += published;
+            this.retryStats.dropped += refusedHere;
+            const w = this.wasm();
+            if (published > 0 && w?.jit_aot_flush_tlb) w.jit_aot_flush_tlb();
+            if (published > 0) Logger.log(LogCategory.SYSTEM, `[AOT] late publish: ${published} unit(s), ${this.pending.length} still pending`);
+        }
+        this.scheduleRetry();
+    }
     clear(): void {
         this.units = [];
         this.live = [];
         this.loadedVersion = null;
+        this.pending = [];
+        if (this.retryTimer !== null) { clearTimeout(this.retryTimer); this.retryTimer = null; }
         // Forgetting the units means no longer knowing what the store holds, so a later
         // save() must not prune it either — otherwise `clear()` followed by a short
         // recording deletes every unit an earlier session saved.
@@ -394,6 +520,17 @@ export class AotCache {
         // codegen loadable into another, and the dangerous case is silent: if the imports still
         // match and only codegen SEMANTICS changed (fastmem layout, relaxed FPU), nothing throws
         // and wrong code gets published. Refusing to save/load is the safe failure.
+        const load = (globalThis as { __v86EngineLoad?: { sha256: string | null; error: string | null; path?: string } }).__v86EngineLoad;
+        if (load) {
+            for (let i = 0; i < ENGINE_SHA_WAIT_STEPS && !load.sha256 && !load.error; i++) {
+                await new Promise((r) => setTimeout(r, ENGINE_SHA_WAIT_MS));
+            }
+            if (load.sha256) {
+                this.engineSha = load.sha256;
+                return this.engineSha;
+            }
+            throw new Error(`engine identity unavailable: ${load.error ?? "hash not ready"}`);
+        }
         const r = await fetch("/v86.wasm");
         this.engineSha = hex(await crypto.subtle.digest("SHA-256", await r.arrayBuffer()));
         return this.engineSha;
@@ -542,6 +679,51 @@ export class AotCache {
         }
     }
 
+    /** The pack shipped beside the player for this game and engine identity, when there is one. */
+    shippedUrl(gameId: string, key: string): string | null {
+        const gameBase = gameBaseUrl();
+        if (gameBase) {
+            try { return new URL(`aot/${gameIdToContainerDir(gameId)}/${key}.bsaot`, gameBase).href; } catch { return null; }
+        }
+        const base = (globalThis as { location?: { href?: string } }).location?.href;
+        if (!base) return null;
+        try { return new URL(`../aot/${gameIdToContainerDir(gameId)}/${key}.bsaot`, base).href; } catch { return null; }
+    }
+
+    async loadShipped(gameId: string): Promise<{ loaded: number; key: string; source: string } | { error: string; key?: string }> {
+        if ((globalThis as { __aotNoShipped?: boolean }).__aotNoShipped) return { error: "shipped units disabled" };
+        let version: AotVersion;
+        try { version = await this.version(); } catch (e) { return { error: String(e) }; }
+        const key = await this.versionKey(version);
+        const url = this.shippedUrl(gameId, key);
+        if (!url) return { error: "no player location", key };
+        let data: Uint8Array<ArrayBuffer>;
+        try {
+            const r = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+            if (!r.ok) return { error: `no shipped units (HTTP ${r.status} ${new URL(url).pathname})`, key };
+            data = new Uint8Array(await r.arrayBuffer());
+            if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
+                data = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+            }
+        } catch (e) {
+            return { error: `no shipped units (${String(e).slice(0, 60)})`, key };
+        }
+        const pack = decodeAotPack(data);
+        if (!pack) return { error: "shipped pack malformed", key };
+        if (!this.sameVersion(pack.version as AotVersion, version)) return { error: "shipped pack version identity mismatch", key };
+        this.clear();
+        this.units = pack.units;
+        this.loadedVersion = pack.version as AotVersion;
+        Logger.log(LogCategory.SYSTEM, `[AOT] loaded ${pack.units.length} shipped units for ${key}`);
+        return { loaded: pack.units.length, key, source: "shipped" };
+    }
+
+    /** The current unit set as a pack, for shipping with the player. */
+    pack(): Uint8Array | null {
+        if (!this.units.length || !this.loadedVersion) return null;
+        return encodeAotPack(this.loadedVersion, this.units);
+    }
+
     /**
      * Everything a boot-time publish can do WITHOUT the guest image: read the units off OPFS
      * and compile their bytes. Kicked as soon as the gameId is known so it overlaps the
@@ -550,8 +732,12 @@ export class AotCache {
      * genuinely need final guest memory — the per-page SHA and registration — are left on
      * the critical path.
      */
-    async prepare(gameId: string): Promise<{ loaded: number; key: string } | { error: string; key?: string }> {
-        const r = await this.load(gameId);
+    async prepare(gameId: string): Promise<{ loaded: number; key: string; source?: string } | { error: string; key?: string }> {
+        let r: { loaded: number; key: string; source?: string } | { error: string; key?: string } = await this.load(gameId);
+        if (!("loaded" in r) || r.loaded === 0) {
+            const shipped = await this.loadShipped(gameId);
+            if ("loaded" in shipped) r = shipped;
+        }
         if (!("loaded" in r) || r.loaded === 0) return r;
         await Promise.all(this.units.map(async (u) => {
             try { u.module = await WebAssembly.compile(u.bytes); } catch { /* replay recompiles */ }
@@ -585,6 +771,65 @@ export class AotCache {
             if (n > 0) enteredUnits++;
         }
         return { units: this.units.length, alive, evicted: this.live.length - alive, entries, enteredUnits };
+    }
+
+    private publishCandidates(candidates: Array<{ unit: AotUnit; fn: unknown }>, no: (why: string) => void): number {
+        const w = this.wasm();
+        const table = this.cpu()?.wm?.wasm_table;
+        if (!w || !table) return 0;
+        // PASS 2 — strictly SYNCHRONOUS. Rust owns an exact slot from tx_begin until commit
+        // or abort; no await may interleave with that ownership. Instances were constructed
+        // in pass 1, so this pass is only stage → table.set → commit.
+        let registered = 0;
+        for (const { unit: u, fn } of candidates) {
+            const fingerprintLo = this.loadedVersion?.jitCodegenFingerprintLo;
+            const fingerprintHi = this.loadedVersion?.jitCodegenFingerprintHi;
+            if (fingerprintLo === undefined || fingerprintHi === undefined) { no("missing-persisted-fingerprint"); continue; }
+            let rc = w.jit_aot_tx_begin(u.tableIndex, u.pages.length, fingerprintLo, fingerprintHi) >>> 0;
+            if (rc !== 0) { no(`tx-begin-${rc}`); continue; }
+            const abort = (): boolean => {
+                const abortRc = w.jit_aot_tx_abort() >>> 0;
+                if (abortRc !== 0) { no(`tx-abort-${abortRc}`); return false; }
+                return true;
+            };
+            for (const p of u.pages) {
+                rc = w.jit_aot_tx_page_begin(p.physPage * PAGE_SIZE, p.stateFlags, p.entries.length) >>> 0;
+                if (rc !== 0) break;
+                for (const [off, st] of p.entries) {
+                    rc = w.jit_aot_tx_entry_push(off, st) >>> 0;
+                    if (rc !== 0) break;
+                }
+                if (rc !== 0) break;
+                rc = w.jit_aot_tx_page_finish() >>> 0;
+                if (rc !== 0) break;
+            }
+            if (rc === 0) rc = w.jit_aot_tx_prepare_finish() >>> 0;
+            if (rc !== 0) {
+                no(`tx-prepare-${rc}`);
+                if (!abort()) break;
+                continue;
+            }
+
+            // Rust owns the exact slot now. Do not await: clear JS's table entry before abort
+            // on every post-set exception so a released slot can never dispatch this function.
+            let tableMayHaveBeenWritten = false;
+            try {
+                tableMayHaveBeenWritten = true;
+                table.set(u.tableIndex + WASM_TABLE_OFFSET, fn as any);
+                rc = w.jit_aot_tx_commit() >>> 0;
+                if (rc !== 0) throw new Error(`commit-${rc}`);
+                this.live.push({ unit: u, idx: u.tableIndex, fn });
+                registered++;
+            } catch (e) {
+                if (tableMayHaveBeenWritten) {
+                    try { table.set(u.tableIndex + WASM_TABLE_OFFSET, null); }
+                    catch { no("tx-table-clear-failed"); break; }
+                }
+                no(`tx-post-set:${String(e).slice(0, 40)}`);
+                if (!abort()) break;
+            }
+        }
+        return registered;
     }
 
     /**
@@ -642,6 +887,7 @@ export class AotCache {
         // into for code that no longer matches it. Kept separate from publication because
         // sha256 awaits, and the guest must not run in the middle of the second pass.
         const candidates: Array<{ unit: AotUnit; fn: unknown }> = [];
+        const lateCandidates: AotUnit[] = [];
         for (const u of this.units) {
             noUnit = u;
             // With no pages the publication loop would publish nothing and still count as a
@@ -656,7 +902,7 @@ export class AotCache {
                 }
                 if ((await sha256Page(mem, p.physPage * PAGE_SIZE)) !== p.sha) { contentOk = false; break; }
             }
-            if (!contentOk) { no("content-mismatch"); continue; }
+            if (!contentOk) { no("content-mismatch"); lateCandidates.push(u); continue; }
             try {
                 // This is intentionally before transaction begin: WebAssembly.Module/Instance
                 // construction may fail, but once Rust owns a slot pass 2 contains no await.
@@ -681,61 +927,14 @@ export class AotCache {
             }
         }
 
-        // PASS 2 — strictly SYNCHRONOUS. Rust owns an exact slot from tx_begin until commit
-        // or abort; no await may interleave with that ownership. Instances were constructed
-        // in pass 1, so this pass is only stage → table.set → commit.
-        let registered = 0;
+        // PASS 2 — strictly SYNCHRONOUS (publishCandidates).
         this.live = [];
-        for (const { unit: u, fn } of candidates) {
-            const fingerprintLo = this.loadedVersion?.jitCodegenFingerprintLo;
-            const fingerprintHi = this.loadedVersion?.jitCodegenFingerprintHi;
-            if (fingerprintLo === undefined || fingerprintHi === undefined) { no("missing-persisted-fingerprint"); continue; }
-            let rc = w.jit_aot_tx_begin(u.tableIndex, u.pages.length, fingerprintLo, fingerprintHi) >>> 0;
-            if (rc !== 0) { no(`tx-begin-${rc}`); continue; }
-            const abort = (): boolean => {
-                const abortRc = w.jit_aot_tx_abort() >>> 0;
-                if (abortRc !== 0) { no(`tx-abort-${abortRc}`); return false; }
-                return true;
-            };
-            for (const p of u.pages) {
-                rc = w.jit_aot_tx_page_begin(p.physPage * PAGE_SIZE, p.stateFlags, p.entries.length) >>> 0;
-                if (rc !== 0) break;
-                for (const [off, st] of p.entries) {
-                    rc = w.jit_aot_tx_entry_push(off, st) >>> 0;
-                    if (rc !== 0) break;
-                }
-                if (rc !== 0) break;
-                rc = w.jit_aot_tx_page_finish() >>> 0;
-                if (rc !== 0) break;
-            }
-            if (rc === 0) rc = w.jit_aot_tx_prepare_finish() >>> 0;
-            if (rc !== 0) {
-                no(`tx-prepare-${rc}`);
-                if (!abort()) break;
-                continue;
-            }
-
-            // Rust owns the exact slot now. Do not await: clear JS's table entry before abort
-            // on every post-set exception so a released slot can never dispatch this function.
-            let tableMayHaveBeenWritten = false;
-            try {
-                tableMayHaveBeenWritten = true;
-                table.set(u.tableIndex + WASM_TABLE_OFFSET, fn as any);
-                rc = w.jit_aot_tx_commit() >>> 0;
-                if (rc !== 0) throw new Error(`commit-${rc}`);
-                this.live.push({ unit: u, idx: u.tableIndex, fn });
-                registered++;
-            } catch (e) {
-                if (tableMayHaveBeenWritten) {
-                    try { table.set(u.tableIndex + WASM_TABLE_OFFSET, null); }
-                    catch { no("tx-table-clear-failed"); break; }
-                }
-                no(`tx-post-set:${String(e).slice(0, 40)}`);
-                if (!abort()) break;
-            }
-        }
+        const registered = this.publishCandidates(candidates, no);
         if (registered > 0 && w.jit_aot_flush_tlb) w.jit_aot_flush_tlb();
-        Logger.log(LogCategory.SYSTEM, `[AOT] replay: registered=${registered} refused=${JSON.stringify(refused)}`);
+        this.pending = lateCandidates;
+        this.retryDeadline = performance.now() + RETRY_WINDOW_MS;
+        this.scheduleRetry();
+        Logger.log(LogCategory.SYSTEM, `[AOT] replay: registered=${registered} refused=${JSON.stringify(refused)} retrying=${lateCandidates.length}`);
         return { registered, refused, ...(refusedUnits.length ? { refusedUnits } : {}) };
     }
 }
