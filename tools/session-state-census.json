@@ -283,6 +283,7 @@
   ],
   "src/worker/core/cpu/hypercall-data.ts": [
     "BULK_MEMORY_HANDLERS",
+    "CHAR_NEXT_HANDLERS",
     "WASM_WRITE_HANDLERS",
     "handlerIdNames",
     "hypercallDataManager"
@@ -448,7 +449,8 @@
     "aabbResult",
     "box",
     "boxBits",
-    "corner"
+    "corner",
+    "variant"
   ],
   "src/worker/core/hle-lib/libs/granny-deform/descriptor.ts": [
     "aabbEntry",
