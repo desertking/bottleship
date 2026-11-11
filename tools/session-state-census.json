@@ -1142,6 +1142,7 @@
     "deferredByInstance",
     "expressionResult",
     "expressionScratch",
+    "parametersByName",
     "pointerScratch",
     "preshaders",
     "shaderCaches",
@@ -1163,7 +1164,10 @@
     "noGuestMemory"
   ],
   "src/worker/modules/d3dx9/effect-state.ts": [
-    "instances"
+    "effectStampCounter",
+    "instances",
+    "objectParamStamps",
+    "valueBlockStamps"
   ],
   "src/worker/modules/d3dx9/effect-values.ts": [
     "paramWriteCensus",
