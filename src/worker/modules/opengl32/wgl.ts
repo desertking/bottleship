@@ -39,6 +39,12 @@ function resolveImplementedEntryPoint(dispatcher: any, name: string): number {
     return addr;
 }
 
+function setWindowGLOwned(hdc: number, owned: boolean): void {
+    const gdi = System.getInstance().gdiContext;
+    const hwnd = gdi?.getDCWindow?.(hdc) ?? 0;
+    if (gdi && hwnd) gdi.setGLOwnedWindow?.(hwnd, owned);
+}
+
 export function createWglExports(
     ctx: OpenGLContext,
     drawableSize: (hdc: number) => { width: number; height: number } = guestDrawableSize,
@@ -70,7 +76,9 @@ export function createWglExports(
                 system.services.render.setActive(null);
             }
         }
+        const deleted = contexts.get(hglrc);
         contexts.delete(hglrc);
+        if (deleted) setWindowGLOwned(deleted.hdc, false);
         if (contexts.size === 0) {
             // The next context is a new GL state as far as its default rectangles go.
             ctx.viewportFromGuest = false;
@@ -99,7 +107,10 @@ export function createWglExports(
         }
         currentHglrc = hglrc;
         currentHdc = hdc;
-        if (hdc) ctx.drawableDC = hdc;
+        if (hdc) {
+            ctx.drawableDC = hdc;
+            setWindowGLOwned(hdc, true);
+        }
         if (hdc && !binding.attached) {
             binding.attached = true;
             const size = drawableSize(hdc);
