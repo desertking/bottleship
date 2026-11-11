@@ -87,6 +87,16 @@ export class SplitEncoder {
     private u32(v: number): void { this.reserve(4); this.dv.setUint32(this.pos, v >>> 0, true); this.pos += 4; }
 
     value(v: unknown, path = "arg", tail = false): void {
+        if (typeof v === "number" && ((v | 0) === v || v >>> 0 === v)) {
+            const n = v as number;
+            if (this.pos + 6 > this.u8.length) this.reserve(6);
+            const u8 = this.u8;
+            u8[this.pos] = T_INT;
+            u8[this.pos + 1] = n < 0 ? 1 : 0;
+            this.dv.setUint32(this.pos + 2, n >>> 0, true);
+            this.pos += 6;
+            return;
+        }
         if (v === undefined) { this.tag(T_UNDEFINED); return; }
         if (v === null) { this.tag(T_NULL); return; }
         switch (typeof v) {
