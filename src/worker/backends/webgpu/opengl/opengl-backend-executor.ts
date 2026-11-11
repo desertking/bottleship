@@ -36,6 +36,7 @@ import {
     CF_CLEAR_R, CF_CLEAR_G, CF_CLEAR_B, CF_CLEAR_A, CF_CLEAR_DEPTH,
     DF_DEPTH_TEST, DF_DEPTH_MASK, DF_BLEND, DF_ALPHA_TEST, DF_CULL, DF_FOG,
     DF_COLOR_MASK_R, DF_COLOR_MASK_G, DF_COLOR_MASK_B, DF_COLOR_MASK_A, DF_STENCIL_TEST, DF_SCISSOR,
+    DF_QUADS_INDEXED,
 } from "../../../modules/opengl32/context";
 import {
     GL_ADD,
@@ -116,6 +117,7 @@ interface PreparedDrawData {
     topology: OpenGLTopology;
     vertexCount: number;
     data: Float32Array;
+    first: number;
     byteLength: number;
 }
 
@@ -129,7 +131,41 @@ interface SelectedVertices {
 
 const VERTEX_FLOAT_STRIDE = 13; // clip.xyzw + color.rgba + uv0.xy + uv1.xy + eye-space fog distance
 const VERTEX_BYTE_STRIDE = VERTEX_FLOAT_STRIDE * 4;
+const ARENA_BYTE_STRIDE = VERT_FLOATS * 4;
+
+export function openglVertexLayout(direct: boolean): GPUVertexBufferLayout {
+    return direct
+        ? {
+            arrayStride: ARENA_BYTE_STRIDE,
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x4" },
+                { shaderLocation: 1, offset: 16, format: "float32x4" },
+                { shaderLocation: 2, offset: 44, format: "float32x2" },
+                { shaderLocation: 3, offset: 52, format: "float32x2" },
+                { shaderLocation: 4, offset: VERT_FOG_DIST * 4, format: "float32" },
+            ],
+        }
+        : {
+            arrayStride: VERTEX_BYTE_STRIDE,
+            attributes: [
+                { shaderLocation: 0, offset: 0, format: "float32x4" },
+                { shaderLocation: 1, offset: 16, format: "float32x4" },
+                { shaderLocation: 2, offset: 32, format: "float32x2" },
+                { shaderLocation: 3, offset: 40, format: "float32x2" },
+                { shaderLocation: 4, offset: 48, format: "float32" },
+            ],
+        };
+}
 const UNIFORM_BLOCK_SIZE = 144;
+
+export function quadIndexPattern(quads: number): Uint32Array {
+    const out = new Uint32Array(quads * 6);
+    for (let q = 0, o = 0, v = 0; q < quads; q++, o += 6, v += 4) {
+        out[o] = v; out[o + 1] = v + 1; out[o + 2] = v + 2;
+        out[o + 3] = v; out[o + 4] = v + 2; out[o + 5] = v + 3;
+    }
+    return out;
+}
 
 export class OpenGLBackendExecutor {
     private readonly backend: WebGPUBackend;
@@ -168,6 +204,10 @@ export class OpenGLBackendExecutor {
     private bindGroupLayout: GPUBindGroupLayout | null = null;
     private pipelineLayout: GPUPipelineLayout | null = null;
     private readonly pipelineCache = new Map<string, GPURenderPipeline>();
+    private lastPipeline: GPURenderPipeline | null = null;
+    private lastPipelineTopology = "";
+    private readonly lastPipelineWords = new Uint32Array(13);
+    private readonly pipelineWords = new Uint32Array(13);
 
     private readonly textureCache = new Map<number, CachedTexture>();
     private readonly samplerCache = new Map<string, GPUSampler>();
@@ -179,8 +219,18 @@ export class OpenGLBackendExecutor {
 
     private vertexBuffer: GPUBuffer | null = null;
     private vertexBufferSize = 0;
+    private quadIndexBuffer: GPUBuffer | null = null;
+    private quadIndexCapacity = 0;
     private vertexUploadCursor = 0;
+    private frameArena: Float32Array | null = null;
+    private pendingVertexSrc: Float32Array | null = null;
+    private pendingVertexSrcByte = 0;
+    private pendingVertexDst = 0;
+    private pendingVertexBytes = 0;
+    private readonly coalesceVertexUploads = (globalThis as { __glCoalesceVertexUploads?: boolean }).__glCoalesceVertexUploads !== false;
     private vertexScratch = new Float32Array(0);
+    private readonly directVertices = !(globalThis as { __noGlDirectVertexUpload?: boolean }).__noGlDirectVertexUpload;
+    private readonly vertexLayout = openglVertexLayout(this.directVertices);
     /** Staging for polygon-mode wireframe / line-loop closing expansions. */
     private expandScratch = new Float32Array(0);
 
@@ -191,6 +241,12 @@ export class OpenGLBackendExecutor {
     private readonly uniformScratchBuffer = new ArrayBuffer(UNIFORM_BLOCK_SIZE);
     private readonly uniformScratchF32 = new Float32Array(this.uniformScratchBuffer);
     private readonly uniformScratchU32 = new Uint32Array(this.uniformScratchBuffer);
+    private readonly uniformScratchU8 = new Uint8Array(this.uniformScratchBuffer);
+    private uniformStaging = new Uint8Array(0);
+    private uniformStagingHi = 0;
+    private uniformStagingActive = false;
+    private readonly trimPassState = (globalThis as { __glTrimPassState?: boolean }).__glTrimPassState !== false;
+    private readonly coalesceUniformUploads = (globalThis as { __glCoalesceUniformUploads?: boolean }).__glCoalesceUniformUploads !== false;
 
     /** Current draw's glDepthRange, as WebGPU takes it (see readDepthRange). */
     private depthRangeMin = 0;
@@ -217,6 +273,7 @@ export class OpenGLBackendExecutor {
                 this.bindGroupLayout = null;
                 this.pipelineLayout = null;
                 this.pipelineCache.clear();
+        this.lastPipeline = null;
                 this.textureCache.clear();
                 this.samplerCache.clear();
                 this.bindGroupCache.clear();
@@ -225,6 +282,8 @@ export class OpenGLBackendExecutor {
                 this.defaultSampler = null;
                 this.vertexBuffer = null;
                 this.vertexBufferSize = 0;
+                this.quadIndexBuffer = null;
+                this.quadIndexCapacity = 0;
                 this.vertexUploadCursor = 0;
                 this.uniformBuffer = null;
                 this.uniformCapacity = 0;
@@ -327,6 +386,7 @@ export class OpenGLBackendExecutor {
         const drawCount = this.countDrawCommands(input.commands);
         this.ensureUniformCapacity(device, drawCount);
         this.ensureVertexBufferCapacity(device, this.estimateVertexBytes(input.commands));
+        this.ensureQuadIndexCapacity(device, queue, this.maxIndexedQuads(input.commands));
 
         if (!this.offscreenView || !this.depthView || !this.uniformBuffer || !this.vertexBuffer) {
             Logger.warn(LogCategory.SYSTEM,
@@ -336,6 +396,11 @@ export class OpenGLBackendExecutor {
 
         this.uniformCursor = 0;
         this.vertexUploadCursor = 0;
+        this.frameArena = input.vertArena;
+        this.pendingVertexSrc = null;
+        this.pendingVertexBytes = 0;
+        this.uniformStagingHi = 0;
+        this.uniformStagingActive = this.coalesceUniformUploads;
 
         this.applyColorSeed(queue, renderW, renderH);
 
@@ -351,8 +416,19 @@ export class OpenGLBackendExecutor {
             renderPass = null;
         };
 
+        const trimState = this.trimPassState;
+        const stride = this.directVertices ? ARENA_BYTE_STRIDE : VERTEX_BYTE_STRIDE;
+        let passPipeline: GPURenderPipeline | null = null;
+        let passVertexBound = false;
+        let passIndexBound = false;
+        let vpX = NaN, vpY = NaN, vpWl = NaN, vpHl = NaN, vpMin = NaN, vpMax = NaN;
+
         const beginDrawPass = (): GPURenderPassEncoder => {
             if (renderPass) return renderPass;
+            passPipeline = null;
+            passVertexBound = false;
+            passIndexBound = false;
+            vpX = NaN;
             renderPass = encoder.beginRenderPass({
                 colorAttachments: [{
                     view: this.offscreenView!,
@@ -416,7 +492,7 @@ export class OpenGLBackendExecutor {
                         I[i + CI_MODE] >>> 0, I[i + CI_POLYGON_MODE] >>> 0);
                     if (!prepared || prepared.vertexCount <= 0) break;
 
-                    const vertexOffset = this.uploadVertices(queue, prepared.data, prepared.byteLength);
+                    const vertexOffset = this.uploadVertices(queue, prepared.data, prepared.first, prepared.byteLength);
                     if (vertexOffset < 0) break;
 
                     const tex0 = this.resolveTexture(device, queue, input.textures, I[i + CI_TEX_ID0]);
@@ -443,7 +519,20 @@ export class OpenGLBackendExecutor {
                     this.writeUniforms(queue, uniformOffset, guestW, guestH, I, F, i, f, useTex0, useTex1, format0, format1);
 
                     const stencilTest = (flags & DF_STENCIL_TEST) !== 0;
-                    const pipelineCfg: OpenGLPipelineConfig = {
+                    const pw = this.pipelineWords;
+                    pw[0] = flags & (DF_BLEND | DF_DEPTH_TEST | DF_DEPTH_MASK | DF_COLOR_MASK_R | DF_COLOR_MASK_G
+                        | DF_COLOR_MASK_B | DF_COLOR_MASK_A | DF_STENCIL_TEST);
+                    pw[1] = I[i + CI_BLEND_SRC]; pw[2] = I[i + CI_BLEND_DST]; pw[3] = I[i + CI_DEPTH_FUNC];
+                    pw[4] = cullEnabled ? 1 : 0; pw[5] = cullFace; pw[6] = I[i + CI_FRONT_FACE];
+                    pw[7] = I[i + CI_STENCIL_FUNC]; pw[8] = I[i + CI_STENCIL_MASK]; pw[9] = I[i + CI_STENCIL_WRITE_MASK];
+                    pw[10] = I[i + CI_STENCIL_FAIL]; pw[11] = I[i + CI_STENCIL_ZFAIL]; pw[12] = I[i + CI_STENCIL_ZPASS];
+                    let reuse = this.lastPipeline !== null && this.lastPipelineTopology === prepared.topology
+                        && !(globalThis as { __noGlPipelineMemo?: boolean }).__noGlPipelineMemo;
+                    if (reuse) {
+                        const lw = this.lastPipelineWords;
+                        for (let w = 0; w < 13; w++) if (lw[w] !== pw[w]) { reuse = false; break; }
+                    }
+                    const pipeline = reuse ? this.lastPipeline! : this.getOrCreatePipeline(device, {
                         topology: prepared.topology,
                         blendEnabled: (flags & DF_BLEND) !== 0,
                         blendSrc: I[i + CI_BLEND_SRC] >>> 0,
@@ -465,9 +554,12 @@ export class OpenGLBackendExecutor {
                         stencilFail: I[i + CI_STENCIL_FAIL] >>> 0,
                         stencilZFail: I[i + CI_STENCIL_ZFAIL] >>> 0,
                         stencilZPass: I[i + CI_STENCIL_ZPASS] >>> 0,
-                    };
-
-                    const pipeline = this.getOrCreatePipeline(device, pipelineCfg);
+                    });
+                    if (!reuse) {
+                        this.lastPipeline = pipeline;
+                        this.lastPipelineTopology = prepared.topology;
+                        this.lastPipelineWords.set(pw);
+                    }
                     const bindGroup = this.getOrCreateBindGroup(device, sampler0, view0, sampler1, view1);
                     const pass = beginDrawPass();
                     if (!this.applyScissor(pass, I, i, flags, guestW, guestH, scale, renderW, renderH)) break;
@@ -482,6 +574,40 @@ export class OpenGLBackendExecutor {
                     const vp = viewportRect(
                         I[i + CI_VP_X], I[i + CI_VP_Y], vpW, vpH, guestW, guestH, scale, renderW, renderH);
                     if (!vp) break;
+                    if (trimState) {
+                        if (vp.x !== vpX || vp.y !== vpY || vp.w !== vpWl || vp.h !== vpHl
+                            || this.depthRangeMin !== vpMin || this.depthRangeMax !== vpMax) {
+                            pass.setViewport(vp.x, vp.y, vp.w, vp.h, this.depthRangeMin, this.depthRangeMax);
+                            vpX = vp.x; vpY = vp.y; vpWl = vp.w; vpHl = vp.h;
+                            vpMin = this.depthRangeMin; vpMax = this.depthRangeMax;
+                        }
+                        if (passPipeline !== pipeline) {
+                            pass.setPipeline(pipeline);
+                            passPipeline = pipeline;
+                        }
+                        if (stencilTest) {
+                            pass.setStencilReference(I[i + CI_STENCIL_REF] >>> 0);
+                        }
+                        pass.setBindGroup(0, bindGroup, [uniformOffset]);
+                        if (!passVertexBound) {
+                            pass.setVertexBuffer(0, this.vertexBuffer!);
+                            passVertexBound = true;
+                        }
+                        const firstVertex = vertexOffset / stride;
+                        if ((flags & DF_QUADS_INDEXED) !== 0) {
+                            const quads = prepared.vertexCount >> 2;
+                            if (quads === 0 || quads > this.quadIndexCapacity) break;
+                            if (!passIndexBound) {
+                                pass.setIndexBuffer(this.quadIndexBuffer!, "uint32");
+                                passIndexBound = true;
+                            }
+                            pass.drawIndexed(quads * 6, 1, 0, firstVertex, 0);
+                        } else {
+                            pass.draw(prepared.vertexCount, 1, firstVertex, 0);
+                        }
+                        drawsIssued++;
+                        break;
+                    }
                     pass.setViewport(vp.x, vp.y, vp.w, vp.h, this.depthRangeMin, this.depthRangeMax);
 
                     pass.setPipeline(pipeline);
@@ -490,7 +616,14 @@ export class OpenGLBackendExecutor {
                     }
                     pass.setBindGroup(0, bindGroup, [uniformOffset]);
                     pass.setVertexBuffer(0, this.vertexBuffer!, vertexOffset, prepared.byteLength);
-                    pass.draw(prepared.vertexCount, 1, 0, 0);
+                    if ((flags & DF_QUADS_INDEXED) !== 0) {
+                        const quads = prepared.vertexCount >> 2;
+                        if (quads === 0 || quads > this.quadIndexCapacity) break;
+                        pass.setIndexBuffer(this.quadIndexBuffer!, "uint32");
+                        pass.drawIndexed(quads * 6, 1, 0, 0, 0);
+                    } else {
+                        pass.draw(prepared.vertexCount, 1, 0, 0);
+                    }
                     drawsIssued++;
                     break;
                 }
@@ -502,6 +635,9 @@ export class OpenGLBackendExecutor {
         }
 
         endPass();
+        this.flushVertexUploads(queue);
+        this.flushUniformUploads(queue);
+        this.frameArena = null;
 
         // Compatibility path:
         // some legacy GL apps update textures every frame but geometry command stream
@@ -640,6 +776,7 @@ export class OpenGLBackendExecutor {
         this.samplerCache.clear();
         this.bindGroupCache.clear();
         this.pipelineCache.clear();
+        this.lastPipeline = null;
 
         if (this.whiteTexture) {
             this.whiteTexture.destroy();
@@ -652,6 +789,12 @@ export class OpenGLBackendExecutor {
             this.vertexBuffer.destroy();
             this.vertexBuffer = null;
             this.vertexBufferSize = 0;
+        }
+
+        if (this.quadIndexBuffer) {
+            this.quadIndexBuffer.destroy();
+            this.quadIndexBuffer = null;
+            this.quadIndexCapacity = 0;
         }
 
         if (this.uniformBuffer) {
@@ -730,6 +873,7 @@ export class OpenGLBackendExecutor {
 
         if (!sameFormat) {
             this.pipelineCache.clear();
+        this.lastPipeline = null;
             this.bindGroupCache.clear();
         }
 
@@ -861,7 +1005,7 @@ export class OpenGLBackendExecutor {
             }
             totalVertices += count;
         }
-        return Math.max(1, totalVertices * VERTEX_BYTE_STRIDE);
+        return Math.max(1, totalVertices * (this.directVertices ? ARENA_BYTE_STRIDE : VERTEX_BYTE_STRIDE));
     }
 
     private summarizeCommands(stream: GLCommandStream): string {
@@ -910,6 +1054,31 @@ export class OpenGLBackendExecutor {
         this.bindGroupCache.clear();
     }
 
+    private maxIndexedQuads(stream: GLCommandStream): number {
+        const I = stream.i32;
+        let max = 0;
+        for (let c = 0; c < stream.count; c++) {
+            const i = c * CMD_I32;
+            if (I[i + CI_TYPE] !== GLDrawCommandType.DRAW || (I[i + CI_FLAGS] & DF_QUADS_INDEXED) === 0) continue;
+            const quads = I[i + CI_VERT_COUNT] >> 2;
+            if (quads > max) max = quads;
+        }
+        return max;
+    }
+
+    private ensureQuadIndexCapacity(device: GPUDevice, queue: GPUQueue, quads: number): void {
+        if (quads <= this.quadIndexCapacity) return;
+        const capacity = this.nextPow2(Math.max(quads, 1024));
+        const indices = quadIndexPattern(capacity);
+        if (this.quadIndexBuffer) this.quadIndexBuffer.destroy();
+        this.quadIndexBuffer = device.createBuffer({
+            size: indices.byteLength,
+            usage: GPUBufferUsage.INDEX | GPUBufferUsage.COPY_DST,
+        });
+        queue.writeBuffer(this.quadIndexBuffer, 0, indices.buffer, indices.byteOffset, indices.byteLength);
+        this.quadIndexCapacity = capacity;
+    }
+
     private ensureVertexBufferCapacity(device: GPUDevice, requiredBytes: number): void {
         if (this.vertexBuffer && this.vertexBufferSize >= requiredBytes) return;
 
@@ -933,13 +1102,41 @@ export class OpenGLBackendExecutor {
         return offset;
     }
 
-    private uploadVertices(queue: GPUQueue, vertices: Float32Array, byteLength: number): number {
+    private uploadVertices(queue: GPUQueue, vertices: Float32Array, first: number, byteLength: number): number {
         if (!this.vertexBuffer) return -1;
         const offset = this.vertexUploadCursor;
         this.vertexUploadCursor += byteLength;
         if (this.vertexUploadCursor > this.vertexBufferSize) return -1;
-        queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, vertices.byteOffset, byteLength);
+        const srcByte = vertices.byteOffset + first * 4;
+        if (!this.coalesceVertexUploads || vertices !== this.frameArena) {
+            this.flushVertexUploads(queue);
+            queue.writeBuffer(this.vertexBuffer, offset, vertices.buffer, srcByte, byteLength);
+            return offset;
+        }
+        if (this.pendingVertexSrc === vertices
+            && this.pendingVertexSrcByte + this.pendingVertexBytes === srcByte
+            && this.pendingVertexDst + this.pendingVertexBytes === offset) {
+            this.pendingVertexBytes += byteLength;
+            return offset;
+        }
+        this.flushVertexUploads(queue);
+        this.pendingVertexSrc = vertices;
+        this.pendingVertexSrcByte = srcByte;
+        this.pendingVertexDst = offset;
+        this.pendingVertexBytes = byteLength;
         return offset;
+    }
+
+    private flushVertexUploads(queue: GPUQueue): void {
+        const src = this.pendingVertexSrc;
+        if (!src || this.pendingVertexBytes <= 0 || !this.vertexBuffer) {
+            this.pendingVertexSrc = null;
+            this.pendingVertexBytes = 0;
+            return;
+        }
+        queue.writeBuffer(this.vertexBuffer, this.pendingVertexDst, src.buffer, this.pendingVertexSrcByte, this.pendingVertexBytes);
+        this.pendingVertexSrc = null;
+        this.pendingVertexBytes = 0;
     }
 
     private prepareDrawData(
@@ -953,6 +1150,15 @@ export class OpenGLBackendExecutor {
         if (!selected || selected.count <= 0) return null;
 
         const count = selected.count;
+        if (this.directVertices) {
+            return {
+                topology: selected.topology,
+                vertexCount: count,
+                data: selected.data,
+                first: selected.first,
+                byteLength: count * ARENA_BYTE_STRIDE,
+            };
+        }
         const floatCount = count * VERTEX_FLOAT_STRIDE;
         if (this.vertexScratch.length < floatCount) {
             this.vertexScratch = new Float32Array(this.nextPow2(floatCount));
@@ -983,6 +1189,7 @@ export class OpenGLBackendExecutor {
             topology: selected.topology,
             vertexCount: count,
             data: out,
+            first: 0,
             byteLength: count * VERTEX_BYTE_STRIDE,
         };
     }
@@ -1277,16 +1484,7 @@ export class OpenGLBackendExecutor {
             vertex: {
                 module: this.shaderModule!,
                 entryPoint: "vs_main",
-                buffers: [{
-                    arrayStride: VERTEX_BYTE_STRIDE,
-                    attributes: [
-                        { shaderLocation: 0, offset: 0, format: "float32x4" },
-                        { shaderLocation: 1, offset: 16, format: "float32x4" },
-                        { shaderLocation: 2, offset: 32, format: "float32x2" },
-                        { shaderLocation: 3, offset: 40, format: "float32x2" },
-                        { shaderLocation: 4, offset: 48, format: "float32" },
-                    ],
-                }],
+                buffers: [this.vertexLayout],
             },
             fragment: {
                 module: this.shaderModule!,
@@ -1389,7 +1587,26 @@ export class OpenGLBackendExecutor {
             this.uniformScratchF32[32 + k] = this.clamp01(F[f + CF_ENV_COLOR1 + k]);
         }
 
+        if (this.uniformStagingActive) {
+            const end = offset + UNIFORM_BLOCK_SIZE;
+            if (this.uniformStaging.length < end) {
+                const grown = new Uint8Array(Math.max(end, this.uniformCapacity * this.uniformStride));
+                grown.set(this.uniformStaging.subarray(0, this.uniformStagingHi));
+                this.uniformStaging = grown;
+            }
+            this.uniformStaging.set(this.uniformScratchU8, offset);
+            if (end > this.uniformStagingHi) this.uniformStagingHi = end;
+            return;
+        }
         queue.writeBuffer(this.uniformBuffer!, offset, this.uniformScratchBuffer, 0, UNIFORM_BLOCK_SIZE);
+    }
+
+    private flushUniformUploads(queue: GPUQueue): void {
+        this.uniformStagingActive = false;
+        const hi = this.uniformStagingHi;
+        this.uniformStagingHi = 0;
+        if (hi <= 0 || !this.uniformBuffer) return;
+        queue.writeBuffer(this.uniformBuffer, 0, this.uniformStaging.buffer, this.uniformStaging.byteOffset, hi);
     }
 
     /** The guest's scissor box (guest pixels, GL lower-left) placed in the scaled render target. */
@@ -1779,7 +1996,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
     let zHalf = input.pos.z * 0.5 + input.pos.w * 0.5;
     let zOut = select(zHalf, input.pos.w - zHalf, uniforms.depthFlip != 0u);
     out.position = vec4f(input.pos.x, input.pos.y, zOut, input.pos.w);
-    out.color = input.color;
+    out.color = clamp(input.color, vec4f(0.0), vec4f(1.0));
     out.uv0 = input.uv0;
     out.uv1 = input.uv1;
     out.fogCoord = input.fogDist;
