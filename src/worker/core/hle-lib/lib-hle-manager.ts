@@ -16,7 +16,7 @@ import { hypercallDataManager } from '../cpu/hypercall-data';
 // the manager owning this guarantees descriptors exist before any detection.
 import './libs';
 import type { LoadedPEModule } from '../module-registry';
-import type { ThunkDispatcher, ThunkImplementation, ThunkResult } from '../thunking/thunk-dispatcher';
+import type { FastPathImplementation, ThunkDispatcher, ThunkImplementation, ThunkResult } from '../thunking/thunk-dispatcher';
 import type { ThunkGenerator } from '../thunking/thunk-generator';
 import { EmulatorConfig } from '../emulator-config-manager';
 import { runDetector } from './lib-detector';
@@ -64,6 +64,8 @@ class LibHleManager {
     private patches = new Map<string, PatchHandle>();
     /** Per-(libId, functionName) hit counters — an aggregate across modules (diagnostics only). */
     private hits = new Map<string, Map<string, number>>();
+    private fastHitFlushers = new Map<string, () => void>();
+    private fastPathNames: Array<[string, string]> = [];
     /** Shadow state machines, one per PATCH (same key space as `patches`). */
     private shadowRuntimes = new Map<string, ShadowHookRuntime>();
     /** Lazily-allocated return-sentinel for the sync original-call path. */
@@ -78,12 +80,41 @@ class LibHleManager {
         this.init = init;
     }
 
+    private isIlOnlyImage(module: LoadedPEModule): boolean {
+        if ((globalThis as { __hleScanIlOnly?: boolean }).__hleScanIlOnly === true) return false;
+        const imageBytes = this.init?.getMemory();
+        if (!imageBytes) return false;
+        const base = module.baseAddress >>> 0;
+        const limit = Math.min(imageBytes.length, base + (module.size >>> 0));
+        const u16 = (a: number): number => imageBytes[a]! | (imageBytes[a + 1]! << 8);
+        const u32 = (a: number): number => (imageBytes[a]! | (imageBytes[a + 1]! << 8) | (imageBytes[a + 2]! << 16) | (imageBytes[a + 3]! << 24)) >>> 0;
+        if (base + 0x40 > limit || u16(base) !== 0x5a4d) return false;
+        const nt = base + u32(base + 0x3c);
+        if (nt + 0x18 + 0x70 > limit || u32(nt) !== 0x00004550) return false;
+        const opt = nt + 0x18;
+        const magic = u16(opt);
+        const dirs = magic === 0x10b ? opt + 0x60 : magic === 0x20b ? opt + 0x70 : 0;
+        if (!dirs) return false;
+        const count = u32(dirs - 4);
+        if (count <= 14 || dirs + 15 * 8 > limit) return false;
+        const clrRva = u32(dirs + 14 * 8);
+        const clrSize = u32(dirs + 14 * 8 + 4);
+        if (!clrRva || clrSize < 0x48) return false;
+        const clr = base + clrRva;
+        if (clr + 0x14 > limit) return false;
+        return (u32(clr + 0x10) & 0x1) !== 0;
+    }
+
     isInitialized(): boolean {
         return this.init !== null;
     }
 
     private static patchKey(libId: string, moduleName: string, functionName: string): string {
         return `${libId}|${moduleName}|${functionName}`;
+    }
+
+    patchFunctionId(libId: string, functionName: string, moduleName?: string): number {
+        return this.resolvePatch(libId, functionName, moduleName)?.functionId ?? -1;
     }
 
     /**
@@ -164,6 +195,11 @@ class LibHleManager {
         }
         const cfg = EmulatorConfig.getInstance().hleLibs;
         if (!cfg.enable) return;
+
+        if (this.isIlOnlyImage(module)) {
+            Logger.log(LogCategory.SYSTEM, `[HLE-lib] onModuleLoaded ${module.name}: IL-only managed image, no native code to scan`);
+            return;
+        }
 
         this.replaceNativeLeaves(module, cfg.logOnly);
 
@@ -317,6 +353,15 @@ class LibHleManager {
                     continue;
                 }
                 if (runtime) this.shadowRuntimes.set(key, runtime);
+                if (runtime && decl.shadow && handle.functionId >= 0 && decl.argCount !== undefined
+                    && (globalThis as { __hleFastPath?: boolean }).__hleFastPath !== false) {
+                    const vmod = LibHleManager.virtualModuleId(descriptor.id, module.name);
+                    this.fastPathNames.push([vmod, fm.name]);
+                    this.init.dispatcher.registerFastPath(
+                        vmod, fm.name,
+                        this.buildShadowFastPath(runtime, decl.shadow, decl.argCount, descriptor.id, fm.name, module.name, fm.address, key),
+                        { trivial: true });
+                }
 
                 // Inner-loop WASM tier: bind the stub's functionId → the Rust
                 // handler so the guest OUT is served in WASM; the JS handler
@@ -348,6 +393,57 @@ class LibHleManager {
         } catch (e) {
             Logger.warn(LogCategory.SYSTEM, `[HLE-lib] ${descriptor.id}.onActivated threw: ${e}`);
         }
+    }
+
+    private static virtualModuleId(libId: string, moduleName?: string): string {
+        return moduleName ? `${libId}-hle@${moduleName}` : `${libId}-hle`;
+    }
+
+    private buildShadowFastPath(
+        rt: ShadowHookRuntime,
+        spec: ShadowSpec,
+        argCount: number,
+        libId: string,
+        fnName: string,
+        moduleName: string,
+        targetAddress: number,
+        key: string,
+    ): FastPathImplementation {
+        const validateInGame = spec.validateInGame === true;
+        const site = { moduleName, targetAddress };
+        const args: number[] = new Array(Math.max(argCount, 32)).fill(0);
+        const guard = spec.guard;
+        const kernel = spec.kernel;
+        let viewMem: Uint8Array | null = null;
+        let view: LiveShadowView | null = null;
+        let hits = 0;
+        this.fastHitFlushers.set(key, () => {
+            if (hits === 0) return;
+            let libHits = this.hits.get(libId);
+            if (!libHits) { libHits = new Map(); this.hits.set(libId, libHits); }
+            libHits.set(fnName, (libHits.get(fnName) ?? 0) + hits);
+            hits = 0;
+        });
+        return (esp, _dataView, mem8, mem32) => {
+            if (rt.state !== 'active' && (validateInGame || rt.state === 'disabled')) return null;
+            if ((esp & 3) !== 0) return null;
+            const base = (esp >>> 2) + 1;
+            if (base + argCount > mem32.length) return null;
+            for (let i = 0; i < argCount; i++) args[i] = mem32[base + i];
+            if (viewMem !== mem8 || view === null) {
+                view = new LiveShadowView(mem8);
+                viewMem = mem8;
+            }
+            if (guard) {
+                let ok: boolean;
+                try { ok = guard(args, view); } catch { ok = false; }
+                if (!ok) return null;
+            }
+            let eax: number;
+            try { eax = kernel(view, args, site) >>> 0; } catch { return null; }
+            hits++;
+            return eax;
+        };
     }
 
     /**
@@ -390,7 +486,15 @@ class LibHleManager {
                     // an ABI whose contract includes a mutated state struct.
                     return this.completeViaRestoredOriginal(libId, fnName, moduleName, decl, targetAddress, args);
                 }
-                if (!guardOk) rt.recordGuardFail();
+                if (!guardOk) {
+                    rt.recordGuardFail();
+                    if (spec.guardDeclines && validateInGame) {
+                        const declined = this.resolvePatch(libId, fnName, moduleName);
+                        if (declined && declined.trampolineAddress !== undefined) {
+                            return this.completeViaOriginalSync(rt, spec, decl, declined, args.slice(0, decl.argCount), liveView, site, null);
+                        }
+                    }
+                }
                 try {
                     return { value: spec.kernel(liveView, args, site) >>> 0 };
                 } catch (e) {
@@ -443,7 +547,7 @@ class LibHleManager {
             const frozenRanges = ranges;
             return this.completeViaOriginalSync(rt, spec, decl, handle, callArgs, liveView, site, (guestEax) => {
                 const mismatch = compareShadowOutputs(
-                    mem, frozenRanges, scratchView.scratch, kernelEax, guestEax, spec.f32UlpTolerance);
+                    mem, frozenRanges, scratchView.scratch, spec.ignoreEax ? guestEax : kernelEax, guestEax, spec.f32UlpTolerance);
                 if (mismatch) rt.recordMismatch(mismatch);
                 else rt.recordCleanCall();
             });
@@ -623,6 +727,9 @@ class LibHleManager {
         if (handle.functionId >= 0) {
             hypercallDataManager.unregisterRawHandler(handle.functionId);
         }
+        this.init?.dispatcher.unregisterFastPath(LibHleManager.virtualModuleId(libId, handle.moduleName), functionName);
+        this.flushFastHits();
+        this.fastHitFlushers.delete(LibHleManager.patchKey(libId, handle.moduleName, functionName));
         this.patches.delete(LibHleManager.patchKey(libId, handle.moduleName, functionName));
         Logger.log(LogCategory.SYSTEM,
             `[HLE-lib] Unpatched ${libId}:${functionName} (${handle.moduleName}) at ` +
@@ -648,8 +755,15 @@ class LibHleManager {
         libHits.set(functionName, (libHits.get(functionName) ?? 0) + 1);
     }
 
+    private flushFastHits(): void {
+        for (const flush of this.fastHitFlushers.values()) flush();
+    }
+
     /** Drop patch bookkeeping after guest memory is torn down (game switch). */
     resetOnGameSwitch(): void {
+        for (const [vmod, fn] of this.fastPathNames) this.init?.dispatcher.unregisterFastPath(vmod, fn);
+        this.fastPathNames = [];
+        this.fastHitFlushers.clear();
         this.matches.clear();
         this.patches.clear();
         this.hits.clear();
@@ -671,6 +785,7 @@ class LibHleManager {
 
     /** Snapshot for console/diagnostics. */
     getReport(): HleReportEntry[] {
+        this.flushFastHits();
         const entries: HleReportEntry[] = [];
         for (const [libId, byModule] of this.matches) {
             for (const [moduleName, match] of byModule) {
