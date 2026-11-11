@@ -118,6 +118,44 @@ bun tools/wgb-compress.ts game.wgb game.packed.wgb --block-kib 64
 - The packer holds one member and its compressed blocks in RAM at a time; members of
   2 GiB or more are not supported.
 
+### Transcoded audio: `--audio`
+
+Uncompressed music barely deflates, so `wgb-compress` can store 16-bit PCM WAV members
+as Vorbis instead. It is off by default and chosen per member:
+
+```bash
+bun tools/wgb-compress.ts game.wgb game.packed.wgb --audio "rom/Music/*.wav" --audio-quality 5 --ffmpeg /path/to/ffmpeg
+```
+
+- `--audio` takes an extension (`wav`) or a member glob (`*` within a folder, `**` across
+  folders, case-insensitive) and may be repeated. Matching members that are RIFF/WAVE
+  PCM, 16-bit, mono or stereo are encoded with ffmpeg's libvorbis at `--audio-quality`
+  (default 5). Anything else, an encode that fails, one that saves less than the usual
+  threshold, or one whose decoded signal does not line up with the source (SNR below
+  8 dB) stays as before.
+- The guest never sees Vorbis. The member keeps its name and its exact size, and reads
+  return a valid WAV: the source's header and any chunks after `data` byte for byte, and
+  the decoded PCM in between, frame-aligned to the source. Only the samples differ from
+  the original (lossy); the central directory's CRC-32 is the CRC of what the engine
+  serves, and the packer checks it.
+- On disk the member uses ZIP method `0x5741`, so ordinary unzip tools do not extract it.
+  Its data is the WAV prefix and suffix, the three Vorbis header packets and then every
+  audio packet behind a 16-bit length. `wgb-audio.idx` (STORED; magic `WGBA`, version,
+  row count, CRC-32 of the rows) holds one row per member: name, local header offset,
+  sizes, CRC-32, format, frame count and a chunk table. A chunk is a run of packets worth
+  about 16384 frames that starts one packet early; that first packet only primes the
+  overlap, so each chunk decodes on its own to exactly the samples a straight decode of
+  the whole stream gives. The packer verifies that for every chunk.
+- `manifest.json` references it as `"audioIndex": { "member": "wgb-audio.idx",
+  "version": 1 }`; the loader refuses a bundle whose index is missing, damaged, of
+  another version, or that has an audio member without a valid row.
+- At run time a range read fetches only the chunks it overlaps and decodes them
+  synchronously in the worker with stb_vorbis compiled to WebAssembly (embedded, about
+  80 KB, built by `tools/build-vorbis-decoder/build.sh`). Decoded chunks share the block
+  LRU. Sync reads widen only to the end of the chunk they touch. Audio members are never
+  pulled whole into the ROM cache or the background prefetch; they are read by range.
+- Savestates are bound to member sizes and CRCs like any other repack.
+
 `wgb.ts` edits store-only bundles; edit the store-only source and compress again.
 
 ## Inspecting & patching: `wgb.ts`
