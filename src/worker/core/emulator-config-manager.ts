@@ -624,6 +624,13 @@ export class EmulatorConfig {
             Logger.log(LogCategory.SYSTEM, "EmulatorConfig: Video playback DISABLED (skipVideo=true)");
         }
 
+        if (typeof config.maxPresentFps === 'number' && config.maxPresentFps > 0) {
+            (globalThis as Record<string, unknown>).__minPresentIntervalMs = 1000 / config.maxPresentFps;
+            Logger.log(LogCategory.SYSTEM, `EmulatorConfig: present cap ${config.maxPresentFps} fps`);
+        } else {
+            delete (globalThis as Record<string, unknown>).__minPresentIntervalMs;
+        }
+
         // Apply strict-FPU flag (boot with relaxed-FPU off → full 80-bit x87 precision).
         if (config.fpuStrict) {
             this.fpuStrict = true;
