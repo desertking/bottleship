@@ -268,6 +268,7 @@ export async function runFixture(fixture, { iterations, params = {}, census = fa
                 if (census) w.opstats_reset();
                 if (dispatch) markDispatch = readDispatch(w);
             });
+            if (fixture.attach) fixture.attach(cpu, makeContext(params), w);
             timer = setTimeout(() => { markAt ??= performance.now(); finish("HANG"); }, timeoutMs);
             t0.ms = performance.now();
             try { emulator.run(); } catch (e) { clearTimeout(timer); rej(e); }
