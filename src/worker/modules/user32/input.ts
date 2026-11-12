@@ -115,7 +115,6 @@ export function createInputExports(): Record<string, ThunkImplementation> {
         schema: stateKeys<User32InputState>({
             windowProperties: true, nextDdeInstance: true, nextDdeStringHandle: true, nextDdeConv: true,
             ddeStrings: true, ddeServices: true, ddeLastError: true, ddeClientOnly: true, heldKeys: true, heldButtons: true,
-            ddeStrings: true, ddeServices: true, ddeLastError: true, ddeClientOnly: true, heldKeys: true,
             ddeInstances: true, ddeConversations: true,
         }),
         capture: () => {
