@@ -687,6 +687,9 @@
     "WBUF_NO_FENCE_MODULES",
     "WBUF_TRANSPORT_SAFE_MODULES"
   ],
+  "src/worker/core/thunking/wbuf-run.ts": [
+    "bindings"
+  ],
   "src/worker/core/thunking/winapi-call-ring.ts": [
     "NOISY_NAMES"
   ],
