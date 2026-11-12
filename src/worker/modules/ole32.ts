@@ -6,7 +6,7 @@ import { Logger, LogCategory } from "../core/logger";
 import { TimeService } from "../runtime/time";
 import { InterfaceRegistry, registerStandardDirectXInterfaces } from "../core/com/interface-registry";
 import { ComObjectFactory } from "../core/com/base-com-object";
-import { lookupHleComClass, releaseHleComServerLoads, leaveComApartment } from "../core/com/hle-com-registry";
+import { lookupHleComClass, releaseHleComServerLoads, leaveComApartment, captureHleComServerLoads, restoreHleComServerLoads } from "../core/com/hle-com-registry";
 import { SystemResourceProvider } from "../core/resources/system-resource-provider";
 import { allocateComObject } from "../core/com/com-memory";
 import { installComVtable, ComVtableMethod, type InstalledComVtable } from "../core/com/install-com-vtable";
@@ -61,6 +61,7 @@ export interface Ole32State {
     blowfishInstances: Array<[number, number, Uint32Array]>;
     dragDropRegistrations: Array<[number, number]>;
     apartments: ApartmentRow[];
+    comServerLoads: string[];
 }
 
 export const OLE32_SCHEMA = {
@@ -70,10 +71,11 @@ export const OLE32_SCHEMA = {
     blowfishRow: ['object', 'refCount', 'boxes'],
     dragDropRow: ['hwnd', 'dropTarget'],
     apartmentRow: ['threadId', 'model', 'inits', 'oleInits'],
+    comServerLoadRow: ['module'],
     state: stateKeys<Ole32State>({
         guidState: true, guidCounter: true, nextClassRegistration: true, messageFilter: true, classRegistrations: true,
         taskMemSizes: true, mallocObjAddr: true, blowfishVtableAddr: true, blowfishInstances: true, dragDropRegistrations: true,
-        apartments: true,
+        apartments: true, comServerLoads: true,
     }),
 };
 const CO_E_IIDSTRING = 0x800401f4;
@@ -118,6 +120,7 @@ export class Ole32 implements IModule {
             blowfishInstances: [...this.blowfishInstances].map(([object, b]) => [object, b.refCount, b.cipher.captureBoxes()]),
             dragDropRegistrations: this.dragDropRegistrations.captureState(),
             apartments: comApartments.captureState(),
+            comServerLoads: captureHleComServerLoads(this.process),
         };
     }
 
@@ -146,11 +149,12 @@ export class Ole32 implements IModule {
         }));
         this.dragDropRegistrations.restoreState(s.dragDropRegistrations);
         comApartments.restoreState(s.apartments);
+        restoreHleComServerLoads(this.process, s.comServerLoads);
     }
 
     registerSavestate(): () => void {
         return savestateParticipants.add({
-            id: 'ole32', version: 1, order: 66, covers: ['ole32'], schema: OLE32_SCHEMA as unknown as SaveValue,
+            id: 'ole32', version: 2, order: 66, covers: ['ole32'], schema: OLE32_SCHEMA as unknown as SaveValue,
             capture: () => {
                 try {
                     return this.captureSavestate() as unknown as SaveValue;
