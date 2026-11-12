@@ -17,6 +17,7 @@ const E_POINTER = 0x80004003, E_NOINTERFACE = 0x80004002, E_FAIL = 0x80004005;
 const E_NOTIMPL = 0x80004001, E_INVALIDARG = 0x80070057;
 interface Instance { primary: number; link: number; refs: number; fonts: Set<number> }
 interface Runtime { generation: number; primaryVtable: number; linkVtable: number; instances: Map<number, Instance> }
+// @refuse(live MLang font-link objects hold guest vtables and mapped host fonts that a load does not rebuild)
 const runtimes = new WeakMap<Process, Runtime>();
 const supports = (iid: string) => [UNKNOWN, MULTI, LINK, PAGES].includes(iid);
 
