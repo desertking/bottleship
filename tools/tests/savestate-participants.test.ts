@@ -369,6 +369,8 @@ describe("schema pin and mutation", () => {
             "dinput": { version: 1, schemaHash: "d7eaf2cafce58a42" },
             "winmm": { version: 2, schemaHash: "a2be1a35b30acb29" },
             "dmusic": { version: 5, schemaHash: "2c7000ebe28c598d" },
+            "winmm": { version: 3, schemaHash: "b915fc71f23babed" },
+            "dmusic": { version: 3, schemaHash: "a2795ad1627886a9" },
         });
     });
 
