@@ -85,6 +85,7 @@ export const MSVCRT_BOOT_ADDRESSES = [
     'commodeAddr', 'acmdlnAddr', 'arg0Addr', 'argvVectorAddr', 'argcAddr', 'argvPtrVarAddr', 'dosErrnoAddr', 'mbctypeAddr',
     'ehPrologAddr', 'environVarAddr', 'iobAddr', 'pioinfoAddr', 'badioinfoAddr', 'lcCodepageAddr', 'osVerVarsAddr',
     'acmdlnVarAddr', 'adjustFdivAddr', 'encodedNullAddr', 'hugeValAddr', 'qsortCodeAddr', 'bsearchCodeAddr',
+    'sysErrlistAddr', 'sysNerrAddr',
 ] as const;
 
 export const MSVCRT_FIELDS = {
@@ -99,7 +100,7 @@ export const MSVCRT_FIELDS = {
     fdHandles: 'transient', handleFds: 'transient', dbgStrCap: 'transient', acmdlnVarAddr: 'derive', adjustFdivAddr: 'derive',
     encodedNullAddr: 'derive', hugeValAddr: 'derive', qsortCodeAddr: 'derive', bsearchCodeAddr: 'derive', crtAllocations: 'save',
     localeAddr: 'save', currentLocale: 'save', lconvAddr: 'save', fileStreams: 'transient', nextFilePtr: 'save', useRealFileStructs: 'save',
-    stringState: 'host', vc9AbiState: 'host',
+    stringState: 'host', vc9AbiState: 'host', sysErrlistAddr: 'derive', sysNerrAddr: 'derive',
 } as const satisfies Record<string, FieldPolicy>;
 
 export interface MsvcrtState {
