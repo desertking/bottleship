@@ -49,7 +49,7 @@ afterEach(() => {
 function harness() {
     const mem = new Uint8Array(0x1000);
     const user = createWindowExports();
-    const wgl = createWglExports({ process: { getCurrentMemory: () => mem, dispatcher: null }, stringCache: new Map() } as any);
+    const wgl = createWglExports({ process: { getCurrentMemory: () => mem, dispatcher: null }, stringCache: new Map(), viewportFromGuest: true, scissorFromGuest: true } as any);
     const call = (api: Record<string, any>, name: string, ...args: number[]) => api[name]!({ esp: 0 } as any, mem, args) as number;
     return {
         getDC: () => call(user, "GetDC", HWND),
