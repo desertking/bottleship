@@ -847,6 +847,8 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
         earlyTexSubmits: 0,    // mid-frame submits forced by a sampled texture being overwritten
         queueWriteSubmits: 0,  // submits forced by a queue-level write to a texture recorded work uses
         blitRingSubmits: 0,    // submits forced by a full colour-key uniform ring
+        blits: 0,              // colour-key/shader-copy blits encoded
+        blitPasses: 0,         // render passes those blits opened
     };
 
     /** Count non-finite positions in CPU-converted vertex data (diagnoses guest-side
@@ -2148,28 +2150,6 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
             this.syncSurfaceFromMemory(dstState);
         }
 
-        // Consume any pending deferred clear for the destination surface.
-        // Without this, a prior D3D Clear stores needsColorClear=true, the Blt writes
-        // pixels to the GPU texture, then the next DrawPrimitive's ensureRenderPass()
-        // creates a render pass with loadOp:"clear" — overwriting the Blt result.
-        if (dstState.needsColorClear) {
-            dstState.needsColorClear = false;
-            dstState.clearColor = undefined;
-            this.surfacesNeedingClear.delete(dstState);
-        }
-
-        // End any active render pass
-        if (this.currentRenderPass) {
-            this.currentRenderPass.end();
-            this.currentRenderPass = null;
-            this.currentRenderTarget = null;
-        }
-
-        // Ensure encoder exists
-        if (!this.currentEncoder) {
-            this.currentEncoder = this.device.createCommandEncoder();
-        }
-
         // Decode colorkey to normalized RGBA based on source surface pixel format
         const srcFormat = detectPixelFormat(srcState.format);
         const colorKeyLow = decodeColorKeyToRGBA(colorKey.low, srcFormat);
@@ -2179,7 +2159,7 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
         this.noteRecordedTexture(srcState.gpuTexture);
         this.noteRecordedTexture(dstState.gpuTexture);
         // Perform the blit
-        this.colorKeyBlitPipeline.blit(this.currentEncoder, {
+        this.colorKeyBlitPipeline.encode(this.openBlitPass(dstState), {
             srcView: srcState.gpuTextureView,
             srcWidth: srcState.width,
             srcHeight: srcState.height,
@@ -2262,31 +2242,12 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
             this.syncSurfaceFromMemory(dstState);
         }
 
-        // Consume any pending deferred clear for the destination surface.
-        // Without this, a prior D3D Clear stores needsColorClear=true, the Blt writes
-        // pixels to the GPU texture, then the next DrawPrimitive's ensureRenderPass()
-        // creates a render pass with loadOp:"clear" — overwriting the Blt result.
-        if (dstState.needsColorClear) {
-            dstState.needsColorClear = false;
-            dstState.clearColor = undefined;
-            this.surfacesNeedingClear.delete(dstState);
-        }
-
-        if (this.currentRenderPass) {
-            this.currentRenderPass.end();
-            this.currentRenderPass = null;
-            this.currentRenderTarget = null;
-        }
-        if (!this.currentEncoder) {
-            this.currentEncoder = this.device.createCommandEncoder();
-        }
-
         this.ensureBlitSlot();
         this.noteRecordedTexture(srcState.gpuTexture);
         this.noteRecordedTexture(dstState.gpuTexture);
         // Dummy colorkey values; discard disabled by enableColorKey=false
         const zero = { r: 0, g: 0, b: 0, a: 0 };
-        this.colorKeyBlitPipeline.blit(this.currentEncoder, {
+        this.colorKeyBlitPipeline.encode(this.openBlitPass(dstState), {
             srcView: srcState.gpuTextureView,
             srcWidth: srcState.width,
             srcHeight: srcState.height,
@@ -4039,6 +4000,46 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
     /** Submit recorded work, if any; for code that submits an encoder of its own. */
     flushPending(): void {
         if (!this.flushing && this.hasRecordedWork()) this.flush(false);
+    }
+
+    /** The open pass, when it is a blit pass, and the destination view it writes. */
+    private blitPass: GPURenderPassEncoder | null = null;
+    private blitPassView: GPUTextureView | null = null;
+
+    /**
+     * The pass a blit onto `dst` is encoded into. Consecutive blits to one destination share
+     * one pass; anything else that opens or ends a pass (a draw, a clear, a sync, a submit)
+     * leaves currentRenderPass pointing elsewhere, so the next blit opens a new one. A pending
+     * deferred clear of the destination is done by the new pass (loadOp "clear") and consumed,
+     * so the blit lands on the cleared surface and a later draw pass does not clear it away.
+     */
+    private openBlitPass(dst: DirectDrawSurfaceState): GPURenderPassEncoder {
+        const view = dst.gpuTextureView!;
+        const pendingClear = dst.needsColorClear === true && dst.clearColor !== undefined;
+        if (this.currentRenderPass !== null && this.currentRenderPass === this.blitPass
+            && this.blitPassView === view && !pendingClear) {
+            this.renderStats.blits++;
+            return this.blitPass;
+        }
+        if (this.currentRenderPass) {
+            this.currentRenderPass.end();
+            this.currentRenderPass = null;
+            this.currentRenderTarget = null;
+        }
+        if (!this.currentEncoder) this.currentEncoder = this.device.createCommandEncoder();
+        const clear = pendingClear ? this.clearPipeline.parseColor(dst.clearColor!) : undefined;
+        if (dst.needsColorClear) {
+            dst.needsColorClear = false;
+            dst.clearColor = undefined;
+            this.surfacesNeedingClear.delete(dst);
+        }
+        const pass = this.colorKeyBlitPipeline.beginPass(this.currentEncoder, view, clear);
+        this.currentRenderPass = pass;
+        this.blitPass = pass;
+        this.blitPassView = view;
+        this.renderStats.blitPasses++;
+        this.renderStats.blits++;
+        return pass;
     }
 
     /** The colour-key pipeline's uniform ring holds a bounded number of unsubmitted blits. */
