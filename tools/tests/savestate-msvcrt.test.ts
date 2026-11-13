@@ -284,7 +284,7 @@ describe("msvcrt participant", () => {
         const undo = new Msvcrt().registerSavestate();
         const schema = savestateParticipants.schemas().msvcrt;
         undo();
-        expect(schema).toEqual({ version: 1, schemaHash: "1f2216ea6607ed22" });
+        expect(schema).toEqual({ version: 2, schemaHash: "655451904a7bce36" });
     });
 
     test("coverage names every C runtime flavour as msvcrt; the loaded-module list keeps the import names", () => {
