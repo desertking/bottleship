@@ -1,4 +1,4 @@
 [submodule "vendor/v86"]
 	path = vendor/v86
 	url = https://github.com/desertking/v86.git
-	branch = integration/kernel-on-upstream-20261113b42
+	branch = integration/kernel-on-upstream-20261111
