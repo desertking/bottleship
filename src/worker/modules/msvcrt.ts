@@ -85,6 +85,7 @@ export const MSVCRT_BOOT_ADDRESSES = [
     'commodeAddr', 'acmdlnAddr', 'arg0Addr', 'argvVectorAddr', 'argcAddr', 'argvPtrVarAddr', 'dosErrnoAddr', 'mbctypeAddr',
     'ehPrologAddr', 'environVarAddr', 'iobAddr', 'pioinfoAddr', 'badioinfoAddr', 'lcCodepageAddr', 'osVerVarsAddr',
     'acmdlnVarAddr', 'adjustFdivAddr', 'encodedNullAddr', 'hugeValAddr', 'qsortCodeAddr', 'bsearchCodeAddr',
+    'sysErrlistAddr', 'sysNerrAddr',
 ] as const;
 
 export const MSVCRT_FIELDS = {
@@ -97,7 +98,7 @@ export const MSVCRT_FIELDS = {
     newHandlerPtr: 'save', newMode: 'save', strerrorBuf: 'save', timezoneState: 'derive', temporaryFiles: 'transient', crtDbgFlag: 'save',
     controlFpDnBits: 'save', tempnamCounter: 'save', exitHandlers: 'save', exitChainRunning: 'transient', fdNext: 'save', fds: 'transient',
     fdHandles: 'transient', handleFds: 'transient', dbgStrCap: 'transient', acmdlnVarAddr: 'derive', adjustFdivAddr: 'derive',
-    encodedNullAddr: 'derive', hugeValAddr: 'derive', qsortCodeAddr: 'derive', bsearchCodeAddr: 'derive', crtAllocations: 'save',
+    encodedNullAddr: 'derive', hugeValAddr: 'derive', sysErrlistAddr: 'derive', sysNerrAddr: 'derive', qsortCodeAddr: 'derive', bsearchCodeAddr: 'derive', crtAllocations: 'save',
     localeAddr: 'save', currentLocale: 'save', lconvAddr: 'save', fileStreams: 'transient', nextFilePtr: 'save', useRealFileStructs: 'save',
     stringState: 'host', vc9AbiState: 'host',
 } as const satisfies Record<string, FieldPolicy>;
@@ -385,7 +386,7 @@ export class Msvcrt implements IModule {
 
     registerSavestate(): () => void {
         return savestateParticipants.add({
-            id: 'msvcrt', version: 1, order: 7, covers: ['msvcrt'], schema: MSVCRT_SCHEMA as unknown as SaveValue,
+            id: 'msvcrt', version: 2, order: 7, covers: ['msvcrt'], schema: MSVCRT_SCHEMA as unknown as SaveValue,
             capture: () => {
                 try {
                     return this.captureSavestate() as unknown as SaveValue;
