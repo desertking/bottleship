@@ -436,7 +436,10 @@ export class BindGroupManager {
         if (!node.byBuffer) node.byBuffer = new WeakMap();
         let bg = node.byBuffer.get(storageBuffer);
         if (!bg) {
-            if (this.megaBatchCached >= MEGA_BATCH_CACHE_LIMIT) this.resetMegaBatchCache();
+            if (this.megaBatchCached >= MEGA_BATCH_CACHE_LIMIT) {
+                this.resetMegaBatchCache();
+                return this.createMegaBatchBindGroup(storageBuffer, sampledMask, views, samplers, dummyTextureView);
+            }
             bg = this.buildMegaBatchBindGroup(storageBuffer, sampledMask, views, samplers, dummyTextureView, 0, undefined);
             node.byBuffer.set(storageBuffer, bg);
             this.megaBatchCached++;

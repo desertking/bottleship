@@ -102,7 +102,9 @@ describe("MegaBatch bind groups are keyed by resource identity", () => {
         const g = m.createMegaBatchBindGroup(buf, 1, [first], [sampler()], DUMMY);
         for (let i = 1; i < MEGA_BATCH_CACHE_LIMIT; i++) m.createMegaBatchBindGroup(buf, 1, [view(`v${i}`)], [sampler()], DUMMY);
         expect(m.createMegaBatchBindGroup(buf, 1, [first], [sampler()], DUMMY)).toBe(g);
-        m.createMegaBatchBindGroup(buf, 1, [view("one more")], [sampler()], DUMMY);
+        const more = view("one more");
+        const fresh = m.createMegaBatchBindGroup(buf, 1, [more], [sampler()], DUMMY);
+        expect(m.createMegaBatchBindGroup(buf, 1, [more], [sampler()], DUMMY)).toBe(fresh);
         expect(m.createMegaBatchBindGroup(buf, 1, [first], [sampler()], DUMMY)).not.toBe(g);
         expect(made).toHaveLength(MEGA_BATCH_CACHE_LIMIT + 2);
     });
