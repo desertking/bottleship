@@ -7,13 +7,14 @@ import { Mem } from '../../src/worker/core/memory/mem-accessor';
 import { coCreateMlang } from '../../src/worker/modules/ole32-mlang-font-link';
 import { GDIContext } from '../../src/worker/modules/gdi32/context';
 import { addMemoryFontResource, removeMemoryFontResource, installedFontCoverage } from '../../src/worker/modules/gdi32/font-resource';
-import { checkComGuard, resetComMemory } from '../../src/worker/core/com/com-memory';
+import { checkComGuard, resetComMemory, snapshotComVtableOwners } from '../../src/worker/core/com/com-memory';
 import type { Process } from '../../src/worker/core/process';
 import type { ThunkImplementation } from '../../src/worker/core/thunking/thunk-dispatcher';
 
 const CLASS = '275c23e2-3747-11d0-9fea-00aa003f8646', MULTI = '275c23e1-3747-11d0-9fea-00aa003f8646';
 const LINK = '359f3441-bd4a-11d0-b188-00aa0038c969', UNKNOWN = '00000000-0000-0000-c000-000000000046';
 const system = System.getInstance(), savedProcess = system.process;
+let restoreVtableOwners: () => void = () => {};
 let memory: Uint8Array, process: Process, nextData: number, nextCode: number, batches: number;
 let denyOut = false;
 const handlers = new Map<string, ThunkImplementation>();
@@ -31,6 +32,7 @@ function invoke(ptr: number, slot: number, args: number[] = []) {
     return handlers.get(namesByStub.get(stub)!)!(null as never,memory,[ptr,...args]);
 }
 beforeEach(() => {
+    restoreVtableOwners = snapshotComVtableOwners();
     memory=new Uint8Array(0x40000); nextData=0x10000; nextCode=0x20000; batches=0;
     handlers.clear(); namesByStub.clear(); methodShapes=[]; denyOut=false; resetComMemory();
     Mem.bind(() => memory,(p,n,perms) => p>=0 && p+n<=memory.length && !(denyOut && perms.includes('w') && p<2056 && p+n>2052));
@@ -54,7 +56,7 @@ beforeEach(() => {
     } as unknown as Process;
     system.process=process; guid(1024,LINK); guid(1040,UNKNOWN);
 });
-afterEach(()=>{ resetComMemory(); system.process=savedProcess; Mem.bind(()=>savedProcess?.getCurrentMemory()??new Uint8Array()); });
+afterEach(() => { restoreVtableOwners(); resetComMemory(); system.process=savedProcess; Mem.bind(()=>savedProcess?.getCurrentMemory()??new Uint8Array()); });
 
 test('real installer publishes correct slots and COM guards; QI has canonical IUnknown and balanced refs',()=>{
     expect(coCreateMlang(process,CLASS,MULTI,2048)).toBe(0);
