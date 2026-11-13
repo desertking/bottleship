@@ -2,7 +2,7 @@ import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { System } from '../../src/worker/core/system';
 import { Mem } from '../../src/worker/core/memory/mem-accessor';
 import { coCreateWebBrowser, CLSID_WEBBROWSER } from '../../src/worker/modules/ole32-webbrowser';
-import { checkComGuard, resetComMemory } from '../../src/worker/core/com/com-memory';
+import { checkComGuard, resetComMemory, snapshotComVtableOwners } from '../../src/worker/core/com/com-memory';
 import type { Process } from '../../src/worker/core/process';
 import type { ThunkImplementation } from '../../src/worker/core/thunking/thunk-dispatcher';
 
@@ -14,6 +14,7 @@ const IIDS: Record<string, string> = {
     cpc: 'b196b284-bab4-101a-b69c-00aa00341d07',
 };
 const system = System.getInstance(), savedProcess = system.process;
+let restoreVtableOwners: () => void = () => {};
 let memory: Uint8Array, process: Process, nextData: number, nextCode: number;
 const handlers = new Map<string, ThunkImplementation>();
 const namesByStub = new Map<number, string>();
@@ -34,6 +35,7 @@ function call(ptr: number, method: string, args: number[] = []) {
     throw new Error('no method ' + method);
 }
 beforeEach(() => {
+    restoreVtableOwners = snapshotComVtableOwners();
     memory = new Uint8Array(0x40000); nextData = 0x10000; nextCode = 0x20000;
     handlers.clear(); namesByStub.clear(); shapes = []; resetComMemory();
     Mem.bind(() => memory, (p, n) => p >= 0 && p + n <= memory.length);
@@ -51,7 +53,7 @@ beforeEach(() => {
     system.process = process;
     let at = 1024; for (const v of Object.values(IIDS)) { guid(at, v); at += 16; }
 });
-afterEach(() => { resetComMemory(); system.process = savedProcess; Mem.bind(() => savedProcess?.getCurrentMemory() ?? new Uint8Array()); });
+afterEach(() => { restoreVtableOwners(); resetComMemory(); system.process = savedProcess; Mem.bind(() => savedProcess?.getCurrentMemory() ?? new Uint8Array()); });
 const iidAt = (key: string) => 1024 + Object.keys(IIDS).indexOf(key) * 16;
 
 test('WebBrowser stand-in serves the interfaces a hosting control asks for, invisible at runtime, balanced refs', () => {
