@@ -109,6 +109,7 @@ export const OPENGL_CONTEXT_FIELDS = {
     immediateFlatBuf: "save",
     immediateFlatCount: "save",
     immediatePrimMode: "save",
+    drawMergeHint: "transient",
     currentColor: "save",
     currentNormal: "save",
     currentTexCoord: "save",

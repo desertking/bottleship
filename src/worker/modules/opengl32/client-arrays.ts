@@ -140,6 +140,7 @@ type RegionSpace = { getRegion(a: number): { perms: string } | null; regionGener
 
 interface ValidatedSpan { space: RegionSpace; gen: number; start: number; end: number }
 
+/** @transient(range-check memo keyed by the array-pointer object and the region generation; a restored pointer is a new object and misses) */
 const validatedSpans = new WeakMap<GLArrayPointer, ValidatedSpan>();
 
 function arrayOutOfRange(
