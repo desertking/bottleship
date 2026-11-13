@@ -1,0 +1,5839 @@
+{
+"ua": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
+"coi": true,
+"rounds": 16,
+"ns": [
+1000000,
+2000000
+],
+"warmup": 5,
+"modules": {
+"leaves": 158,
+"same-call-mem": 141,
+"same-call-reg": 269,
+"other-indirect-mem": 107,
+"other-indirect-reg": 255,
+"other-import-mem": 106,
+"other-import-reg": 254
+},
+"reps": [
+{
+"rep": 0,
+"summary": [
+{
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"median": 0.849999999627471,
+"min": 0.8250000001862645,
+"q25": 0.8399999989196658,
+"q75": 0.8550000004470348,
+"max": 1.2549999998882413,
+"negative": 0
+},
+{
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"median": 0.8500000000931323,
+"min": 0.7524999994784594,
+"q25": 0.8399999998509884,
+"q75": 0.8599999998696148,
+"max": 1.0175000000745058,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"median": 0.3349999999627471,
+"min": 0.31999999936670065,
+"q25": 0.3250000001862645,
+"q75": 0.34000000078231096,
+"max": 0.3650000002235174,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"median": 0.33749999944120646,
+"min": 0.3125,
+"q25": 0.3300000000745058,
+"q75": 0.3399999998509884,
+"max": 0.37749999994412065,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"median": 3.8399999998509884,
+"min": 3.434999999590218,
+"q25": 3.7749999994412065,
+"q75": 3.8700000010430813,
+"max": 4.28999999910593,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"median": 3.8875000001862645,
+"min": 3.4500000001862645,
+"q25": 3.815000000409782,
+"q75": 4.152499999850988,
+"max": 4.5424999999813735,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"median": 7.119999999180436,
+"min": 6.339999998919666,
+"q25": 6.680000000633299,
+"q75": 7.239999999292195,
+"max": 7.605000000447035,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"median": 6.65250000031665,
+"min": 6.017500000074506,
+"q25": 6.437500000465661,
+"q75": 6.84499999973923,
+"max": 7.342499999795109,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"median": 3.4849999994039536,
+"min": 2.580000000074506,
+"q25": 3.4649999998509884,
+"q75": 3.5249999994412065,
+"max": 3.7549999998882413,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"median": 3.5750000001862645,
+"min": 3.177499999757856,
+"q25": 3.447500000242144,
+"q75": 3.6674999999813735,
+"max": 3.8950000000186265,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"median": 5.03000000026077,
+"min": 4.480000000447035,
+"q25": 4.970000000670552,
+"q75": 5.095000001601875,
+"max": 5.625000000931323,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"median": 5.125,
+"min": 4.517500000540167,
+"q25": 4.8950000000186265,
+"q75": 5.1700000003911555,
+"max": 5.677500000223517,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"median": 0.8449999997392297,
+"min": 0.8099999995902181,
+"q25": 0.8349999999627471,
+"q75": 0.8700000001117587,
+"max": 0.9850000003352761,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"median": 0.8525000000372529,
+"min": 0.6699999999254942,
+"q25": 0.8474999996833503,
+"q75": 0.9125000000931323,
+"max": 1.319999999832362,
+"negative": 0
+}
+],
+"raw": [
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8599999994039536,
+"ms2N": 2.114999999292195,
+"nsPerCall": 1.2549999998882413
+},
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.9050000002607703,
+"ms2N": 3.409999999217689,
+"nsPerCall": 0.7524999994784594
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3449999997392297,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3250000001862645
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6850000005215406,
+"ms2N": 1.3599999994039536,
+"nsPerCall": 0.33749999944120646
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9699999997392297,
+"ms2N": 8.099999999627471,
+"nsPerCall": 4.129999999888241
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.625,
+"ms2N": 15.729999999515712,
+"nsPerCall": 4.052499999757856
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.370000000111759,
+"ms2N": 13.645000000484288,
+"nsPerCall": 7.275000000372529
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.269999999552965,
+"ms2N": 26.384999999776483,
+"nsPerCall": 6.557500000111759
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.485000000335276,
+"ms2N": 6.96999999973923,
+"nsPerCall": 3.4849999994039536
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.990000000223517,
+"ms2N": 14.3050000006333,
+"nsPerCall": 3.657500000204891
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.060000000521541,
+"ms2N": 10.059999999590218,
+"nsPerCall": 4.999999999068677
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.995000000111759,
+"ms2N": 20.040000000037253,
+"nsPerCall": 5.022499999962747
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.6950000002980232,
+"nsPerCall": 0.8500000005587935
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.4050000002607703,
+"nsPerCall": 0.8600000003352761
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8450000006705523,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8449999988079071
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.4050000002607703,
+"nsPerCall": 0.8625000002793968
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.9500000001862645,
+"ms2N": 10.004999999888241,
+"nsPerCall": 5.054999999701977
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.875,
+"ms2N": 19.90000000037253,
+"nsPerCall": 5.0125000001862645
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.599999999627471,
+"ms2N": 7.125,
+"nsPerCall": 3.525000000372529
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.254999999888241,
+"ms2N": 13.959999999962747,
+"nsPerCall": 3.352500000037253
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.474999999627471,
+"ms2N": 13.245000000111759,
+"nsPerCall": 6.770000000484288
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.544999999925494,
+"ms2N": 26.480000000447035,
+"nsPerCall": 6.46750000026077
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.855000000447035,
+"ms2N": 7.660000000149012,
+"nsPerCall": 3.8049999997019768
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.589999999850988,
+"ms2N": 15.365000000223517,
+"nsPerCall": 3.8875000001862645
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3250000001862645
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8450000006705523,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.8649999992921948
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8500000000931323
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999989196658
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.8425000002607703
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.7050000000745058,
+"ms2N": 1.3300000000745058,
+"nsPerCall": 0.3125
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.980000000447035,
+"ms2N": 7.71999999973923,
+"nsPerCall": 3.739999999292195
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.464999999850988,
+"ms2N": 15.365000000223517,
+"nsPerCall": 3.4500000001862645
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.5,
+"ms2N": 14.105000000447035,
+"nsPerCall": 7.605000000447035
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.174999999813735,
+"ms2N": 26.864999999292195,
+"nsPerCall": 6.84499999973923
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5150000005960464,
+"ms2N": 7.059999999590218,
+"nsPerCall": 3.5449999989941716
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.040000000037253,
+"ms2N": 14.375,
+"nsPerCall": 3.6674999999813735
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.909999999217689,
+"ms2N": 10.005000000819564,
+"nsPerCall": 5.095000001601875
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.964999999850988,
+"ms2N": 21.320000000298023,
+"nsPerCall": 5.677500000223517
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8349999999627471,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8549999995157123
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3650000002235174,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.6800000006332994,
+"nsPerCall": 0.8300000010058284
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7549999998882413,
+"ms2N": 3.355000000447035,
+"nsPerCall": 0.8000000002793968
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.910000000149012,
+"ms2N": 10.484999999403954,
+"nsPerCall": 5.574999999254942
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.984999999403954,
+"ms2N": 20.020000000484288,
+"nsPerCall": 4.517500000540167
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.485000000335276,
+"ms2N": 6.9849999994039536,
+"nsPerCall": 3.4999999990686774
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.060000000521541,
+"ms2N": 14.56499999947846,
+"nsPerCall": 3.7524999994784594
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.6000000005587935,
+"ms2N": 13.839999999850988,
+"nsPerCall": 7.239999999292195
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.410000000149012,
+"ms2N": 25.445000000298023,
+"nsPerCall": 6.017500000074506
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.7800000002607703,
+"ms2N": 7.625,
+"nsPerCall": 3.8449999997392297
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.620000000111759,
+"ms2N": 16.705000000074506,
+"nsPerCall": 4.5424999999813735
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6750000007450581,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.33749999944120646
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8300000000745058,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.8550000004470348
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.3950000004842877,
+"nsPerCall": 0.8550000004470348
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8549999995157123,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.8300000010058284
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.5049999998882413,
+"nsPerCall": 0.9125000000931323
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.7050000000745058,
+"nsPerCall": 0.3650000002235174
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6900000004097819,
+"ms2N": 1.375,
+"nsPerCall": 0.34249999979510903
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.875,
+"ms2N": 7.810000000521541,
+"nsPerCall": 3.9350000005215406
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.71999999973923,
+"ms2N": 16.549999999813735,
+"nsPerCall": 4.415000000037253
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.639999999664724,
+"ms2N": 13.759999999776483,
+"nsPerCall": 7.120000000111759
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.260000000707805,
+"ms2N": 26.200000000186265,
+"nsPerCall": 6.46999999973923
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.544999999925494,
+"ms2N": 7.064999999478459,
+"nsPerCall": 3.519999999552965
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.145000000484288,
+"ms2N": 14.584999999962747,
+"nsPerCall": 3.7199999997392297
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.2000000001862645,
+"ms2N": 10.230000000447035,
+"nsPerCall": 5.03000000026077
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.669999999925494,
+"ms2N": 20.919999999925494,
+"nsPerCall": 5.125
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8550000004470348,
+"ms2N": 1.7799999993294477,
+"nsPerCall": 0.9249999988824129
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.709999999962747,
+"ms2N": 3.415000000037253,
+"nsPerCall": 0.8525000000372529
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8599999994039536,
+"ms2N": 1.7000000001862645,
+"nsPerCall": 0.840000000782311
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.8600000003352761,
+"ms2N": 4.5,
+"nsPerCall": 1.319999999832362
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.96999999973923,
+"ms2N": 10.595000000670552,
+"nsPerCall": 5.625000000931323
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.304999999701977,
+"ms2N": 20.91000000014901,
+"nsPerCall": 5.302500000223517
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 4.004999999888241,
+"ms2N": 6.990000000223517,
+"nsPerCall": 2.985000000335276
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.084999999962747,
+"ms2N": 13.980000000447035,
+"nsPerCall": 3.447500000242144
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 5.959999999962747,
+"ms2N": 13.205000000074506,
+"nsPerCall": 7.245000000111759
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.955000000074506,
+"ms2N": 27.28000000026077,
+"nsPerCall": 6.662500000093132
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8700000001117587,
+"ms2N": 8.159999999217689,
+"nsPerCall": 4.28999999910593
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.794999999925494,
+"ms2N": 15.599999999627471,
+"nsPerCall": 3.9024999998509884
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.35500000044703484,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.31999999936670065
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6749999998137355,
+"ms2N": 1.334999999962747,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.7000000001862645,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6949999993667006,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8650000002235174,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.8250000001862645
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6699999999254942,
+"ms2N": 3.705000000074506,
+"nsPerCall": 1.0175000000745058
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.35499999951571226,
+"ms2N": 0.715000000782311,
+"nsPerCall": 0.3600000012665987
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.7199999997392297,
+"ms2N": 1.4050000002607703,
+"nsPerCall": 0.3425000002607703
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.569999999366701,
+"ms2N": 8.524999999441206,
+"nsPerCall": 3.955000000074506
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.895000000484288,
+"ms2N": 15.639999999664724,
+"nsPerCall": 3.872499999590218
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 7.065000000409782,
+"ms2N": 13.404999999329448,
+"nsPerCall": 6.339999998919666
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.5699999993667,
+"ms2N": 26.445000000298023,
+"nsPerCall": 6.437500000465661
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.6400000005960464,
+"ms2N": 7.040000000037253,
+"nsPerCall": 3.3999999994412065
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.724999999627471,
+"ms2N": 14.110000000335276,
+"nsPerCall": 3.1925000003539026
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.919999999925494,
+"ms2N": 9.96999999973923,
+"nsPerCall": 5.0499999998137355
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.125,
+"ms2N": 21.279999999329448,
+"nsPerCall": 5.577499999664724
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.7050000000745058,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7199999997392297,
+"ms2N": 3.544999999925494,
+"nsPerCall": 0.9125000000931323
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.6950000002980232,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 2.1049999995157123,
+"ms2N": 3.4449999993667006,
+"nsPerCall": 0.6699999999254942
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.034999999217689,
+"ms2N": 10.004999999888241,
+"nsPerCall": 4.970000000670552
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.979999999515712,
+"ms2N": 20.320000000298023,
+"nsPerCall": 5.1700000003911555
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5899999998509884,
+"ms2N": 7.065000000409782,
+"nsPerCall": 3.4750000005587935
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.099999999627471,
+"ms2N": 14.245000000111759,
+"nsPerCall": 3.572500000242144
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.2250000005587935,
+"ms2N": 13.4449999993667,
+"nsPerCall": 7.219999998807907
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.025000000372529,
+"ms2N": 27.66000000014901,
+"nsPerCall": 7.317499999888241
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8250000001862645,
+"ms2N": 7.599999999627471,
+"nsPerCall": 3.7749999994412065
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.6749999998137355,
+"ms2N": 15.399999999441206,
+"nsPerCall": 3.8624999998137355
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.34500000067055225,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.31999999936670065
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.4249999998137355,
+"nsPerCall": 0.37749999994412065
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.875,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.3999999994412065,
+"nsPerCall": 0.8574999994598329
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8349999999627471,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.8550000004470348
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.4050000002607703,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.875,
+"ms2N": 7.604999999515712,
+"nsPerCall": 3.7299999995157123
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.875,
+"ms2N": 16.424999999813735,
+"nsPerCall": 4.274999999906868
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.290000000037253,
+"ms2N": 13.125,
+"nsPerCall": 6.834999999962747
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.950000000186265,
+"ms2N": 27.47499999962747,
+"nsPerCall": 7.262499999720603
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.550000000745058,
+"ms2N": 6.939999999478459,
+"nsPerCall": 3.3899999987334013
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.490000000223517,
+"ms2N": 14.475000000558794,
+"nsPerCall": 3.492500000167638
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.519999999552965,
+"ms2N": 10.515000000596046,
+"nsPerCall": 4.995000001043081
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.229999999515712,
+"ms2N": 20.480000000447035,
+"nsPerCall": 5.125000000465661
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8149999994784594
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 4.2000000001862645,
+"nsPerCall": 1.2475000000558794
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8799999998882413,
+"ms2N": 1.8650000002235174,
+"nsPerCall": 0.9850000003352761
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.8200000002980232,
+"ms2N": 3.519999999552965,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.96999999973923,
+"ms2N": 10.3199999993667,
+"nsPerCall": 5.349999999627471
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.275000000372529,
+"ms2N": 20.665000000037253,
+"nsPerCall": 5.194999999832362
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.480000000447035,
+"ms2N": 7.004999999888241,
+"nsPerCall": 3.5249999994412065
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.209999999962747,
+"ms2N": 15,
+"nsPerCall": 3.8950000000186265
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.770000000484288,
+"ms2N": 13.575000000186265,
+"nsPerCall": 6.804999999701977
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 14.154999999329448,
+"ms2N": 26.769999999552965,
+"nsPerCall": 6.307500000111759
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.165000000037253,
+"ms2N": 7.775000000372529,
+"nsPerCall": 3.610000000335276
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.879999999888241,
+"ms2N": 15.294999999925494,
+"nsPerCall": 3.7075000000186265
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6700000008568168,
+"nsPerCall": 0.34000000078231096
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.659999999217689,
+"ms2N": 1.3450000006705523,
+"nsPerCall": 0.3425000007264316
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8300000000745058,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.8549999995157123
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.4449999993667006,
+"nsPerCall": 0.87999999942258
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999989196658
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7199999997392297,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3449999997392297
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6749999998137355,
+"ms2N": 1.3300000000745058,
+"nsPerCall": 0.32750000013038516
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.230000000447035,
+"ms2N": 7.665000000037253,
+"nsPerCall": 3.434999999590218
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.689999999478459,
+"ms2N": 15.320000000298023,
+"nsPerCall": 3.815000000409782
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.65500000026077,
+"ms2N": 13.245000000111759,
+"nsPerCall": 6.589999999850988
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.209999999962747,
+"ms2N": 25.604999999515712,
+"nsPerCall": 6.197499999776483
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 4.679999999701977,
+"ms2N": 7.259999999776483,
+"nsPerCall": 2.580000000074506
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.270000000484288,
+"ms2N": 13.995000000111759,
+"nsPerCall": 3.3624999998137355
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.150000000372529,
+"ms2N": 10.334999999962747,
+"nsPerCall": 5.184999999590218
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 11.035000000149012,
+"ms2N": 20.764999999664724,
+"nsPerCall": 4.864999999757856
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8899999996647239,
+"ms2N": 1.8049999997019768,
+"nsPerCall": 0.9150000000372529
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.7200000006705523,
+"nsPerCall": 1.0075000002980232
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8649999992921948,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.8200000012293458
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.665000000037253,
+"ms2N": 3.5949999997392297,
+"nsPerCall": 0.9649999998509884
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.9500000001862645,
+"ms2N": 9.830000000074506,
+"nsPerCall": 4.879999999888241
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.015000000596046,
+"ms2N": 19.96999999973923,
+"nsPerCall": 4.977499999571592
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.9100000001490116,
+"ms2N": 7.665000000037253,
+"nsPerCall": 3.7549999998882413
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.370000000111759,
+"ms2N": 14.520000000484288,
+"nsPerCall": 3.5750000001862645
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.410000000149012,
+"ms2N": 13.529999999329448,
+"nsPerCall": 7.119999999180436
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.065000000409782,
+"ms2N": 27.22499999962747,
+"nsPerCall": 7.0799999996088445
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8100000005215406,
+"ms2N": 7.584999999962747,
+"nsPerCall": 3.7749999994412065
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.5,
+"ms2N": 15.669999999925494,
+"nsPerCall": 3.584999999962747
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.34500000067055225,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.32499999925494194
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.33749999990686774
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8300000000745058,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.3650000002235174,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.7000000001862645,
+"nsPerCall": 0.8600000003352761
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.360000000335276,
+"nsPerCall": 0.8400000003166497
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6749999998137355,
+"ms2N": 1.3300000000745058,
+"nsPerCall": 0.32750000013038516
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8250000001862645,
+"ms2N": 7.665000000037253,
+"nsPerCall": 3.8399999998509884
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.634999999776483,
+"ms2N": 15.265000000596046,
+"nsPerCall": 3.815000000409782
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.564999999478459,
+"ms2N": 13.245000000111759,
+"nsPerCall": 6.680000000633299
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 14.06000000052154,
+"ms2N": 26.479999999515712,
+"nsPerCall": 6.209999999497086
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.540000000037253,
+"ms2N": 7.004999999888241,
+"nsPerCall": 3.4649999998509884
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.0750000001862645,
+"ms2N": 14.625,
+"nsPerCall": 3.7749999999068677
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.479999999515712,
+"ms2N": 9.959999999962747,
+"nsPerCall": 4.480000000447035
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.589999999850988,
+"ms2N": 20.179999999701977,
+"nsPerCall": 4.794999999925494
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8299999991431832,
+"ms2N": 1.699999999254942,
+"nsPerCall": 0.8700000001117587
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.389999999664724,
+"nsPerCall": 0.8524999995715916
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8650000002235174,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8099999995902181
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.375,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.03000000026077,
+"ms2N": 9.974999999627471,
+"nsPerCall": 4.944999999366701
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.290000000037253,
+"ms2N": 20.080000000074506,
+"nsPerCall": 4.8950000000186265
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5299999993294477,
+"ms2N": 7.010000000707805,
+"nsPerCall": 3.4800000013783574
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.959999999962747,
+"ms2N": 14.004999999888241,
+"nsPerCall": 3.522499999962747
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.810000000521541,
+"ms2N": 13.429999999701977,
+"nsPerCall": 6.619999999180436
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.620000000111759,
+"ms2N": 27.304999999701977,
+"nsPerCall": 7.342499999795109
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.070000000298023,
+"ms2N": 7.870000000111759,
+"nsPerCall": 3.7999999998137355
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.884999999776483,
+"ms2N": 16.570000000298023,
+"nsPerCall": 4.34250000026077
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3449999997392297,
+"ms2N": 0.6750000007450581,
+"nsPerCall": 0.3300000010058284
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6749999998137355,
+"ms2N": 1.334999999962747,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8399999989196658
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.349999999627471,
+"nsPerCall": 0.8274999996647239
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8450000006705523,
+"ms2N": 1.6949999993667006,
+"nsPerCall": 0.8499999986961484
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.690000000409782,
+"ms2N": 3.389999999664724,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6800000006332994,
+"nsPerCall": 0.34500000067055225
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3449999997392297,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.7850000001490116,
+"ms2N": 7.644999999552965,
+"nsPerCall": 3.8599999994039536
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.6000000005587935,
+"ms2N": 15.90500000026077,
+"nsPerCall": 4.152499999850988
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 5.979999999515712,
+"ms2N": 13.3050000006333,
+"nsPerCall": 7.325000001117587
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.114999999292195,
+"ms2N": 26.419999999925494,
+"nsPerCall": 6.65250000031665
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4649999998509884,
+"ms2N": 7.044999999925494,
+"nsPerCall": 3.580000000074506
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.985000000335276,
+"ms2N": 14.209999999962747,
+"nsPerCall": 3.6124999998137355
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.370000000111759,
+"ms2N": 9.924999999813735,
+"nsPerCall": 4.554999999701977
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.059999999590218,
+"ms2N": 19.824999999254942,
+"nsPerCall": 4.882499999832362
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.6950000002980232,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7299999995157123,
+"ms2N": 3.4300000006332994,
+"nsPerCall": 0.8500000005587935
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.7199999997392297,
+"nsPerCall": 0.875
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8474999996833503
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.985000000335276,
+"ms2N": 9.964999999850988,
+"nsPerCall": 4.979999999515712
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.870000000111759,
+"ms2N": 20.144999999552965,
+"nsPerCall": 5.137499999720603
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4799999995157123,
+"ms2N": 6.959999999962747,
+"nsPerCall": 3.480000000447035
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.615000000223517,
+"ms2N": 13.96999999973923,
+"nsPerCall": 3.177499999757856
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.150000000372529,
+"ms2N": 12.669999999925494,
+"nsPerCall": 6.519999999552965
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.299999999813735,
+"ms2N": 26.75499999988824,
+"nsPerCall": 6.727500000037253
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.849999999627471,
+"ms2N": 7.720000000670552,
+"nsPerCall": 3.8700000010430813
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.714999999850988,
+"ms2N": 15.290000000037253,
+"nsPerCall": 3.7875000000931323
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3250000001862645
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3450000006705523,
+"nsPerCall": 0.33750000037252903
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.4050000002607703,
+"nsPerCall": 0.8599999998696148
+}
+]
+},
+{
+"rep": 1,
+"summary": [
+{
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"median": 0.8349999999627471,
+"min": 0.5449999999254942,
+"q25": 0.8249999992549419,
+"q75": 0.849999999627471,
+"max": 1.2350000003352761,
+"negative": 0
+},
+{
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"median": 0.8500000000931323,
+"min": 0.8024999997578561,
+"q25": 0.8399999993853271,
+"q75": 0.8699999996460974,
+"max": 0.9374999995343387,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"median": 0.3399999998509884,
+"min": 0.2999999998137355,
+"q25": 0.3300000000745058,
+"q75": 0.3399999998509884,
+"max": 0.35000000055879354,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"median": 0.33749999990686774,
+"min": 0.32250000024214387,
+"q25": 0.33249999955296516,
+"q75": 0.3399999993853271,
+"max": 0.3800000003539026,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"median": 3.885000000707805,
+"min": 3.7549999989569187,
+"q25": 3.8250000001862645,
+"q75": 3.9249999998137355,
+"max": 4.645000000484288,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"median": 3.8725000000558794,
+"min": 3.5,
+"q25": 3.8400000003166497,
+"q75": 3.984999999869615,
+"max": 4.065000000409782,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"median": 6.714999999850988,
+"min": 5.780000001192093,
+"q25": 6.370000000111759,
+"q75": 7.000000000931323,
+"max": 7.215000000782311,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"median": 6.554999999701977,
+"min": 6.149999999906868,
+"q25": 6.492500000167638,
+"q75": 6.834999999962747,
+"max": 7.337499999906868,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"median": 3.559999999590218,
+"min": 1.8349999990314245,
+"q25": 3.4500000001862645,
+"q75": 3.6400000005960464,
+"max": 4.434999999590218,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"median": 3.7149999998509884,
+"min": 3.419999999925494,
+"q25": 3.5099999997764826,
+"q75": 3.7524999999441206,
+"max": 4.080000000074506,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"median": 5.119999999180436,
+"min": 4.3999999994412065,
+"q25": 5.0249999994412065,
+"q75": 5.280000001192093,
+"max": 6.184999999590218,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"median": 5.072500000242144,
+"min": 4.834999999962747,
+"q25": 4.942500000353903,
+"q75": 5.237499999348074,
+"max": 8.165000000037253,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"median": 0.849999999627471,
+"min": 0.6849999995902181,
+"q25": 0.8300000000745058,
+"q75": 0.8599999994039536,
+"max": 1.25,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"median": 0.8725000000558794,
+"min": 0.8075000001117587,
+"q25": 0.8374999999068677,
+"q75": 0.9099999996833503,
+"max": 1.2049999996088445,
+"negative": 0
+}
+],
+"raw": [
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6800000006332994,
+"ms2N": 3.375,
+"nsPerCall": 0.8474999996833503
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.3450000006705523,
+"nsPerCall": 0.33250000048428774
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8849999997764826,
+"ms2N": 7.6499999994412065,
+"nsPerCall": 3.764999999664724
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.995000000111759,
+"ms2N": 15.370000000111759,
+"nsPerCall": 3.6875
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.254999999888241,
+"ms2N": 13.4300000006333,
+"nsPerCall": 7.175000000745058
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.695000000298023,
+"ms2N": 25.804999999701977,
+"nsPerCall": 6.554999999701977
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.6150000002235174,
+"ms2N": 7.09499999973923,
+"nsPerCall": 3.4799999995157123
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.185000000521541,
+"ms2N": 14.65500000026077,
+"nsPerCall": 3.734999999869615
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.054999999701977,
+"ms2N": 10.080000000074506,
+"nsPerCall": 5.025000000372529
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.919999999925494,
+"ms2N": 20.115000000223517,
+"nsPerCall": 5.097500000149012
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.8500000005587935,
+"nsPerCall": 1.0100000007078052
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.849999999627471,
+"ms2N": 3.580000000074506,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8899999996647239,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.7949999999254942
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.709999999962747,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.2000000001862645,
+"ms2N": 10.275000000372529,
+"nsPerCall": 5.0750000001862645
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.024999999441206,
+"ms2N": 26.354999999515712,
+"nsPerCall": 8.165000000037253
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.550000000745058,
+"ms2N": 7,
+"nsPerCall": 3.449999999254942
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.110000000335276,
+"ms2N": 14.540000000037253,
+"nsPerCall": 3.7149999998509884
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.809999999590218,
+"ms2N": 12.910000000149012,
+"nsPerCall": 6.1000000005587935
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 14.139999999664724,
+"ms2N": 27.200000000186265,
+"nsPerCall": 6.53000000026077
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9200000008568168,
+"ms2N": 7.6749999998137355,
+"nsPerCall": 3.7549999989569187
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.769999999552965,
+"ms2N": 15.725000000558794,
+"nsPerCall": 3.977500000502914
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6799999997019768,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6850000005215406,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.33249999955296516
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.7149999998509884,
+"nsPerCall": 0.8549999995157123
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.8600000003352761,
+"ms2N": 3.7349999994039536,
+"nsPerCall": 0.9374999995343387
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.9849999994039536,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.7050000010058284
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.8475000001490116
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.340000000782311,
+"nsPerCall": 0.33750000037252903
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.830000000074506,
+"ms2N": 7.639999999664724,
+"nsPerCall": 3.809999999590218
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.665000000037253,
+"ms2N": 15.355000000447035,
+"nsPerCall": 3.845000000204891
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.679999999701977,
+"ms2N": 13.129999999888241,
+"nsPerCall": 6.4500000001862645
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.865000000223517,
+"ms2N": 25.389999999664724,
+"nsPerCall": 6.262499999720603
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.669999999925494,
+"ms2N": 7.014999999664724,
+"nsPerCall": 3.3449999997392297
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.309999999590218,
+"ms2N": 14.149999999441206,
+"nsPerCall": 3.419999999925494
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.03000000026077,
+"ms2N": 10.004999999888241,
+"nsPerCall": 4.974999999627471
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.634999999776483,
+"ms2N": 20.505000000819564,
+"nsPerCall": 4.935000000521541
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6699999999254942,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7350000003352761,
+"ms2N": 4.040000000037253,
+"nsPerCall": 1.1524999998509884
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8549999995157123,
+"ms2N": 1.6800000006332994,
+"nsPerCall": 0.8250000011175871
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.355000000447035,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.014999999664724,
+"ms2N": 10.010000000707805,
+"nsPerCall": 4.995000001043081
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.729999999515712,
+"ms2N": 20.584999999962747,
+"nsPerCall": 4.927500000223517
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5,
+"ms2N": 7.020000000484288,
+"nsPerCall": 3.5200000004842877
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.8999999994412065,
+"ms2N": 14.715000000782311,
+"nsPerCall": 3.9075000006705523
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.779999999329448,
+"ms2N": 12.634999999776483,
+"nsPerCall": 5.855000000447035
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.089999999850988,
+"ms2N": 27.365000000223517,
+"nsPerCall": 7.1375000001862645
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.985000000335276,
+"ms2N": 7.854999999515712,
+"nsPerCall": 3.869999999180436
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.020000000484288,
+"ms2N": 15.434999999590218,
+"nsPerCall": 3.707499999552965
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3700000001117587,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.2999999998137355
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6700000008568168,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.3399999993853271
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.675000000745058,
+"ms2N": 3.3549999995157123,
+"nsPerCall": 0.8399999993853271
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8300000000745058,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.4700000006705523,
+"nsPerCall": 0.8825000002980232
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.3250000001862645,
+"nsPerCall": 0.32250000024214387
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8200000002980232,
+"ms2N": 8.120000000111759,
+"nsPerCall": 4.2999999998137355
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.759999999776483,
+"ms2N": 15.890000000596046,
+"nsPerCall": 4.065000000409782
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.540000000037253,
+"ms2N": 13.019999999552965,
+"nsPerCall": 6.479999999515712
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.320000000298023,
+"ms2N": 26.955000000074506,
+"nsPerCall": 6.817499999888241
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5300000002607703,
+"ms2N": 7.089999999850988,
+"nsPerCall": 3.559999999590218
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.080000000074506,
+"ms2N": 14.129999999888241,
+"nsPerCall": 3.5249999999068677
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.150000000372529,
+"ms2N": 9.950000000186265,
+"nsPerCall": 4.7999999998137355
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.349999999627471,
+"ms2N": 20.375,
+"nsPerCall": 5.0125000001862645
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8349999999627471,
+"ms2N": 1.7450000001117587,
+"nsPerCall": 0.9100000001490116
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6850000005215406,
+"ms2N": 3.5049999998882413,
+"nsPerCall": 0.9099999996833503
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.8350000008940697
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.8374999999068677
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.944999999366701,
+"ms2N": 10.225000000558794,
+"nsPerCall": 5.280000001192093
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.580000000074506,
+"ms2N": 20.59499999973923,
+"nsPerCall": 5.007499999832362
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.7999999998137355,
+"ms2N": 7.044999999925494,
+"nsPerCall": 3.2450000001117587
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.150000000372529,
+"ms2N": 14.154999999329448,
+"nsPerCall": 3.5024999994784594
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.860000000335276,
+"ms2N": 13.620000000111759,
+"nsPerCall": 6.759999999776483
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.325000000186265,
+"ms2N": 26.325000000186265,
+"nsPerCall": 6.5
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.940000000409782,
+"ms2N": 8.080000000074506,
+"nsPerCall": 4.139999999664724
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.839999999850988,
+"ms2N": 15.520000000484288,
+"nsPerCall": 3.8400000003166497
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6799999997019768,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6800000006332994,
+"ms2N": 1.334999999962747,
+"nsPerCall": 0.3274999996647239
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8649999992921948,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.8200000002980232
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.355000000447035,
+"nsPerCall": 0.8400000003166497
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.7050000000745058,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.690000000409782,
+"ms2N": 3.4299999997019768,
+"nsPerCall": 0.8699999996460974
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6850000005215406,
+"nsPerCall": 0.34500000067055225
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.724999999627471,
+"ms2N": 1.3899999996647239,
+"nsPerCall": 0.33250000001862645
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8250000001862645,
+"ms2N": 7.680000000633299,
+"nsPerCall": 3.855000000447035
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.814999999478459,
+"ms2N": 15.379999999888241,
+"nsPerCall": 3.782500000204891
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.304999999701977,
+"ms2N": 13.520000000484288,
+"nsPerCall": 7.215000000782311
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.865000000223517,
+"ms2N": 26.165000000037253,
+"nsPerCall": 6.149999999906868
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 5.485000000335276,
+"ms2N": 7.319999999366701,
+"nsPerCall": 1.8349999990314245
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.740000000223517,
+"ms2N": 14.794999999925494,
+"nsPerCall": 3.5274999998509884
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.084999999962747,
+"ms2N": 10.109999999403954,
+"nsPerCall": 5.0249999994412065
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.1800000006333,
+"ms2N": 21.809999999590218,
+"nsPerCall": 5.814999999478459
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 2.099999999627471,
+"nsPerCall": 1.25
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 4.114999999292195,
+"nsPerCall": 1.2049999996088445
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.7000000001862645,
+"nsPerCall": 0.8550000004470348
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7400000002235174,
+"ms2N": 3.540000000037253,
+"nsPerCall": 0.8999999999068677
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.179999999701977,
+"ms2N": 10.384999999776483,
+"nsPerCall": 5.205000000074506
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 11.034999999217689,
+"ms2N": 21.179999999701977,
+"nsPerCall": 5.072500000242144
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.525000000372529,
+"ms2N": 7.189999999478459,
+"nsPerCall": 3.6649999991059303
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.195000000298023,
+"ms2N": 15.355000000447035,
+"nsPerCall": 4.080000000074506
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.7999999998137355,
+"ms2N": 13.03000000026077,
+"nsPerCall": 6.230000000447035
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.075000000186265,
+"ms2N": 26.74500000011176,
+"nsPerCall": 6.834999999962747
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.830000000074506,
+"ms2N": 8.120000000111759,
+"nsPerCall": 4.290000000037253
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.900000000372529,
+"ms2N": 15.599999999627471,
+"nsPerCall": 3.849999999627471
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6850000005215406,
+"nsPerCall": 0.35000000055879354
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.7149999998509884,
+"nsPerCall": 0.8549999995157123
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.415000000037253,
+"nsPerCall": 0.8549999999813735
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8249999992549419
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.514999999664724,
+"nsPerCall": 0.9099999996833503
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3449999997392297,
+"nsPerCall": 0.33749999990686774
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.790000000037253,
+"ms2N": 7.714999999850988,
+"nsPerCall": 3.9249999998137355
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.730000000447035,
+"ms2N": 15.830000000074506,
+"nsPerCall": 4.0499999998137355
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.264999999664724,
+"ms2N": 13.265000000596046,
+"nsPerCall": 7.000000000931323
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.830000000074506,
+"ms2N": 25.884999999776483,
+"nsPerCall": 6.527499999850988
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5750000001862645,
+"ms2N": 7.040000000037253,
+"nsPerCall": 3.4649999998509884
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.0150000005960464,
+"ms2N": 15.149999999441206,
+"nsPerCall": 4.06749999942258
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.060000000521541,
+"ms2N": 10.179999999701977,
+"nsPerCall": 5.119999999180436
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.385000000707805,
+"ms2N": 20.859999999403954,
+"nsPerCall": 5.237499999348074
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.8599999994039536
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.724999999627471,
+"ms2N": 3.7999999998137355,
+"nsPerCall": 1.0375000000931323
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 1,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.6849999995902181
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.8449999997392297,
+"ms2N": 3.459999999962747,
+"nsPerCall": 0.8075000001117587
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.0249999994412065,
+"ms2N": 10.059999999590218,
+"nsPerCall": 5.035000000149012
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.990000000223517,
+"ms2N": 20.919999999925494,
+"nsPerCall": 5.464999999850988
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.665000000037253,
+"ms2N": 7.115000000223517,
+"nsPerCall": 3.4500000001862645
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.150000000372529,
+"ms2N": 14.790000000037253,
+"nsPerCall": 3.819999999832362
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.53000000026077,
+"ms2N": 13.665000000037253,
+"nsPerCall": 7.134999999776483
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 14.104999999515712,
+"ms2N": 26.885000000707805,
+"nsPerCall": 6.3900000005960464
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8399999998509884,
+"ms2N": 7.629999999888241,
+"nsPerCall": 3.790000000037253
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.639999999664724,
+"ms2N": 15.605000000447035,
+"nsPerCall": 3.9825000003911555
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.4300000006332994,
+"nsPerCall": 0.3800000003539026
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 1.1600000001490116,
+"ms2N": 1.7050000000745058,
+"nsPerCall": 0.5449999999254942
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7199999997392297,
+"ms2N": 3.465000000782311,
+"nsPerCall": 0.8725000005215406
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6699999999254942,
+"ms2N": 3.400000000372529,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3250000001862645
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6800000006332994,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.3299999996088445
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9399999994784594,
+"ms2N": 7.8250000001862645,
+"nsPerCall": 3.885000000707805
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.745000000111759,
+"ms2N": 15.490000000223517,
+"nsPerCall": 3.8725000000558794
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 7.040000000037253,
+"ms2N": 13.929999999701977,
+"nsPerCall": 6.889999999664724
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.524999999441206,
+"ms2N": 26.365000000223517,
+"nsPerCall": 6.4200000003911555
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.565000000409782,
+"ms2N": 7.169999999925494,
+"nsPerCall": 3.6049999995157123
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.125,
+"ms2N": 14.629999999888241,
+"nsPerCall": 3.7524999999441206
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.964999999850988,
+"ms2N": 10.490000000223517,
+"nsPerCall": 5.525000000372529
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.059999999590218,
+"ms2N": 19.945000000298023,
+"nsPerCall": 4.942500000353903
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.389999999664724,
+"nsPerCall": 0.8525000000372529
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8650000002235174,
+"ms2N": 1.7250000005587935,
+"nsPerCall": 0.8600000003352761
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6899999994784594,
+"ms2N": 3.459999999962747,
+"nsPerCall": 0.8850000002421439
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.985000000335276,
+"ms2N": 11.169999999925494,
+"nsPerCall": 6.184999999590218
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.575000000186265,
+"ms2N": 20.450000000186265,
+"nsPerCall": 4.9375
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5,
+"ms2N": 7.1400000005960464,
+"nsPerCall": 3.6400000005960464
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.120000000111759,
+"ms2N": 14.139999999664724,
+"nsPerCall": 3.5099999997764826
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.644999999552965,
+"ms2N": 13.014999999664724,
+"nsPerCall": 6.370000000111759
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.245000000111759,
+"ms2N": 26.5550000006333,
+"nsPerCall": 6.65500000026077
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.849999999627471,
+"ms2N": 7.6749999998137355,
+"nsPerCall": 3.8250000001862645
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.669999999925494,
+"ms2N": 15.379999999888241,
+"nsPerCall": 3.8549999999813735
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3449999997392297,
+"nsPerCall": 0.33749999990686774
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3650000002235174,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.8450000006705523
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6699999999254942,
+"ms2N": 3.3700000001117587,
+"nsPerCall": 0.8500000000931323
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6899999994784594,
+"ms2N": 1.3550000004470348,
+"nsPerCall": 0.33250000048428774
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8849999997764826,
+"ms2N": 7.709999999962747,
+"nsPerCall": 3.8250000001862645
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.714999999850988,
+"ms2N": 15.6949999993667,
+"nsPerCall": 3.989999999757856
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.629999999888241,
+"ms2N": 13.34499999973923,
+"nsPerCall": 6.714999999850988
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.040000000037253,
+"ms2N": 26.02500000037253,
+"nsPerCall": 6.492500000167638
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5150000005960464,
+"ms2N": 7.304999999701977,
+"nsPerCall": 3.7899999991059303
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.245000000111759,
+"ms2N": 14.379999999888241,
+"nsPerCall": 3.5674999998882413
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.145000000484288,
+"ms2N": 10.665000000037253,
+"nsPerCall": 5.519999999552965
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.990000000223517,
+"ms2N": 22.149999999441206,
+"nsPerCall": 6.0799999996088445
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.9950000001117587,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.7149999998509884
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.709999999962747,
+"ms2N": 3.455000000074506,
+"nsPerCall": 0.8725000000558794
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7599999997764826,
+"ms2N": 3.8399999998509884,
+"nsPerCall": 1.040000000037253
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 7.8500000005587935,
+"ms2N": 12.25,
+"nsPerCall": 4.3999999994412065
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.620000000111759,
+"ms2N": 20.290000000037253,
+"nsPerCall": 4.834999999962747
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5,
+"ms2N": 7.934999999590218,
+"nsPerCall": 4.434999999590218
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.315000000409782,
+"ms2N": 14.254999999888241,
+"nsPerCall": 3.4699999997392297
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.935000000521541,
+"ms2N": 14.009999999776483,
+"nsPerCall": 7.074999999254942
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.285000000149012,
+"ms2N": 27.959999999962747,
+"nsPerCall": 7.337499999906868
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.919999999925494,
+"ms2N": 7.819999999366701,
+"nsPerCall": 3.8999999994412065
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.520000000484288,
+"ms2N": 15.520000000484288,
+"nsPerCall": 3.5
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.36499999929219484,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.30500000063329935
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.7000000001862645,
+"ms2N": 1.4450000002980232,
+"nsPerCall": 0.37250000005587935
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.8249999992549419
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3599999994039536,
+"nsPerCall": 0.8324999995529652
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8299999991431832
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7350000003352761,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8224999997764826
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6850000005215406,
+"nsPerCall": 0.35000000055879354
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.34249999979510903
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8399999998509884,
+"ms2N": 7.755000000819564,
+"nsPerCall": 3.9150000009685755
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.580000000074506,
+"ms2N": 15.669999999925494,
+"nsPerCall": 4.044999999925494
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.314999999478459,
+"ms2N": 12.095000000670552,
+"nsPerCall": 5.780000001192093
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.375,
+"ms2N": 27.290000000037253,
+"nsPerCall": 6.9575000000186265
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.514999999664724,
+"ms2N": 7.089999999850988,
+"nsPerCall": 3.5750000001862645
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.309999999590218,
+"ms2N": 14.279999999329448,
+"nsPerCall": 3.484999999869615
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.985000000335276,
+"ms2N": 10.254999999888241,
+"nsPerCall": 5.269999999552965
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.225000000558794,
+"ms2N": 20.509999999776483,
+"nsPerCall": 5.1424999996088445
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.6949999993667006,
+"nsPerCall": 0.8549999985843897
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.690000000409782,
+"ms2N": 3.360000000335276,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7149999998509884,
+"ms2N": 3.3399999998509884,
+"nsPerCall": 0.8125
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.070000000298023,
+"ms2N": 10.950000000186265,
+"nsPerCall": 5.879999999888241
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.455000000074506,
+"ms2N": 20.455000000074506,
+"nsPerCall": 5
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4799999995157123,
+"ms2N": 7.419999999925494,
+"nsPerCall": 3.940000000409782
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.150000000372529,
+"ms2N": 14.650000000372529,
+"nsPerCall": 3.75
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.684999999590218,
+"ms2N": 13.235000000335276,
+"nsPerCall": 6.550000000745058
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.349999999627471,
+"ms2N": 27.27500000037253,
+"nsPerCall": 6.962500000372529
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8449999997392297,
+"ms2N": 8.490000000223517,
+"nsPerCall": 4.645000000484288
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.834999999962747,
+"ms2N": 15.804999999701977,
+"nsPerCall": 3.984999999869615
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6800000006332994,
+"nsPerCall": 0.34000000078231096
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3549999995157123,
+"nsPerCall": 0.3449999997392297
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 2.0750000001862645,
+"nsPerCall": 1.2350000003352761
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.8449999997392297,
+"ms2N": 3.449999999254942,
+"nsPerCall": 0.8024999997578561
+}
+]
+},
+{
+"rep": 2,
+"summary": [
+{
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"median": 0.8499999986961484,
+"min": 0.715000000782311,
+"q25": 0.8399999989196658,
+"q75": 0.8600000003352761,
+"max": 1.1850000014528632,
+"negative": 0
+},
+{
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"median": 0.8399999998509884,
+"min": 0.8074999996460974,
+"q25": 0.837500000372529,
+"q75": 0.8500000000931323,
+"max": 1.0625,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"median": 0.3399999998509884,
+"min": 0.30999999959021807,
+"q25": 0.3349999990314245,
+"q75": 0.3399999998509884,
+"max": 0.39000000059604645,
+"negative": 0
+},
+{
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"median": 0.33749999990686774,
+"min": 0.3249999997206032,
+"q25": 0.33250000001862645,
+"q75": 0.3474999996833503,
+"max": 0.5524999997578561,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"median": 3.9049999993294477,
+"min": 3.474999999627471,
+"q25": 3.8200000002980232,
+"q75": 3.945000001229346,
+"max": 4.339999998919666,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"median": 3.9875000002793968,
+"min": 3.694999999832362,
+"q25": 3.8125,
+"q75": 4.060000000055879,
+"max": 4.292500000447035,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"median": 6.900000000372529,
+"min": 6.21000000089407,
+"q25": 6.430000000633299,
+"q75": 7.14500000141561,
+"max": 10.625,
+"negative": 0
+},
+{
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"median": 6.77750000031665,
+"min": 5.490000000223517,
+"q25": 6.59250000026077,
+"q75": 6.797500000335276,
+"max": 6.997499999590218,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"median": 3.6399999987334013,
+"min": 3.2450000001117587,
+"q25": 3.5750000001862645,
+"q75": 3.875,
+"max": 4.294999998994172,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"median": 3.5500000002793968,
+"min": 3.2775000003166497,
+"q25": 3.497499999590218,
+"q75": 3.727500000037253,
+"max": 4.107499999925494,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"median": 4.995000001043081,
+"min": 4.604999999515712,
+"q25": 4.895000000484288,
+"q75": 5.080000000074506,
+"max": 5.5,
+"negative": 0
+},
+{
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"median": 5.2075000000186265,
+"min": 4.7674999996088445,
+"q25": 5.035000000149012,
+"q75": 5.330000000074506,
+"max": 5.847500000149012,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"median": 0.8450000006705523,
+"min": 0.7199999997392297,
+"q25": 0.8300000010058284,
+"q75": 0.849999999627471,
+"max": 0.9200000008568168,
+"negative": 0
+},
+{
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"median": 0.849999999627471,
+"min": 0.8149999994784594,
+"q25": 0.837500000372529,
+"q75": 0.8599999994039536,
+"max": 0.9375000004656613,
+"negative": 0
+}
+],
+"raw": [
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999989196658
+},
+{
+"round": 0,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.690000000409782,
+"ms2N": 3.369999999180436,
+"nsPerCall": 0.8399999993853271
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.33500000089406967,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3349999990314245
+},
+{
+"round": 0,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.7549999998882413,
+"ms2N": 1.459999999962747,
+"nsPerCall": 0.3525000000372529
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8799999998882413,
+"ms2N": 7.714999999850988,
+"nsPerCall": 3.834999999962747
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.689999999478459,
+"ms2N": 15.270000000484288,
+"nsPerCall": 3.790000000502914
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.6499999994412065,
+"ms2N": 13.050000000745058,
+"nsPerCall": 6.400000001303852
+},
+{
+"round": 0,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.409999999217689,
+"ms2N": 26.96499999985099,
+"nsPerCall": 6.77750000031665
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.665000000037253,
+"ms2N": 7.240000000223517,
+"nsPerCall": 3.5750000001862645
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.2349999994039536,
+"ms2N": 14.920000000856817,
+"nsPerCall": 3.8425000007264316
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.209999999962747,
+"ms2N": 10.660000000149012,
+"nsPerCall": 5.4500000001862645
+},
+{
+"round": 0,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.979999999515712,
+"ms2N": 20.459999999962747,
+"nsPerCall": 5.240000000223517
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8549999995157123,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8200000002980232
+},
+{
+"round": 0,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7399999992921948,
+"ms2N": 3.4100000001490116,
+"nsPerCall": 0.8350000004284084
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.9599999999627471,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.7199999997392297
+},
+{
+"round": 1,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.4149999991059303,
+"nsPerCall": 0.8599999994039536
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.025000000372529,
+"ms2N": 10.009999999776483,
+"nsPerCall": 4.9849999994039536
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.140000000596046,
+"ms2N": 21.040000000037253,
+"nsPerCall": 5.449999999720603
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4900000002235174,
+"ms2N": 7.125,
+"nsPerCall": 3.6349999997764826
+},
+{
+"round": 1,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.15500000026077,
+"ms2N": 14.659999999217689,
+"nsPerCall": 3.7524999994784594
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.395000000484288,
+"ms2N": 13.540000000037253,
+"nsPerCall": 7.144999999552965
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.59499999973923,
+"ms2N": 26.970000000670552,
+"nsPerCall": 6.687500000465661
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9950000001117587,
+"ms2N": 7.759999999776483,
+"nsPerCall": 3.764999999664724
+},
+{
+"round": 1,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.21999999973923,
+"ms2N": 15.609999999403954,
+"nsPerCall": 3.694999999832362
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.7250000005587935,
+"nsPerCall": 0.39000000059604645
+},
+{
+"round": 1,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.909999999217689,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.3825000002980232
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.9249999998137355,
+"ms2N": 1.775000000372529,
+"nsPerCall": 0.8500000005587935
+},
+{
+"round": 1,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7000000001862645,
+"ms2N": 3.459999999962747,
+"nsPerCall": 0.8799999998882413
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8549999995157123,
+"ms2N": 1.7400000002235174,
+"nsPerCall": 0.8850000007078052
+},
+{
+"round": 2,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.485000000335276,
+"nsPerCall": 0.8950000000186265
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6799999997019768,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 2,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6900000004097819,
+"ms2N": 1.3550000004470348,
+"nsPerCall": 0.33250000001862645
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9449999993667006,
+"ms2N": 7.885000000707805,
+"nsPerCall": 3.9400000013411045
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.279999999329448,
+"ms2N": 16.66000000014901,
+"nsPerCall": 4.190000000409782
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.84499999973923,
+"ms2N": 13.139999999664724,
+"nsPerCall": 6.294999999925494
+},
+{
+"round": 2,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.709999999962747,
+"ms2N": 26.3050000006333,
+"nsPerCall": 6.797500000335276
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.540000000037253,
+"ms2N": 7.044999999925494,
+"nsPerCall": 3.5049999998882413
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.71999999973923,
+"ms2N": 14.275000000372529,
+"nsPerCall": 3.2775000003166497
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.485000000335276,
+"ms2N": 10.089999999850988,
+"nsPerCall": 4.604999999515712
+},
+{
+"round": 2,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.004999999888241,
+"ms2N": 21.010000000707805,
+"nsPerCall": 5.502500000409782
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8650000002235174,
+"ms2N": 1.7149999998509884,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 2,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.974999999627471,
+"ms2N": 3.705000000074506,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 3,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.5550000006332994,
+"nsPerCall": 0.9375000004656613
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.189999999478459,
+"ms2N": 10.670000000856817,
+"nsPerCall": 5.480000001378357
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.169999999925494,
+"ms2N": 20.830000000074506,
+"nsPerCall": 5.330000000074506
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5750000001862645,
+"ms2N": 7.620000000111759,
+"nsPerCall": 4.044999999925494
+},
+{
+"round": 3,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.239999999292195,
+"ms2N": 14.339999999850988,
+"nsPerCall": 3.5500000002793968
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.409999999217689,
+"ms2N": 13.5550000006333,
+"nsPerCall": 7.14500000141561
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.424999999813735,
+"ms2N": 27.009999999776483,
+"nsPerCall": 6.7924999999813735
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8200000002980232,
+"ms2N": 7.7000000001862645,
+"nsPerCall": 3.8799999998882413
+},
+{
+"round": 3,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.71999999973923,
+"ms2N": 16.010000000707805,
+"nsPerCall": 4.145000000484288
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 3,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6749999998137355,
+"ms2N": 1.334999999962747,
+"nsPerCall": 0.3300000000745058
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8550000004470348,
+"ms2N": 1.699999999254942,
+"nsPerCall": 0.8449999988079071
+},
+{
+"round": 3,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6800000006332994,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.8650000002235174
+},
+{
+"round": 4,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7650000005960464,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8074999996460974
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 4,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.33749999990686774
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.830000000074506,
+"ms2N": 7.805000000633299,
+"nsPerCall": 3.9750000005587935
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.669999999925494,
+"ms2N": 15.294999999925494,
+"nsPerCall": 3.8125
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 7.214999999850988,
+"ms2N": 13.425000000745058,
+"nsPerCall": 6.21000000089407
+},
+{
+"round": 4,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.790000000037253,
+"ms2N": 26.174999999813735,
+"nsPerCall": 6.192499999888241
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.974999999627471,
+"ms2N": 7.21999999973923,
+"nsPerCall": 3.2450000001117587
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.0750000001862645,
+"ms2N": 14.025000000372529,
+"nsPerCall": 3.4750000000931323
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.944999999366701,
+"ms2N": 10.029999999329448,
+"nsPerCall": 5.084999999962747
+},
+{
+"round": 4,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.43999999947846,
+"ms2N": 20.509999999776483,
+"nsPerCall": 5.035000000149012
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8999999994412065,
+"ms2N": 1.8200000002980232,
+"nsPerCall": 0.9200000008568168
+},
+{
+"round": 4,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.3849999997764826,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 5,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.4699999997392297,
+"nsPerCall": 0.8824999998323619
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.175000000745058,
+"ms2N": 9.950000000186265,
+"nsPerCall": 4.7749999994412065
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.009999999776483,
+"ms2N": 21.705000000074506,
+"nsPerCall": 5.847500000149012
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.6150000002235174,
+"ms2N": 7.059999999590218,
+"nsPerCall": 3.4449999993667006
+},
+{
+"round": 5,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.760000000707805,
+"ms2N": 14.834999999962747,
+"nsPerCall": 3.537499999627471
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.2999999998137355,
+"ms2N": 13.264999999664724,
+"nsPerCall": 6.964999999850988
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.940000000409782,
+"ms2N": 27.190000000409782,
+"nsPerCall": 6.625
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.794999999925494,
+"ms2N": 7.7999999998137355,
+"nsPerCall": 4.004999999888241
+},
+{
+"round": 5,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.78000000026077,
+"ms2N": 15.429999999701977,
+"nsPerCall": 3.8249999997206032
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 5,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6800000006332994,
+"ms2N": 1.3300000000745058,
+"nsPerCall": 0.3249999997206032
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.974999999627471,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.715000000782311
+},
+{
+"round": 5,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6899999994784594,
+"ms2N": 3.3999999994412065,
+"nsPerCall": 0.8549999999813735
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8600000003352761,
+"ms2N": 1.690000000409782,
+"nsPerCall": 0.8300000000745058
+},
+{
+"round": 6,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.3500000005587935,
+"nsPerCall": 0.8325000004842877
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3349999999627471,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 6,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.3500000005587935,
+"nsPerCall": 0.3350000004284084
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.824999999254942,
+"ms2N": 7.770000000484288,
+"nsPerCall": 3.945000001229346
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.7000000001862645,
+"ms2N": 15.269999999552965,
+"nsPerCall": 3.7849999996833503
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.59499999973923,
+"ms2N": 13.330000000074506,
+"nsPerCall": 6.735000000335276
+},
+{
+"round": 6,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.59499999973923,
+"ms2N": 25.700000000186265,
+"nsPerCall": 6.052500000223517
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4900000002235174,
+"ms2N": 7.625,
+"nsPerCall": 4.134999999776483
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.044999999925494,
+"ms2N": 14.03000000026077,
+"nsPerCall": 3.492500000167638
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.004999999888241,
+"ms2N": 9.950000000186265,
+"nsPerCall": 4.945000000298023
+},
+{
+"round": 6,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.100000000558794,
+"ms2N": 20.18999999947846,
+"nsPerCall": 5.044999999459833
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8350000008940697,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8549999985843897
+},
+{
+"round": 6,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3549999995157123,
+"nsPerCall": 0.8299999996088445
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 7,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.3500000005587935,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.964999999850988,
+"ms2N": 9.964999999850988,
+"nsPerCall": 5
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.110000000335276,
+"ms2N": 19.804999999701977,
+"nsPerCall": 4.84749999968335
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.485000000335276,
+"ms2N": 6.9750000005587935,
+"nsPerCall": 3.4900000002235174
+},
+{
+"round": 7,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7,
+"ms2N": 14.25,
+"nsPerCall": 3.625
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.429999999701977,
+"ms2N": 12.860000000335276,
+"nsPerCall": 6.430000000633299
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.395000000484288,
+"ms2N": 27.389999999664724,
+"nsPerCall": 6.997499999590218
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8900000005960464,
+"ms2N": 7.824999999254942,
+"nsPerCall": 3.9349999986588955
+},
+{
+"round": 7,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.659999999217689,
+"ms2N": 15.400000000372529,
+"nsPerCall": 3.87000000057742
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3449999997392297
+},
+{
+"round": 7,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3449999997392297,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8700000001117587,
+"ms2N": 1.675000000745058,
+"nsPerCall": 0.8050000006332994
+},
+{
+"round": 7,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.355000000447035,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8349999999627471,
+"ms2N": 1.6799999997019768,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 8,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.684999999590218,
+"ms2N": 3.360000000335276,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6950000002980232,
+"nsPerCall": 0.3650000002235174
+},
+{
+"round": 8,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6849999995902181,
+"ms2N": 1.4700000006705523,
+"nsPerCall": 0.3925000005401671
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.9100000001490116,
+"ms2N": 7.814999999478459,
+"nsPerCall": 3.9049999993294477
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.7250000005587935,
+"ms2N": 16.044999999925494,
+"nsPerCall": 4.15999999968335
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.294999999925494,
+"ms2N": 13.915000000037253,
+"nsPerCall": 7.620000000111759
+},
+{
+"round": 8,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.665000000037253,
+"ms2N": 26.850000000558794,
+"nsPerCall": 6.59250000026077
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5099999997764826,
+"ms2N": 7.110000000335276,
+"nsPerCall": 3.6000000005587935
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.165000000037253,
+"ms2N": 14.205000000074506,
+"nsPerCall": 3.5200000000186265
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.0499999998137355,
+"ms2N": 10.549999999813735,
+"nsPerCall": 5.5
+},
+{
+"round": 8,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.014999999664724,
+"ms2N": 19.97499999962747,
+"nsPerCall": 4.9799999999813735
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 8,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7200000006705523,
+"ms2N": 3.409999999217689,
+"nsPerCall": 0.8449999992735684
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8350000008940697,
+"ms2N": 1.684999999590218,
+"nsPerCall": 0.8499999986961484
+},
+{
+"round": 9,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6950000002980232,
+"ms2N": 3.3650000002235174,
+"nsPerCall": 0.8349999999627471
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.029999999329448,
+"ms2N": 10.025000000372529,
+"nsPerCall": 4.995000001043081
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 9.915000000037253,
+"ms2N": 20.330000000074506,
+"nsPerCall": 5.2075000000186265
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.480000000447035,
+"ms2N": 7.119999999180436,
+"nsPerCall": 3.6399999987334013
+},
+{
+"round": 9,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.2349999994039536,
+"ms2N": 14.009999999776483,
+"nsPerCall": 3.3875000001862645
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.205000000074506,
+"ms2N": 16.830000000074506,
+"nsPerCall": 10.625
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 17.43999999947846,
+"ms2N": 28.419999999925494,
+"nsPerCall": 5.490000000223517
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.290000000037253,
+"ms2N": 7.764999999664724,
+"nsPerCall": 3.474999999627471
+},
+{
+"round": 9,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.665000000037253,
+"ms2N": 15.709999999962747,
+"nsPerCall": 4.022499999962747
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.35500000044703484,
+"ms2N": 0.6950000002980232,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 9,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6650000000372529,
+"ms2N": 1.3599999994039536,
+"nsPerCall": 0.3474999996833503
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.9050000002607703,
+"ms2N": 1.7050000000745058,
+"nsPerCall": 0.7999999998137355
+},
+{
+"round": 9,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.690000000409782,
+"ms2N": 3.369999999180436,
+"nsPerCall": 0.8399999993853271
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.8199999993667006,
+"nsPerCall": 0.9799999985843897
+},
+{
+"round": 10,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7300000004470348,
+"ms2N": 3.3849999997764826,
+"nsPerCall": 0.8274999996647239
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.35500000044703484,
+"ms2N": 0.6650000000372529,
+"nsPerCall": 0.30999999959021807
+},
+{
+"round": 10,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.3450000006705523,
+"nsPerCall": 0.33250000048428774
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8399999998509884,
+"ms2N": 7.660000000149012,
+"nsPerCall": 3.8200000002980232
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 8.0699999993667,
+"ms2N": 16.044999999925494,
+"nsPerCall": 3.9875000002793968
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 7.0499999998137355,
+"ms2N": 13.605000000447035,
+"nsPerCall": 6.555000000633299
+},
+{
+"round": 10,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.1949999993667,
+"ms2N": 26.9449999993667,
+"nsPerCall": 6.875
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.4950000001117587,
+"ms2N": 7.370000000111759,
+"nsPerCall": 3.875
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.96999999973923,
+"ms2N": 14.050000000745058,
+"nsPerCall": 3.540000000502914
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.084999999962747,
+"ms2N": 10.165000000037253,
+"nsPerCall": 5.080000000074506
+},
+{
+"round": 10,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.059999999590218,
+"ms2N": 20.135000000707805,
+"nsPerCall": 5.0375000005587935
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.840000000782311
+},
+{
+"round": 10,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7000000001862645,
+"ms2N": 3.3999999994412065,
+"nsPerCall": 0.849999999627471
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8500000005587935,
+"ms2N": 1.6600000001490116,
+"nsPerCall": 0.8099999995902181
+},
+{
+"round": 11,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.394999999552965,
+"nsPerCall": 0.8574999999254942
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.019999999552965,
+"ms2N": 9.985000000335276,
+"nsPerCall": 4.965000000782311
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.059999999590218,
+"ms2N": 21.540000000037253,
+"nsPerCall": 5.740000000223517
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.855000000447035,
+"ms2N": 8.149999999441206,
+"nsPerCall": 4.294999998994172
+},
+{
+"round": 11,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.070000000298023,
+"ms2N": 15.230000000447035,
+"nsPerCall": 4.080000000074506
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.650000000372529,
+"ms2N": 13.979999999515712,
+"nsPerCall": 7.329999999143183
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.190000000409782,
+"ms2N": 26.78000000026077,
+"nsPerCall": 6.794999999925494
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.104999999515712,
+"ms2N": 7.930000000633299,
+"nsPerCall": 3.825000001117587
+},
+{
+"round": 11,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.910000000149012,
+"ms2N": 15.909999999217689,
+"nsPerCall": 3.9999999995343387
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3399999998509884,
+"ms2N": 0.6749999998137355,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 11,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.3449999997392297,
+"nsPerCall": 0.33749999990686774
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.840000000782311,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8499999986961484
+},
+{
+"round": 11,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.3549999995157123,
+"nsPerCall": 0.8399999998509884
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8449999997392297,
+"ms2N": 1.6899999994784594,
+"nsPerCall": 0.8449999997392297
+},
+{
+"round": 12,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7350000003352761,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8224999997764826
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6800000006332994,
+"nsPerCall": 0.35000000055879354
+},
+{
+"round": 12,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6799999997019768,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.3349999999627471
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.8500000005587935,
+"ms2N": 8.18999999947846,
+"nsPerCall": 4.339999998919666
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.810000000521541,
+"ms2N": 15.415000000037253,
+"nsPerCall": 3.802499999757856
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.584999999962747,
+"ms2N": 12.855000000447035,
+"nsPerCall": 6.270000000484288
+},
+{
+"round": 12,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 14.419999999925494,
+"ms2N": 26.794999999925494,
+"nsPerCall": 6.1875
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5499999998137355,
+"ms2N": 7.275000000372529,
+"nsPerCall": 3.7250000005587935
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.290000000037253,
+"ms2N": 14.665000000037253,
+"nsPerCall": 3.6875
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.560000000521541,
+"ms2N": 10.21999999973923,
+"nsPerCall": 4.659999999217689
+},
+{
+"round": 12,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.28000000026077,
+"ms2N": 20.384999999776483,
+"nsPerCall": 5.052499999757856
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.6850000005215406,
+"nsPerCall": 0.8450000006705523
+},
+{
+"round": 12,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7350000003352761,
+"ms2N": 3.364999999292195,
+"nsPerCall": 0.8149999994784594
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8450000006705523,
+"ms2N": 1.6749999998137355,
+"nsPerCall": 0.8299999991431832
+},
+{
+"round": 13,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6749999998137355,
+"ms2N": 3.3500000005587935,
+"nsPerCall": 0.837500000372529
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.009999999776483,
+"ms2N": 10.080000000074506,
+"nsPerCall": 5.070000000298023
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.214999999850988,
+"ms2N": 20.03000000026077,
+"nsPerCall": 4.907500000204891
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.544999999925494,
+"ms2N": 7.120000000111759,
+"nsPerCall": 3.5750000001862645
+},
+{
+"round": 13,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 6.959999999962747,
+"ms2N": 14.415000000037253,
+"nsPerCall": 3.727500000037253
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.540000000037253,
+"ms2N": 13.440000000409782,
+"nsPerCall": 6.900000000372529
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 12.950000000186265,
+"ms2N": 26.334999999962747,
+"nsPerCall": 6.692499999888241
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.955000000074506,
+"ms2N": 7.730000000447035,
+"nsPerCall": 3.775000000372529
+},
+{
+"round": 13,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.604999999515712,
+"ms2N": 16.190000000409782,
+"nsPerCall": 4.292500000447035
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3449999997392297,
+"ms2N": 0.6750000007450581,
+"nsPerCall": 0.3300000010058284
+},
+{
+"round": 13,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6699999999254942,
+"ms2N": 1.7749999994412065,
+"nsPerCall": 0.5524999997578561
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.909999999217689,
+"ms2N": 2.0950000006705523,
+"nsPerCall": 1.1850000014528632
+},
+{
+"round": 13,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7549999998882413,
+"ms2N": 3.455000000074506,
+"nsPerCall": 0.8500000000931323
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.709999999962747,
+"nsPerCall": 0.8600000003352761
+},
+{
+"round": 14,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7050000000745058,
+"ms2N": 3.830000000074506,
+"nsPerCall": 1.0625
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3300000000745058,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.3399999998509884
+},
+{
+"round": 14,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6750000007450581,
+"ms2N": 1.3399999998509884,
+"nsPerCall": 0.33249999955296516
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 3.834999999962747,
+"ms2N": 7.809999999590218,
+"nsPerCall": 3.974999999627471
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.625,
+"ms2N": 15.745000000111759,
+"nsPerCall": 4.060000000055879
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.554999999701977,
+"ms2N": 13.870000000111759,
+"nsPerCall": 7.315000000409782
+},
+{
+"round": 14,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.995000000111759,
+"ms2N": 27.65500000026077,
+"nsPerCall": 6.830000000074506
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5049999998882413,
+"ms2N": 7.579999999143183,
+"nsPerCall": 4.074999999254942
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.169999999925494,
+"ms2N": 15.384999999776483,
+"nsPerCall": 4.107499999925494
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 5.105000000447035,
+"ms2N": 9.950000000186265,
+"nsPerCall": 4.84499999973923
+},
+{
+"round": 14,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.504999999888241,
+"ms2N": 21.139999999664724,
+"nsPerCall": 5.317499999888241
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.8349999999627471,
+"ms2N": 1.7450000001117587,
+"nsPerCall": 0.9100000001490116
+},
+{
+"round": 14,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.7250000005587935,
+"ms2N": 3.5049999998882413,
+"nsPerCall": 0.8899999996647239
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 1000000,
+"msN": 0.849999999627471,
+"ms2N": 1.6800000006332994,
+"nsPerCall": 0.8300000010058284
+},
+{
+"round": 15,
+"arm": "A/A: same module, call, regs in memory (second instance)",
+"n": 2000000,
+"msN": 1.6799999997019768,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8500000000931323
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 1000000,
+"msN": 4.995000000111759,
+"ms2N": 9.890000000596046,
+"nsPerCall": 4.895000000484288
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs as params/results",
+"n": 2000000,
+"msN": 10.5,
+"ms2N": 20.03499999921769,
+"nsPerCall": 4.7674999996088445
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 1000000,
+"msN": 3.5,
+"ms2N": 7.319999999366701,
+"nsPerCall": 3.8199999993667006
+},
+{
+"round": 15,
+"arm": "other module, imported function, regs in memory",
+"n": 2000000,
+"msN": 7.020000000484288,
+"ms2N": 14.014999999664724,
+"nsPerCall": 3.497499999590218
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 1000000,
+"msN": 6.794999999925494,
+"ms2N": 13.514999999664724,
+"nsPerCall": 6.71999999973923
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs as params/results",
+"n": 2000000,
+"msN": 13.765000000596046,
+"ms2N": 27.619999999180436,
+"nsPerCall": 6.927499999292195
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 1000000,
+"msN": 4.099999999627471,
+"ms2N": 7.745000000111759,
+"nsPerCall": 3.6450000004842877
+},
+{
+"round": 15,
+"arm": "other module, call_indirect, regs in memory",
+"n": 2000000,
+"msN": 7.669999999925494,
+"ms2N": 15.370000000111759,
+"nsPerCall": 3.8500000000931323
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 1000000,
+"msN": 0.3600000003352761,
+"ms2N": 0.6699999999254942,
+"nsPerCall": 0.30999999959021807
+},
+{
+"round": 15,
+"arm": "same module, call, regs as params/results",
+"n": 2000000,
+"msN": 0.6900000004097819,
+"ms2N": 1.349999999627471,
+"nsPerCall": 0.3299999996088445
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 1000000,
+"msN": 0.8399999998509884,
+"ms2N": 1.7000000001862645,
+"nsPerCall": 0.8600000003352761
+},
+{
+"round": 15,
+"arm": "same module, call, regs in memory",
+"n": 2000000,
+"msN": 1.7000000001862645,
+"ms2N": 3.3799999998882413,
+"nsPerCall": 0.8399999998509884
+}
+]
+}
+],
+"machine": "Shadow cloud PC (Windows), headless-free Chrome tab, idle, run through browser.html-equivalent wrapper (same core.mjs), 3 repetitions"
+}
