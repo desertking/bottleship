@@ -19,7 +19,7 @@ import {
     GL_POLYGON, GL_POINTS, GL_LINES, GL_LINE_STRIP, GL_LINE_LOOP,
     GL_INVALID_OPERATION, GL_FILL,
     GL_TEXTURE_GEN_S, GL_TEXTURE_GEN_T,
-    GL_OBJECT_LINEAR, GL_EYE_LINEAR, GL_SPHERE_MAP, GL_STENCIL_TEST, GL_RENDER, GL_FOG,
+    GL_OBJECT_LINEAR, GL_EYE_LINEAR, GL_SPHERE_MAP, GL_STENCIL_TEST, GL_RENDER, GL_FOG, GL_LIGHTING,
 } from "./constants";
 import { Logger, LogCategory } from "../../core/logger";
 import { guestViews } from "./client-arrays";

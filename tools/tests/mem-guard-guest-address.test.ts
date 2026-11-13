@@ -7,11 +7,13 @@ const THUNK_BASE = 0x8000;
 const THUNK_SIZE = 0x1000;
 
 let saved: unknown;
+let savedFlags: { isExiting: unknown; isCleaningUp: unknown };
 let guest: Uint8Array;
 
 beforeEach(() => {
     const system = System.getInstance() as any;
     saved = system.process;
+    savedFlags = { isExiting: system.isExiting, isCleaningUp: system.isCleaningUp };
     guest = new Uint8Array(new ArrayBuffer(OFFSET + 0x10000), OFFSET, 0x10000);
     system.process = {
         getCurrentMemory: () => guest,
@@ -20,7 +22,10 @@ beforeEach(() => {
 });
 
 afterEach(() => {
-    (System.getInstance() as any).process = saved;
+    const system = System.getInstance() as any;
+    system.process = saved;
+    system.isExiting = savedFlags.isExiting;
+    system.isCleaningUp = savedFlags.isCleaningUp;
 });
 
 test("a guest view placed inside a larger buffer is checked by guest address", () => {

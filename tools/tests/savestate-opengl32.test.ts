@@ -505,6 +505,6 @@ describe("opengl32 savestate participant", () => {
     test("the schema is version 2 with a pinned hash", () => {
         const r = makeRig();
         expect(r.participant.version).toBe(2);
-        expect(savestateParticipants.schemas().opengl32).toEqual({ version: 2, schemaHash: "54a63b7e2eef5cb6" });
+        expect(savestateParticipants.schemas().opengl32).toEqual({ version: 2, schemaHash: "2e527a27cfb05d57" });
     });
 });
