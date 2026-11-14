@@ -26,5 +26,6 @@ export const netapi32Module: ModuleDescriptor = {
         makeFunc("Netbios", 1),          // PNCB pncb
         makeFunc("NetWkstaGetInfo", 3),  // LMSTR servername, DWORD level, LPBYTE *bufptr
         makeFunc("NetApiBufferFree", 1), // LPVOID Buffer
+        makeFunc("NetStatisticsGet", 5), // server, service, level, options, LPBYTE *buffer
     ],
 };

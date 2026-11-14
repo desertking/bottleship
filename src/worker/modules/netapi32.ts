@@ -17,6 +17,7 @@ const NRC_ENVNOTDEF = 0x05;
 const NERR_Success = 0;
 const ERROR_INVALID_LEVEL = 124;
 const ERROR_NOT_ENOUGH_MEMORY = 8;
+const ERROR_NOT_SUPPORTED = 50;
 /** lmcons.h PLATFORM_ID_NT / PLATFORM_ID_DOS. */
 const PLATFORM_ID_DOS = 300;
 const PLATFORM_ID_NT = 500;
@@ -52,6 +53,10 @@ export class Netapi32 implements IModule {
             if (pncb) Mem.writeUint8(pncb + 1, NRC_ENVNOTDEF); // ncb_retcode
             return NRC_ENVNOTDEF;
         };
+
+        // No workstation/server statistics provider. Success would promise an allocated
+        // STAT_* buffer, so callers must receive a failure and take their fallback path.
+        this.exports["NetStatisticsGet"] = () => ERROR_NOT_SUPPORTED;
 
         // NET_API_STATUS NetWkstaGetInfo(LMSTR servername, DWORD level, LPBYTE *bufptr)
         this.exports["NetWkstaGetInfo"] = (_ctx, _mem, args) => {
