@@ -1563,17 +1563,13 @@ export const exports: Record<string, ThunkImplementation> = (() => {
             const stack = system.scheduler?.findStackReservation(pageBase) ?? null;
             const mod = stack ? null : (moduleRegistry?.getModuleContainingAddress(lpAddress) ?? null);
             if (stack) {
-                // 0) Thread stack. Windows describes a stack by its RESERVATION, and every
-                //    stack-bounds helper reads it that way: bottom = AllocationBase, top from
-                //    TEB StackBase. Answering page-granular (AllocationBase = the queried page,
-                //    RegionSize = 0x1000) hands them inverted or 4KB-wide bounds. We commit the
-                //    whole stack up front, so the committed run IS the reservation — no guard
-                //    page, no reserved tail to describe. This precedes the generic
-                //    backed-interval branch, whose page-granular answer stays load-bearing for
-                //    SmartHeap-style pointer validation of HEAP pointers.
-                baseAddress = stack.base;
+                // Keep the reservation identity, but describe the run STARTING at the
+                // queried page. Returning the whole stack's size for an interior address
+                // makes stack scanners walk past its top into the next allocation/guard.
+                // The generic heap branch below intentionally remains page-granular.
+                baseAddress = pageBase;
                 allocationBase = stack.base;
-                regionSize = stack.top - stack.base;
+                regionSize = stack.top - pageBase;
                 memType = MEM_PRIVATE;
                 protect = PAGE_READWRITE;
                 state = MEM_COMMIT;
