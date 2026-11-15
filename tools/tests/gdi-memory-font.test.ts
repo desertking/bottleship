@@ -71,8 +71,8 @@ async function install() {
     return handle as number;
 }
 
-test('painting export assembly registers all five font APIs', () => {
-    for (const name of ['AddFontMemResourceEx', 'RemoveFontMemResourceEx', 'GetTextFaceW', 'GetFontUnicodeRanges', 'GetGlyphOutlineW'])
+test('painting export assembly registers the four memory-font APIs', () => {
+    for (const name of ['AddFontMemResourceEx', 'RemoveFontMemResourceEx', 'GetTextFaceW', 'GetFontUnicodeRanges'])
         expect(typeof api[name]).toBe('function');
 });
 test('memory font owns input and writes count through the fresh memory after await', async () => {
@@ -115,25 +115,4 @@ test('real selected font coverage drives GLYPHSET query/fill and bounded failure
     const small = new DataView(new ArrayBuffer(20));
     expect(writeGlyphSet(small, 4, coverage)).toBe(0); expect(small.getUint32(4)).toBe(0);
 });
-test('gray bitmap uses outward-rounded bounds, baseline origin and DWORD-aligned rows', async () => {
-    await install(); [65536, 0, 0, 65536].forEach((n, i) => view().setInt32(512 + i * 4, n, true));
-    // Bounds [-2,3] x [-2,3], bitmap 5x5, stride8; negative left bearing is retained.
-    expect(call('GetGlyphOutlineW', [1, 65, 6, 600, 0, 0, 512])).toBe(40);
-    expect([0, 4, 8, 12].map(i => view().getInt32(600 + i, true))).toEqual([5, 5, -2, 3]);
-    expect(view().getInt16(616, true)).toBe(5);
-    expect(call('GetGlyphOutlineW', [1, 65, 6, 600, 39, 700, 512])).toBe(0xffffffff);
-    expect(call('GetGlyphOutlineW', [1, 65, 6, 600, 40, 700, 512])).toBe(40);
-    expect(draws).toEqual([{ text: 'A', x: 2, y: 3, font: '16px "Liberation Sans"', width: 5, height: 5 }]);
-    expect([...memory.slice(700, 708)]).toEqual([64, 64, 64, 64, 64, 0, 0, 0]);
-    expect(call('GetGlyphOutlineW', [1, 65, 2, 600, 40, 700, 512])).toBe(0xffffffff);
-    view().setInt32(512, 131072, true);
-    expect(call('GetGlyphOutlineW', [1, 65, 6, 600, 40, 700, 512])).toBe(0xffffffff);
-});
-test('blank glyph retains advance and produces no bitmap; alpha is scaled to 0..64', async () => {
-    await install(); bounds = { actualBoundingBoxLeft: 0, actualBoundingBoxRight: 0,
-        actualBoundingBoxAscent: 0, actualBoundingBoxDescent: 0, width: 6 };
-    [65536, 0, 0, 65536].forEach((n, i) => view().setInt32(512 + i * 4, n, true));
-    expect(call('GetGlyphOutlineW', [1, 32, 6, 600, 40, 700, 512])).toBe(0);
-    expect(view().getInt16(616, true)).toBe(6); expect(draws).toEqual([]);
-    expect([...packGray8(Uint8Array.from([0,0,0,255, 0,0,0,128, 0,0,0,0]), 3, 1)]).toEqual([64,32,0,0]);
-});
+

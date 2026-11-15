@@ -35,6 +35,7 @@ function install(mem: Uint8Array) {
     (globalThis as any).preemption = { getWasmExports: () => wasm };
     (globalThis as any).__v86EngineLoad = { sha256: "e", error: null };
     (aotCache as any).engineSha = null;
+    (aotCache as any).hostSha = "host";
     aotCache.clear();
     return calls;
 }
