@@ -75,7 +75,6 @@ export const gdi32Module: ModuleDescriptor = {
 
         // Text and font metrics
         makeFunc("GetTextMetricsA", 2),
-        makeFunc("GetOutlineTextMetricsA", 3),
         makeFunc("GetTextMetricsW", 2),
         makeFunc("GetTextExtentPointA", 4),
         makeFunc("GetTextExtentExPointA", 7),
@@ -287,8 +286,6 @@ export const gdi32Module: ModuleDescriptor = {
         makeFunc("EnumFontFamiliesExW", 5),
         makeFunc("GetFontLanguageInfo", 1),
         makeFunc("GetCharacterPlacementA", 6),
-        makeFunc("GetGlyphOutlineA", 7),
-        makeFunc("GetGlyphOutlineW", 7),
         makeFunc("GetTextFaceA", 3),
         makeFunc("GetNearestColor", 2),
         makeFunc("ExtCreatePen", 5),
