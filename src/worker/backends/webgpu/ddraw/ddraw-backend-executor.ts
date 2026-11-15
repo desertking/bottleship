@@ -854,6 +854,8 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
         passes: 0,             // render passes created
         batches: 0,            // megabatches flushed
         batchedDraws: 0,       // draws inside flushed megabatches
+        megaDrawsEncoded: 0,
+        megaDrawsDeclined: 0,
         clears: 0,             // executor.clear() calls
         flushes: 0,            // full flush() calls
         nanVerts: 0,           // CPU-converted vertices with non-finite x/y/z/w (guest data bad?)
@@ -5529,7 +5531,7 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
             if (batch.indexBuffer) {
                 // MegaBatch indexed: each draw has unique drawIndex, cannot merge
                 for (const draw of batch.draws) {
-                    if (!draw.indexCount || draw.indexCount <= 0) continue;
+                    if (!draw.indexCount || draw.indexCount <= 0) { this.renderStats.megaDrawsDeclined++; continue; }
                     if (skipMinIdx && draw.indexCount >= skipMinIdx) { this.opLog(`SKIP-DRAW i=${draw.indexCount}`); continue; }
 
                     const vertexOffset = draw.vertexBufferOffset ?? ((draw.firstVertex ?? 0) * batch.vertexSize);
@@ -5548,13 +5550,14 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
                         0,
                         draw.drawIndex ?? 0
                     );
+                    this.renderStats.megaDrawsEncoded++;
                     actualDrawCalls++;
                     totalVertexBytes += draw.vertexCount * batch.vertexSize;
                 }
             } else {
                 // MegaBatch non-indexed: each draw has unique drawIndex
                 for (const draw of batch.draws) {
-                    if (draw.vertexCount <= 0) continue;
+                    if (draw.vertexCount <= 0) { this.renderStats.megaDrawsDeclined++; continue; }
                     if (skipMinIdx && draw.vertexCount >= skipMinIdx) { this.opLog(`SKIP-DRAW v=${draw.vertexCount}`); continue; }
 
                     const vertexOffset = draw.vertexBufferOffset ?? ((draw.firstVertex ?? 0) * batch.vertexSize);
@@ -5568,6 +5571,7 @@ export class DDrawWebGPUExecutor implements QueueWriteGuard {
                         0,
                         draw.drawIndex ?? 0
                     );
+                    this.renderStats.megaDrawsEncoded++;
                     actualDrawCalls++;
                     totalVertexBytes += draw.vertexCount * batch.vertexSize;
                 }
