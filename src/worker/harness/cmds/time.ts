@@ -326,6 +326,42 @@ export function registerTimeCommands(svc: HarnessService): void {
         return { sleptMs: ms };
     });
 
+    svc.register("presentWindow", async (args, ctx: HarnessCtx) => {
+        const skip = Math.max(0, Number(args[0] ?? 0) | 0);
+        const n = Math.max(1, Number(args[1] ?? 1) | 0);
+        const exec: any = (globalThis as any).__ddrawExecutor;
+        if (!exec?.renderStats) throw new HarnessError("ddraw executor unavailable", HarnessErrorCode.NO_PROCESS);
+        const snap = (serial: number) => ({
+            serial, t: performance.now(),
+            rs: { ...exec.renderStats },
+            cache: { ...(exec.bindGroupManager?.megaBatchCacheStats ?? {}) },
+        });
+        const prevGate = harnessBus.frameEvents;
+        harnessBus.frameEvents = true;
+        let off: (() => void) | null = null;
+        try {
+            return await new Promise<unknown>((resolve, reject) => {
+                let first = -1, start: ReturnType<typeof snap> | null = null;
+                let lastT = 0, lastDraws = 0;
+                const per: Array<[number, number, number]> = [];
+                off = harnessBus.onLocal("frameRendered", (d: any) => {
+                    const serial = d?.serial >>> 0;
+                    if (first < 0) first = serial;
+                    if (serial === first + skip) { start = snap(serial); lastT = start.t; lastDraws = start.rs.drawReq; return; }
+                    if (!start || serial <= start.serial) return;
+                    const t = performance.now(), dr = exec.renderStats.drawReq;
+                    per.push([serial, +(t - lastT).toFixed(3), dr - lastDraws]);
+                    lastT = t; lastDraws = dr;
+                    if (serial === start.serial + n) resolve({ start, end: snap(serial), perPresent: per, presenter: d?.presenterKind ?? null });
+                });
+                ctx.signal.addEventListener("abort", () => reject(ctx.signal.reason ?? new Error("aborted")), { once: true });
+            });
+        } finally {
+            (off as (() => void) | null)?.();
+            harnessBus.frameEvents = prevGate;
+        }
+    });
+
     svc.register("tickFrames", async (args, ctx: HarnessCtx) => {
         const n = Math.max(1, Number(args[0] ?? 1) | 0);
         const opts = (args[1] ?? {}) as { park?: boolean };
