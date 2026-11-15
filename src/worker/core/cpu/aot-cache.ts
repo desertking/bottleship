@@ -707,7 +707,7 @@ export class AotCache {
         if (!url) return { error: "no player location", key };
         let data: Uint8Array<ArrayBuffer>;
         try {
-            const r = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+            const r = await fetch(url, { cache: "no-cache", signal: AbortSignal.timeout(15_000) });
             if (!r.ok) return { error: `no shipped units (HTTP ${r.status} ${new URL(url).pathname})`, key };
             data = new Uint8Array(await r.arrayBuffer());
             if (data.length > 2 && data[0] === 0x1f && data[1] === 0x8b) {
