@@ -20,6 +20,7 @@ function install(): void {
     (globalThis as any).System = { getInstance: () => ({ process: { v86: { cpu } } }) };
     (globalThis as any).preemption = { getWasmExports: () => wasm };
     (aotCache as any).engineSha = null;
+    (aotCache as any).hostSha = "host";
     aotCache.clear();
 }
 
@@ -31,6 +32,7 @@ afterEach(() => {
     delete (globalThis as any).__v86EngineLoad;
     delete (globalThis as any).__aotNoShipped;
     (aotCache as any).engineSha = null;
+    (aotCache as any).hostSha = null;
     aotCache.clear();
 });
 

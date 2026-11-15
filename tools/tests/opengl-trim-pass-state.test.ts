@@ -37,8 +37,8 @@ function frame(trim: boolean): string[] {
         else if (name === "setVertexBuffer") state.vbOff = String(a[2] ?? 0);
         else if (name === "setIndexBuffer") state.ib = idOf(a[0]);
         else if (name === "setScissorRect") state.sc = JSON.stringify(a);
-        else if (name === "draw") draws.push(JSON.stringify([state.pipe, state.vp, state.bg, state.sc, "v", Number(state.vbOff) / 60 + (a[2] ?? 0), a[0]]));
-        else if (name === "drawIndexed") draws.push(JSON.stringify([state.pipe, state.vp, state.bg, state.sc, "i", state.ib, Number(state.vbOff) / 60 + (a[3] ?? 0), a[0]]));
+        else if (name === "draw") draws.push(JSON.stringify([state.pipe, state.vp, state.bg, state.sc, "v", Number(state.vbOff) / 72 + (a[2] ?? 0), a[0]]));
+        else if (name === "drawIndexed") draws.push(JSON.stringify([state.pipe, state.vp, state.bg, state.sc, "i", state.ib, Number(state.vbOff) / 72 + (a[3] ?? 0), a[0]]));
         return undefined;
     } });
     const encoder = new Proxy({}, { get: (_t, p) => (...a: any[]) => String(p) === "beginRenderPass" ? pass() : fakeObj("enc." + String(p)) });

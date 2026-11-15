@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { OpenGLBackendExecutor } from "../../src/worker/backends/webgpu/opengl/opengl-backend-executor";
+import { OpenGLBackendExecutor, openglVertexLayout } from "../../src/worker/backends/webgpu/opengl/opengl-backend-executor";
 import { VERT_FLOATS, VERT_FOG_DIST, VERT_SECONDARY_COLOR } from "../../src/worker/modules/opengl32/context";
 import { GL_CCW, GL_FILL, GL_LINE, GL_LINES, GL_TRIANGLES } from "../../src/worker/modules/opengl32/constants";
 import type { OpenGLPipelineConfig } from "../../src/worker/backends/webgpu/opengl/opengl-pipeline-factory";
@@ -16,6 +16,7 @@ interface ExecutorProbe {
 function executor(): ExecutorProbe {
     return Object.assign(Object.create(OpenGLBackendExecutor.prototype), {
         vertexScratch: new Float32Array(0), expandScratch: new Float32Array(0), pipelineCache: new Map(),
+        vertexLayout: openglVertexLayout(false),
     }) as ExecutorProbe;
 }
 function vertex(arena: Float32Array, index: number, secondary: number[]) {
@@ -124,4 +125,10 @@ test("the complete GL shader passes the available real WGSL validator", () => {
     const validator = probeOfflineWgslValidator();
     const result = validateWgslOffline(executor().buildShaderCode(), validator);
     expect(result.status, result.diagnostics ?? result.reason).toBe(validator.available ? "passed" : "skipped");
+});
+
+test("the direct-upload layout reads secondary RGB from the arena's secondary slot", () => {
+    const direct = openglVertexLayout(true);
+    expect(direct.arrayStride).toBe(VERT_FLOATS * 4);
+    expect(Array.from(direct.attributes)).toContainEqual({ shaderLocation: 5, offset: 15 * 4, format: "float32x3" });
 });

@@ -2011,7 +2011,7 @@ fn vs_main(input: VertexIn) -> VertexOut {
     out.uv0 = input.uv0;
     out.uv1 = input.uv1;
     out.fogCoord = input.fogDist;
-    out.secondary = clamp(input.secondary, vec3f(0.0), vec3f(1.0));
+    out.secondary = input.secondary;
     return out;
 }
 
