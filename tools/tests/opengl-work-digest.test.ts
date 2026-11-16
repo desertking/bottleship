@@ -136,13 +136,14 @@ function executorProbe(dropDraw = false) {
     let draws = 0, submits = 0;
     const pass = { setViewport() {}, setPipeline() {}, setBindGroup() {}, setVertexBuffer() {}, draw() { draws++; }, end() {} };
     const encoder = { beginRenderPass() { return pass; }, finish() { return {}; } };
-    const device = { limits: { maxTextureDimension2D: 8192 }, createCommandEncoder() { return encoder; } };
-    const queue = { submit() { submits++; } };
+    const device = { limits: { maxTextureDimension2D: 8192 }, createCommandEncoder() { return encoder; }, createBuffer: () => ({ destroy() {} }) };
+    const queue = { submit() { submits++; }, writeBuffer() {} };
     const backend = { getDevice: () => device, getQueue: () => queue, getContext: () => ({ canvas: { width: 640, height: 480 }, getCurrentTexture: () => ({ createView: () => ({}) }) }), getFormat: () => 'bgra8unorm' };
     const e = Object.assign(Object.create(OpenGLBackendExecutor.prototype), {
         backend, offscreenView: {}, depthView: {}, uniformBuffer: {}, vertexBuffer: {},
+        pipelineWords: new Uint32Array(13), lastPipelineWords: new Uint32Array(13), lastPipeline: null, lastPipelineTopology: "",
         depthRangeMin: 0, depthRangeMax: 1, getDrawableSize: () => [640, 480], resolveRenderScale: () => 1,
-        ensureStaticResources() {}, ensureTargets() {}, pruneTextureCache() {}, ensureUniformCapacity() {}, ensureVertexBufferCapacity() {},
+        ensureStaticResources() {}, ensureTargets() {}, pruneTextureCache() {}, ensureUniformCapacity() {}, ensureVertexBufferCapacity() {}, ensureQuadIndexCapacity() {},
         applyColorSeed() {}, prepareDrawData: () => dropDraw ? null : ({ data: new Float32Array(48), byteLength: 192, vertexCount: 3, topology: 'triangle-list' }),
         uploadVertices: () => 0, resolveTexture: () => null, getDefaultSampler: () => ({}), getWhiteTextureView: () => ({}),
         allocateUniformSlot: () => 0, writeUniforms() {}, getOrCreatePipeline: () => ({}), getOrCreateBindGroup: () => ({}),
