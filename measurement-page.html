@@ -1,0 +1,72 @@
+<!doctype html><html lang="de"><head><meta charset="utf-8"><title>Messung 374</title><meta name="robots" content="noindex">
+<style>body{margin:0;background:#111;color:#ddd;font:14px sans-serif}#status{padding:6px 10px;font-weight:bold}#log{padding:0 10px;font-size:12px;color:#9a9;white-space:pre-wrap}#stage iframe{width:1100px;height:860px;border:0;display:block}pre{margin:8px 10px;white-space:pre-wrap;font-size:12px}</style></head>
+<body><div id="status">lädt</div><div id="log"></div><pre id="json"></pre><div id="stage"></div>
+<script>
+const Q=new URLSearchParams(location.search),K=Q.get('k')||'',E=Q.get('e')||'',PLAN=(Q.get('plan')||'').split(',').filter(Boolean);
+const FOLDER=Q.get('f')||'game-folder',SEED=+(Q.get('seed')||0x1234567),SEEDADDR=+(Q.get('seedaddr')||0x585008);
+const MENU=+(Q.get('menu')||30),SETTLE=+(Q.get('settle')||15),NWIN=+(Q.get('nwin')||3),WIN=+(Q.get('win')||300),SKIP=+(Q.get('skip')||30);
+const FLAG=Q.get('flag')||'__ddrawMegaBatchCacheOff';
+const RUN='m374-'+new Date().toISOString().replace(/[-:T]/g,'').slice(0,14);
+const st=(t)=>{document.getElementById('status').textContent=t};
+const lines=[];const log=(t)=>{lines.push(new Date().toLocaleTimeString()+' '+t);document.getElementById('log').textContent=lines.slice(-12).join('\n')};
+const sleep=(ms)=>new Promise((r)=>setTimeout(r,ms));
+const mitZeit=(p,ms,was)=>Promise.race([p,new Promise((_,j)=>setTimeout(()=>j(Error('Zeitlimit '+was)),ms))]);
+const summary=[];
+async function post(o){for(let i=0;i<3;i++){try{const ac=new AbortController();const tm=setTimeout(()=>ac.abort(),20000);const r=await fetch('fern.php?k='+encodeURIComponent(K),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(o),signal:ac.signal});clearTimeout(tm);if(r.ok)return true;if(r.status===413)return false}catch(x){/*retry*/}await sleep(1500)}return false}
+async function postJson(arm,kind,obj){const str=btoa(unescape(encodeURIComponent(JSON.stringify(obj))));const size=6000,n=Math.ceil(str.length/size)||1;for(let i=0;i<n;i++)await post({id:'m374',run:RUN,arm,kind,part:i,of:n,s:str.slice(i*size,(i+1)*size)})}
+const hex=(b)=>Array.from(new Uint8Array(b)).map((x)=>x.toString(16).padStart(2,'0')).join('');
+async function shotHash(H,name){
+ const r=await H('shot',[{}],20000);if(!r||!r.base64)return null;
+ const bin=Uint8Array.from(atob(r.base64),(c)=>c.charCodeAt(0));const bmp=await createImageBitmap(new Blob([bin],{type:'image/png'}));
+ const c=document.createElement('canvas');c.width=bmp.width;c.height=bmp.height;const g=c.getContext('2d');g.drawImage(bmp,0,0);
+ const px=g.getImageData(0,0,c.width,c.height).data;const sha=hex(await crypto.subtle.digest('SHA-256',px));
+ const url=c.toDataURL('image/jpeg',0.8);
+ try{await fetch('fern.php?k='+encodeURIComponent(K)+'&a=shot',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,jpeg:url.split(',')[1]})})}catch(x){/*bild optional*/}
+ const pi=(Math.floor(c.height*0.6)*c.width+Math.floor(c.width*0.3))*4;
+ return {w:c.width,h:c.height,sha,probe:px[pi]+px[pi+1]+px[pi+2]}
+}
+async function lauf(armCode,idx){
+ const off=armCode==='B';const arm=armCode+'-n'+idx;
+ const out={arm,armCode,cacheOff:off,engine:E,folder:FOLDER,seed:SEED,ua:navigator.userAgent,t0:new Date().toISOString(),r:{},windows:[]};
+ const stage=document.getElementById('stage');stage.textContent='';
+ const fr=document.createElement('iframe');fr.allow='autoplay; fullscreen; gamepad; cross-origin-isolated';fr.src='frame.php?f='+encodeURIComponent(FOLDER)+'&e='+encodeURIComponent(E)+'&bs='+Date.now();stage.appendChild(fr);
+ let win=null;const T0=performance.now();const say=(x)=>{st(RUN+' '+arm+' · '+x);log(arm+' '+x)};
+ const H=async(cmd,args,ms)=>{const r=await mitZeit(win.__BS__.harness.__runSteps([{cmd,args:args||[]}]),ms||60000,cmd);const s0=r&&r.steps&&r.steps[0];if(!s0||!s0.ok)throw Error(cmd+': '+JSON.stringify(s0&&s0.error||r).slice(0,300));return s0.result};
+ try{
+  for(;;){await sleep(700);let w=null,d=null;try{w=fr.contentWindow;d=w&&w.document}catch(x){/*ignore*/}
+   const b=d&&d.getElementById('start-game');if(d&&d.readyState==='complete'&&w.__BS__&&w.__BS__.harness&&b&&!b.disabled){win=w;break}
+   if(performance.now()-T0>120000)throw Error('Startknopf fehlt')}
+  out.r.flags={};for(const f of ['__ddrawMegaBatchCacheOff','__ddrawMegaBatchVertexRangeOff'])out.r.flags[f]=await H('setWorkerFlag',[f,f===FLAG&&off]);
+  out.r.noaot=await H('setWorkerFlag',['__aotNoAutoLoad',true]);
+  fr.focus();win.document.getElementById('start-game').click();say('startet');
+  for(;;){await sleep(1000);const p=win.bsGame&&win.bsGame.phase;if(p==='playing')break;if(p==='error'||p==='exited')throw Error('phase '+p);if(performance.now()-T0>240000)throw Error('kein playing')}
+  out.readyS=Math.round((performance.now()-T0)/1000);say('läuft, Menü');
+  await sleep(MENU*1000);
+  out.r.poke=await H('dbgCall',['poke32',SEEDADDR,SEED]);
+  out.r.clicks=[];
+  for(let a=0;a<4;a++){out.r.clicks.push(await H('clickHold',[215,217,600]));await sleep(6000);const pr=await shotHash(H,(RUN+'-'+arm+'-k'+a).toLowerCase());out.r.clicks.push(pr);if(pr&&pr.probe<60)break}
+  await sleep(SETTLE*1000);
+  out.r.flagCheck=await H('evalWorker',["const e=globalThis.__ddrawExecutor;const m=e&&e.bindGroupManager;return {cacheOff:m?m.megaBatchCacheOff:null,rangeOff:e?e.megaBatchVertexRangeOff:null}"]);
+  out.r.shotA=await shotHash(H,(RUN+'-'+arm+'-a').toLowerCase());
+  for(let i=0;i<NWIN;i++){say('Fenster '+(i+1));const w=await H('presentWindow',[SKIP,WIN],180000);
+   const a=w.start,b=w.end;const d={};for(const k of Object.keys(b.rs))d[k]=b.rs[k]-(a.rs[k]||0);const c={};for(const k of Object.keys(b.cache))c[k]=b.cache[k]-(a.cache[k]||0);
+   const dr=w.perPresent.map((p)=>p[2]),dt=w.perPresent.map((p)=>p[1]);
+   out.windows.push({startSerial:a.serial,endSerial:b.serial,ms:+(b.t-a.t).toFixed(1),presents:b.serial-a.serial,rs:d,cache:c,drawsPerPresent:{min:Math.min(...dr),max:Math.max(...dr),distinct:[...new Set(dr)].slice(0,10)},dtMs:dt,presenter:w.presenter})}
+  out.r.shotB=await shotHash(H,(RUN+'-'+arm+'-b').toLowerCase());
+  out.ok=true;
+ }catch(err){out.FAIL=String(err.message||err).slice(0,300);say('FEHLER '+out.FAIL)}
+ out.min=+((performance.now()-T0)/60000).toFixed(1);
+ const fps=out.windows.map((w)=>+(w.presents*1000/w.ms).toFixed(2));
+ const s={arm,ok:!!out.ok,fail:out.FAIL,fps,rangeBinds:out.windows.map((w)=>w.rs.vertexRangeBinds),draws:out.windows.map((w)=>w.rs.drawReq),hits:out.windows.map((w)=>w.cache.hits),uncached:out.windows.map((w)=>w.cache.uncached),shotA:out.r.shotA&&out.r.shotA.sha.slice(0,16),clicks:(out.r.clicks||[]).length/2};summary.push(s);
+ document.getElementById('json').textContent=JSON.stringify({run:RUN,summary});
+ await postJson(arm,'result',out);await post({id:'m374',run:RUN,arm,kind:'summary',s:JSON.stringify(s)});
+ stage.textContent='';await sleep(8000);
+}
+(async()=>{
+ if(!K||!PLAN.length||!PLAN.every((p)=>/^[AB]$/.test(p))||!/^[0-9a-f]{8}(-[a-z0-9]+)?$/.test(E)){st('FEHLER Parameter');return}
+ await post({id:'m374',run:RUN,kind:'start',s:location.search.replace(/k=[^&]*/,'')});
+ let i=0;for(const p of PLAN){i++;try{await mitZeit(lauf(p,i),12*60000,'Lauf')}catch(err){log('Lauf '+p+' '+err);document.getElementById('stage').textContent='';await sleep(5000)}}
+ await post({id:'m374',run:RUN,kind:'ende',s:JSON.stringify(summary)});
+ st('fertig – '+summary.filter((x)=>x.ok).length+' von '+summary.length);
+})();
+</script></body></html>
