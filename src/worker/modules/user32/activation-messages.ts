@@ -4,7 +4,7 @@
  */
 import { Logger, LogCategory } from '../../core/logger';
 import { System } from '../../core/system';
-import { windows } from './shared-state';
+import { windows, type WindowInfo } from './shared-state';
 
 export const WM_ACTIVATE = 0x0006;
 export const WM_SETFOCUS = 0x0007;
@@ -22,6 +22,8 @@ export interface ActivationStep {
     msg: number;
     wParam: number;
     lParam: number;
+    /** Transient identity for a broadcast recipient; earlier callbacks may destroy it. */
+    windowIdentity?: WindowInfo;
 }
 
 // @transient(which queued WM_ACTIVATE messages USER posted itself; after a load the queue is restored without them and they are simply delivered)
@@ -69,7 +71,8 @@ export function recordLastActive(hwnd: number): void {
 }
 
 /** Current wndProc for activation delivery (subclass may change between steps). */
-export function resolveActivationWndProc(hwnd: number, fallback = 0): number {
+export function resolveActivationWndProc(hwnd: number, fallback = 0, identity?: WindowInfo): number {
+    if (identity && (windows.get(hwnd) !== identity || identity.pendingDestroy)) return 0;
     return resolveWndProc(hwnd) || fallback;
 }
 
@@ -86,15 +89,41 @@ function crossesApplicationBoundary(newHwnd: number, prevHwnd: number): boolean 
     return !newHwnd || !prevHwnd;
 }
 
+/**
+ * WM_ACTIVATEAPP belongs to every top-level window of the entering/leaving thread,
+ * including hidden application windows. Match deactivateWithoutSuccessor: notifying
+ * only the visible main window on re-entry leaves hidden helpers inactive forever.
+ * Wine win32u/input.c:set_active_window enumerates the thread's windows for both values.
+ * This runs only at activation boundaries, never in the message-poll/render hot path.
+ */
+function forEachApplicationWindow(hwnd: number, visit: (target: number) => void): void {
+    const wm = System.getInstance().windowManager;
+    const thread = wm.getWindowOwnerThread(hwnd);
+    wm.forEachTopLevel(win => {
+        if (win.creatorThreadId === thread) visit(win.hwnd);
+    });
+}
+
+function appendApplicationActivation(steps: ActivationStep[], hwnd: number, active: number, fallback = 0): void {
+    forEachApplicationWindow(hwnd, target => {
+        const wndProc = resolveWndProc(target) || (target === hwnd ? fallback : 0);
+        if (!wndProc) return; // A system-only window has no guest procedure to invoke.
+        steps.push({ hwnd: target, wndProc, msg: WM_ACTIVATEAPP, wParam: active, lParam: 0,
+            windowIdentity: windows.get(target) });
+    });
+}
+
 /** First activation on a hwnd that is already active but never received WM_ACTIVATE. */
 export function buildInitialActivationSteps(hwnd: number, wndProc: number): ActivationStep[] {
     if (!hwnd || !wndProc) return [];
-    return [
-        { hwnd, wndProc, msg: WM_ACTIVATEAPP, wParam: 1, lParam: 0 },
+    const steps: ActivationStep[] = [];
+    appendApplicationActivation(steps, hwnd, 1, wndProc);
+    steps.push(
         { hwnd, wndProc, msg: WM_NCACTIVATE, wParam: 1, lParam: 0 },
         { hwnd, wndProc, msg: WM_ACTIVATE, wParam: WA_ACTIVE, lParam: 0 },
         { hwnd, wndProc, msg: WM_SETFOCUS, wParam: 0, lParam: 0 },
-    ];
+    );
+    return steps;
 }
 
 /**
@@ -118,12 +147,12 @@ export function buildActivationSteps(
         steps.push({ hwnd: prevHwnd, wndProc: prevProc, msg: WM_NCACTIVATE, wParam: 0, lParam: newHwnd >>> 0 });
         steps.push({ hwnd: prevHwnd, wndProc: prevProc, msg: WM_ACTIVATE, wParam: WA_INACTIVE, lParam: newHwnd >>> 0 });
         if (appBoundary) {
-            steps.push({ hwnd: prevHwnd, wndProc: prevProc, msg: WM_ACTIVATEAPP, wParam: 0, lParam: 0 });
+            appendApplicationActivation(steps, prevHwnd, 0, prevProc);
         }
     }
     if (newHwnd && newWndProc) {
         if (appBoundary) {
-            steps.push({ hwnd: newHwnd, wndProc: newWndProc, msg: WM_ACTIVATEAPP, wParam: 1, lParam: 0 });
+            appendApplicationActivation(steps, newHwnd, 1, newWndProc);
         }
         steps.push({ hwnd: newHwnd, wndProc: newWndProc, msg: WM_NCACTIVATE, wParam: 1, lParam: prevHwnd >>> 0 });
         steps.push({ hwnd: newHwnd, wndProc: newWndProc, msg: WM_ACTIVATE, wParam: WA_ACTIVE, lParam: prevHwnd >>> 0 });
@@ -190,11 +219,11 @@ export function postActivationTransition(newHwnd: number, prevHwnd: number): voi
     if (deactivating) {
         wm.postMessage(prevHwnd, WM_NCACTIVATE, 0, newHwnd >>> 0);
         wm.postMessage(prevHwnd, WM_ACTIVATE, WA_INACTIVE, newHwnd >>> 0);
-        if (appBoundary) wm.postMessage(prevHwnd, WM_ACTIVATEAPP, 0, 0);
+        if (appBoundary) forEachApplicationWindow(prevHwnd, target => wm.postMessage(target, WM_ACTIVATEAPP, 0, 0));
         markPendingActivation(prevHwnd);
     }
     if (newHwnd) {
-        if (appBoundary) wm.postMessage(newHwnd, WM_ACTIVATEAPP, 1, 0);
+        if (appBoundary) forEachApplicationWindow(newHwnd, target => wm.postMessage(target, WM_ACTIVATEAPP, 1, 0));
         wm.postMessage(newHwnd, WM_NCACTIVATE, 1, prevHwnd >>> 0);
         postActivation(newHwnd, WA_ACTIVE, prevHwnd >>> 0);
     }
@@ -275,7 +304,7 @@ export function deactivateWithoutSuccessor(hwnd: number, deferStateChange = fals
 export function postInitialActivationMessages(hwnd: number): void {
     if (!hwnd) return;
     const wm = System.getInstance().windowManager;
-    wm.postMessage(hwnd, WM_ACTIVATEAPP, 1, 0);
+    forEachApplicationWindow(hwnd, target => wm.postMessage(target, WM_ACTIVATEAPP, 1, 0));
     wm.postMessage(hwnd, WM_NCACTIVATE, 1, 0);
     postActivation(hwnd, WA_ACTIVE, 0);
     wm.postMessage(hwnd, WM_SETFOCUS, 0, 0);

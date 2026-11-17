@@ -1598,7 +1598,7 @@ function createModelessDialog(
                 showDialogAfterInit();
             }
 
-            if (needsActivation && activationStep < activationSteps.length && needsActivationDelivery(hwnd)) {
+            while (needsActivation && activationStep < activationSteps.length && needsActivationDelivery(hwnd)) {
                 windowInfo.dialogInitInProgress = false;
                 if (activationStep === 0) {
                     Logger.log(LogCategory.USER32,
@@ -1607,7 +1607,8 @@ function createModelessDialog(
                 }
                 const step = activationSteps[activationStep]!;
                 activationStep++;
-                const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc);
+                const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity);
+                if (!wndProc) continue;
                 Logger.log(LogCategory.USER32,
                     `deliverActivation[post-init]: hwnd=0x${step.hwnd.toString(16)} msg=0x${step.msg.toString(16)} ` +
                     `wParam=0x${step.wParam.toString(16)} lParam=0x${step.lParam.toString(16)} ` +

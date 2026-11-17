@@ -14,7 +14,7 @@ import { Mem } from '../../src/worker/core/memory/mem-accessor';
 import { windows } from '../../src/worker/modules/user32/shared-state';
 import { createWindowExports } from '../../src/worker/modules/user32/window';
 import { createClassExports } from '../../src/worker/modules/user32/class';
-import { resetPostedActivations } from '../../src/worker/modules/user32/activation-messages';
+import { buildInitialActivationSteps, resolveActivationWndProc, resetPostedActivations } from '../../src/worker/modules/user32/activation-messages';
 
 const WM_DESTROY = 0x0002;
 const WM_ACTIVATE = 0x0006;
@@ -40,6 +40,7 @@ type Event = [kind: 'sent' | 'posted', hwnd: number, msg: number, wParam: number
 
 let log: Event[] = [];
 let pending: Array<() => unknown> = [];
+let onCallback: ((args: number[]) => void) | undefined;
 let mem: Uint8Array;
 let saved: Record<string, unknown> = {};
 let savedProcess: unknown;
@@ -49,6 +50,7 @@ const created: number[] = [];
 beforeEach(() => {
     log = [];
     pending = [];
+    onCallback = undefined;
     mem = new Uint8Array(0x20000);
     savedMemGetter = (Mem as unknown as Record<string, unknown>).memoryGetter;
     Mem.bind(() => mem);
@@ -80,6 +82,7 @@ beforeEach(() => {
                 getStubPoolRange: () => ({ base: 0xf0000000, end: 0xf0001000 }),
                 invokeCallback: (_p: number, args: number[], _f: number, complete?: (r: number) => unknown) => {
                     log.push(['sent', args[0]! >>> 0, args[1]!, (args[2] ?? 0) >>> 0, (args[3] ?? 0) >>> 0]);
+                    onCallback?.(args);
                     if (complete) pending.push(() => complete(0));
                     return { callbackId: log.length };
                 },
@@ -117,9 +120,9 @@ function drain(): void {
     for (let guard = 0; pending.length && guard < 256; guard++) pending.shift()!();
 }
 
-function create(style: number): number {
+function create(style: number, parent = 0): number {
     const r = createWindowExports()['CreateWindowExA']!({ esp: ESP } as never, mem,
-        [0, CLASS_NAME, 0, style >>> 0, 10, 20, 400, 300, 0, 0, 0x400000, 0] as never) as { value: number } | number;
+        [0, CLASS_NAME, 0, style >>> 0, 10, 20, 400, 300, parent, 0, 0x400000, 0] as never) as { value: number } | number;
     const hwnd = typeof r === 'number' ? r : r.value;
     created.push(hwnd);
     drain();
@@ -214,6 +217,70 @@ test('a visible window that takes over the activation keeps it inside the app: n
     destroy(front);
     expect(wm.getActiveHwnd()).toBe(back);
     expect(appActivations(mark)).toEqual([]);
+});
+
+for (const visibleAtCreate of [false, true]) {
+    test(`hidden application window resumes after splash destruction (visible at create: ${visibleAtCreate})`, () => {
+        // Delphi's application window remains hidden while a splash/main form owns
+        // activation. Its ActiveOnly idle timer must see the matching TRUE as well.
+        const application = create(WS_OVERLAPPEDWINDOW);
+        const splash = create(WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+        const mark = log.length;
+        destroy(splash);
+        const main = create(WS_OVERLAPPEDWINDOW | (visibleAtCreate ? WS_VISIBLE : 0));
+        if (!visibleAtCreate) show(main, SW_SHOWNORMAL);
+        expect(trace(mark).filter(([, hwnd, msg]) => hwnd === application && msg === WM_ACTIVATEAPP)
+            .map(([, , , active]) => active)).toEqual([0, 1]);
+        expect(trace(mark).filter(([, hwnd, msg]) => hwnd === application &&
+            [WM_ACTIVATE, WM_SETFOCUS, WM_NCACTIVATE].includes(msg))).toEqual([]);
+        expect(System.getInstance().windowManager.getActiveHwnd()).toBe(main);
+    });
+}
+
+test('application reactivation excludes child windows and other threads', () => {
+    const wm = System.getInstance().windowManager;
+    const application = create(WS_OVERLAPPEDWINDOW);
+    const child = create(0x40000000, application);
+    const foreign = create(WS_OVERLAPPEDWINDOW);
+    wm.getWindow(foreign)!.creatorThreadId = 0x777;
+    const splash = create(WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+    destroy(splash);
+    const mark = log.length;
+    const main = create(WS_OVERLAPPEDWINDOW);
+    show(main, SW_SHOWNORMAL);
+    const recipients = trace(mark).filter(([, , msg]) => msg === WM_ACTIVATEAPP).map(([, hwnd]) => hwnd);
+    expect(recipients.sort()).toEqual([application, main].sort());
+    expect(recipients).not.toContain(child);
+    expect(recipients).not.toContain(foreign);
+});
+
+test('broadcast resolves a current subclass but never a destroyed or reused recipient', () => {
+    const application = create(WS_OVERLAPPEDWINDOW);
+    const main = create(WS_OVERLAPPEDWINDOW);
+    const step = buildInitialActivationSteps(main, WNDPROC).find(s => s.hwnd === application)!;
+    const identity = windows.get(application)!;
+    identity.wndProc = 0x402000;
+    expect(resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity)).toBe(0x402000);
+    identity.pendingDestroy = true;
+    expect(resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity)).toBe(0);
+    identity.pendingDestroy = false;
+    windows.set(application, { ...identity });
+    expect(resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity)).toBe(0);
+    windows.delete(application);
+    expect(resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity)).toBe(0);
+});
+
+test('visible creation skips a hidden recipient destroyed by an earlier activation callback', () => {
+    const application = create(WS_OVERLAPPEDWINDOW);
+    const mark = log.length;
+    onCallback = args => {
+        if (args[0] !== application && args[1] === WM_ACTIVATEAPP && args[2] === 1) {
+            windows.delete(application);
+            System.getInstance().windowManager.destroyWindow(application);
+        }
+    };
+    create(WS_OVERLAPPEDWINDOW | WS_VISIBLE);
+    expect(trace(mark).filter(([, hwnd, msg]) => hwnd === application && msg === WM_ACTIVATEAPP)).toEqual([]);
 });
 
 test('hiding the only active window deactivates the app; showing it again reactivates it once', () => {

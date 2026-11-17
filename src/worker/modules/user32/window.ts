@@ -1482,9 +1482,11 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
 
             while (activationIndex < activationSteps.length) {
                 const step = activationSteps[activationIndex++];
+                const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity);
+                if (!wndProc) continue;
                 try {
                     callbackManager.invokeCallback(
-                        step.wndProc,
+                        wndProc,
                         [step.hwnd, step.msg, step.wParam, step.lParam],
                         0,
                         completeThunk,
@@ -3145,10 +3147,11 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
                         );
                     };
                     const continueActivationChain = (_ret: number): number | null => {
-                        if (activationStep < activationSteps.length) {
+                        while (activationStep < activationSteps.length) {
                             const step = activationSteps[activationStep]!;
                             activationStep++;
-                            const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc);
+                            const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity);
+                            if (!wndProc) continue;
                             Logger.log(LogCategory.USER32,
                                 `deliverActivation[during-init]: hwnd=0x${step.hwnd.toString(16)} msg=0x${step.msg.toString(16)} ` +
                                 `wParam=0x${step.wParam.toString(16)} lParam=0x${step.lParam.toString(16)} ` +
@@ -3173,7 +3176,7 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
                     if (activationSteps.length > 0) {
                         const step = activationSteps[activationStep]!;
                         activationStep++;
-                        const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc);
+                        const wndProc = resolveActivationWndProc(step.hwnd, step.wndProc, step.windowIdentity);
                         Logger.log(LogCategory.USER32,
                             `deliverActivation[during-init]: hwnd=0x${step.hwnd.toString(16)} msg=0x${step.msg.toString(16)} ` +
                             `wParam=0x${step.wParam.toString(16)} lParam=0x${step.lParam.toString(16)} ` +

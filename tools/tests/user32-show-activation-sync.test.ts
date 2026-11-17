@@ -35,7 +35,7 @@ beforeEach(() => {
     wm.getFocusHwnd = () => active;
     wm.clearActiveWindow = (h: number) => { if (active === h) active = 0; };
     wm.getWindowOwnerThread = () => 1;
-    wm.forEachTopLevel = (cb: (w: any) => void) => { for (const h of [A, B]) if (windows.has(h)) cb({ hwnd: h, creatorThreadId: 1 }); };
+    wm.forEachTopLevel = (cb: (w: any) => void) => { for (const h of [A, B]) if (windows.has(h)) cb({ hwnd: h, creatorThreadId: wm.getWindowOwnerThread(h) }); };
     savedProcess = system.process;
     system.process = { v86: { mem8: mem }, dispatcher: { callbackManager: {
         saveSuspendedThunkContext: () => 1,
