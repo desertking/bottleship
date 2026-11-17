@@ -160,7 +160,8 @@ const SCHEMAS = {
     scheduler: { state: stateKeys<SchedulerState>({ threads: true, currentThreadId: true, nextThreadId: true, mainThreadId: true, runQueue: true, bootstrapUntilFirstWait: true, tlsSlots: true, nextTlsIndex: true, criticalSectionOwners: true, csLockSemaphores: true, stackPool: true, stackBytesPooled: true, stackBytesReserved: true, ownedStackBases: true, mainStack: true, threadExitStubAddr: true, apcDispatchStub: true, apcDispatchGeneration: true, alertedWaitResults: true, reapQueue: true, reapRetryQueue: true, teb: true, sync: true, dllNotify: true, threadStartStubAddr: true }), thread: THREAD_FIELDS },
     timerWheel: stateKeys<ReturnType<TimerWheel['captureState']>>({ nextId: true, entries: true }),
     dispatcher: {
-        state: stateKeys<ReturnType<ThunkDispatcher['captureState']>>({ wbufTail: true, asyncEpoch: true, uef: true, callbacks: true }),
+        state: stateKeys<ReturnType<ThunkDispatcher['captureState']>>({ wbufTail: true, asyncEpoch: true, uef: true, veh: true, callbacks: true }),
+        veh: { nextHandle: 'number', entries: ['handle', 'handler'] },
         callbacks: stateKeys<ReturnType<CallbackManager['captureState']>>({ nextCallbackId: true, nextFrameId: true, stubs: true }),
     },
     cpu: CPU_FIELDS,
@@ -243,7 +244,7 @@ export function registerCoreParticipants(): void {
         restore: (s) => System.getInstance().scheduler.timerWheel.restoreState(as<{ nextId: number; entries: number[][] }>(s)),
     });
     savestateParticipants.add({
-        id: 'dispatcher', version: 1, order: 90, schema: schema(SCHEMAS.dispatcher),
+        id: 'dispatcher', version: 2, order: 90, schema: schema(SCHEMAS.dispatcher),
         capture: () => save(refusing('dispatcher', () => process().dispatcher.captureState())),
         restore: (s) => process().dispatcher.restoreState(as(s)),
     });

@@ -2126,6 +2126,11 @@ export function dispatchCxxException(
         }
     }
 
+    if (opts?.allowDeferToX86 !== false
+        && System.getInstance().process?.dispatcher?.vectoredExceptions?.size) {
+        return { deferToX86: true, pExceptionObject, pThrowInfo };
+    }
+
     // Log throw context — which module is throwing?
     const throwEIP = (cpu.instruction_pointer?.[0] ?? 0) >>> 0; // EIP at throw
     const throwEsp = cpu.reg32[4] >>> 0; // ESP at throw time (lower bound of dead stack)

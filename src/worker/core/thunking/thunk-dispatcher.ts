@@ -55,9 +55,11 @@ import { apiBreaks as harnessApiBreaks } from '../../harness/api-breaks';
 import { memWriteTrap } from '../memory/mem-write-trap';
 import {
     SEH_SCRATCH_LAYOUT,
+    VEH_STUB_OFFSET,
     EH3_FILTER_CTX_LAYOUT,
     SEH_FRAME_LIST_MAX,
 } from './seh-layout';
+import { VectoredExceptions } from './vectored-exceptions';
 import { type SehFrameSnapshot } from '../tools/seh-postmortem';
 
 export interface X86Context {
@@ -322,6 +324,8 @@ interface SehDispatchContext {
     access?: { thunkEsp: number; returnAddr: number };
     /** The same bounded dispatch owns the UEF call and its return. */
     awaitingUef?: boolean;
+    veh?: { handles: number[]; index: number };
+    awaitingVeh?: boolean;
     /** For 'cxx': what the throw carried, so an exhausted x86 chain can still be
      *  re-walked in JS for a catch the native handlers could not serve. */
     cxx?: { pObj: number; pThrow: number; cleanupBytes: number; throwEsp: number; returnAddr: number };
@@ -650,6 +654,7 @@ export class ThunkDispatcher {
     private sehStackTop = 0;
     private sehDispatchStack: SehDispatchContext[] = [];
     private sehDispatchGeneration = 0;
+    readonly vectoredExceptions = new VectoredExceptions();
     private sehRuntimePinned = false;
     /** Thread that took the SEH pin — the pin must be released on IT, not on whoever is
      *  current when the dispatch unwinds. */
@@ -1829,21 +1834,22 @@ export class ThunkDispatcher {
         if (this.wbufQueueEnd > this.wbufDeferStats.peakQueueBytes) this.wbufDeferStats.peakQueueBytes = this.wbufQueueEnd;
     }
 
-    captureState(): { wbufTail: number; asyncEpoch: number; uef: number; callbacks: ReturnType<CallbackManager['captureState']> } {
+    captureState(): { wbufTail: number; asyncEpoch: number; uef: number; veh: ReturnType<VectoredExceptions['captureState']>; callbacks: ReturnType<CallbackManager['captureState']> } {
         if (this.writeBufferPendingBytes() > 0) throw new Error('dispatcher: write-buffer entries are not flushed');
         if (this.activeAsyncThunks.size > 0 && [...this.activeAsyncThunks.values()].some(i => i.restartable?.() !== true)) {
             throw new Error('dispatcher: a thread waits on host work');
         }
         if (this.pendingAsyncRestores.length > 0 || this.sehDispatchStack.length > 0) throw new Error('dispatcher: not at a safe point');
-        return { wbufTail: this.wbufTail, asyncEpoch: this.asyncEpoch, uef: this.unhandledExceptionFilterAddr, callbacks: this.callbackManager.captureState() };
+        return { wbufTail: this.wbufTail, asyncEpoch: this.asyncEpoch, uef: this.unhandledExceptionFilterAddr, veh: this.vectoredExceptions.captureState(), callbacks: this.callbackManager.captureState() };
     }
 
-    restoreState(state: { wbufTail: number; asyncEpoch: number; uef: number; callbacks: ReturnType<CallbackManager['captureState']> }): void {
+    restoreState(state: { wbufTail: number; asyncEpoch: number; uef: number; veh: ReturnType<VectoredExceptions['captureState']>; callbacks: ReturnType<CallbackManager['captureState']> }): void {
         this.applyPendingRegistrations();
         this.wbufTail = state.wbufTail;
         this.wbufQueueEnd = 0;
         this.asyncEpoch = state.asyncEpoch;
         this.unhandledExceptionFilterAddr = state.uef;
+        this.vectoredExceptions.restoreState(state.veh);
         this.callbackManager.restoreState(state.callbacks);
     }
 
@@ -6235,7 +6241,7 @@ export class ThunkDispatcher {
     private _registerSehTransientRanges(): void {
         const sched = this.ensureScheduler();
         if (this.sehDispatchStubAddress) {
-            sched.registerTransientExecRange('seh_dispatch_stub', this.sehDispatchStubAddress >>> 0, (this.sehDispatchStubAddress + 0x100) >>> 0);
+            sched.registerTransientExecRange('seh_dispatch_stub', this.sehDispatchStubAddress >>> 0, (this.sehDispatchStubAddress + 0x200) >>> 0);
         }
         if (this.sehFilterStubAddress) {
             sched.registerTransientExecRange('seh_filter_stub', this.sehFilterStubAddress >>> 0, (this.sehFilterStubAddress + 0x100) >>> 0);
@@ -6831,6 +6837,45 @@ export class ThunkDispatcher {
             view.setUint32(base + offset, (segments?.[index] ?? 0) & 0xffff, true);
     }
 
+    private _nextVectoredHandler(ctx: SehDispatchContext, cpu: any, view: DataView): number {
+        const pending = ctx.veh;
+        if (pending) {
+            while (pending.index < pending.handles.length) {
+                const handler = this.vectoredExceptions.get(pending.handles[pending.index++]!);
+                if (!handler) continue;
+                view.setUint32(ctx.scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_ADDR, handler, true);
+                cpuViews(cpu).reg32[7] = ctx.scratchAddr | 0;
+                ctx.awaitingVeh = true;
+                return this.sehDispatchStubAddress + VEH_STUB_OFFSET;
+            }
+        }
+        if (pending) {
+            // VEH may have changed the thread's SEH chain. Search the current chain,
+            // not registrations captured before the vectored callbacks ran.
+            const teb = cpuViews(cpu).segmentOffsets[4] ?? 0;
+            let frame = teb && teb + 4 <= this.memLength ? view.getUint32(teb, true) : 0xffffffff;
+            let slot = ctx.scratchAddr + SEH_SCRATCH_LAYOUT.FRAME_LIST;
+            const seen = new Set<number>();
+            while (frame && frame !== 0xffffffff && frame + 8 <= this.memLength
+                && seen.size < SEH_FRAME_LIST_MAX && !seen.has(frame)) {
+                seen.add(frame);
+                view.setUint32(slot, frame, true); slot += 4;
+                frame = view.getUint32(frame, true);
+            }
+            view.setUint32(slot, 0xffffffff, true);
+        }
+        ctx.veh = undefined;
+        ctx.awaitingVeh = false;
+        cpuViews(cpu).reg32[7] = ctx.scratchAddr | 0;
+        return this.sehDispatchStubAddress;
+    }
+
+    private _startVectoredHandlers(ctx: SehDispatchContext, cpu: any, view: DataView, targetSlot: number): void {
+        if (!this.vectoredExceptions.size) return;
+        ctx.veh = { handles: this.vectoredExceptions.snapshot(), index: 0 };
+        view.setUint32(targetSlot, this._nextVectoredHandler(ctx, cpu, view), true);
+    }
+
     private _handleSehDispatchResult(cpu: any): void {
         const ctx = this.sehDispatchStack[this.sehDispatchStack.length - 1];
         const finishDispatch = () => {
@@ -6847,6 +6892,18 @@ export class ThunkDispatcher {
             return;
         }
 
+        if (ctx?.awaitingVeh) {
+            const disposition = view.getUint32(scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_RESULT, true);
+            if (disposition !== 0xffffffff) {
+                // CONTINUE_SEARCH is zero for VEH (unlike the SEH disposition).
+                view.setUint32(cpuViews(cpu).reg32[4] >>> 0, this._nextVectoredHandler(ctx, cpu, view), true);
+                return;
+            }
+            ctx.awaitingVeh = false;
+            ctx.veh = undefined;
+            view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.DISPATCH_RESULT, 0, true);
+        }
+
         const result = ctx?.awaitingUef
             ? (view.getUint32(scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_RESULT, true) === 0xffffffff ? 0 : 1)
             : view.getUint32(scratchAddr + SEH_SCRATCH_LAYOUT.DISPATCH_RESULT, true);
@@ -6855,6 +6912,29 @@ export class ThunkDispatcher {
         const lastHandlerFrame = view.getUint32(scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_FRAME, true) >>> 0;
         const lastHandlerAddr = view.getUint32(scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_ADDR, true) >>> 0;
         const esp = cpu.reg32[4] >>> 0;
+
+        if (result === 0 && (view.getUint32(scratchAddr + 4, true) & 1)) {
+            // Continuing a noncontinuable exception raises STATUS_NONCONTINUABLE_EXCEPTION.
+            // Preserve the original record as the chained cause in unused scratch space.
+            // A handler repeatedly trying to continue that status cannot resume the guest.
+            if (ctx && view.getUint32(scratchAddr, true) !== 0xc0000025) {
+                const cause = scratchAddr + 0x700;
+                for (let i = 0; i < 0x50; i += 4)
+                    view.setUint32(cause + i, view.getUint32(scratchAddr + i, true), true);
+                view.setUint32(scratchAddr, 0xc0000025, true);
+                view.setUint32(scratchAddr + 8, cause, true);
+                view.setUint32(scratchAddr + 16, 0, true);
+                view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.DISPATCH_RESULT, 1, true);
+                ctx.awaitingUef = false;
+                cpuViews(cpu).reg32[7] = scratchAddr | 0;
+                view.setUint32(esp, this.sehDispatchStubAddress, true);
+                this._startVectoredHandlers(ctx, cpu, view, esp);
+            } else {
+                finishDispatch();
+                view.setUint32(esp, PF_HALT_TARGET, true);
+            }
+            return;
+        }
 
         if (result === 0) {
             finishDispatch();
@@ -6932,7 +7012,8 @@ export class ThunkDispatcher {
             // JS with the defer verdict suppressed before declaring the throw unhandled.
             // emitCatchDispatch leaves ESP on the trampoline's return slot, which is
             // exactly what this stub's own RET pops.
-            if (!ctx?.awaitingUef && ctx?.kind === 'cxx' && ctx.cxx && this.cachedMem8) {
+            if (!ctx?.awaitingUef && ctx?.kind === 'cxx' && ctx.cxx && this.cachedMem8
+                && view.getUint32(scratchAddr, true) === 0xe06d7363) {
                 const savedEsp = cpu.reg32[4];
                 cpu.reg32[4] = ctx.cxx.throwEsp | 0;
                 const retry = dispatchCxxException(
@@ -7041,7 +7122,7 @@ export class ThunkDispatcher {
         view: DataView,
         exceptionCode: number = 0xC0000005,
     ): boolean {
-        if (!this.cachedMem8 || !this.sehDispatchStubAddress || !this.unhandledExceptionFilterAddr) return false;
+        if (!this.cachedMem8 || !this.sehDispatchStubAddress || (!this.unhandledExceptionFilterAddr && !this.vectoredExceptions.size)) return false;
         // An empty hardware chain uses the same bounded result/UEF continuation as
         // an exhausted chain; a direct UEF->HALT call cannot implement -1.
         return this._setupSehDispatchStub(cpu, faultAddr, faultingEip, isWrite, esp,
@@ -7627,6 +7708,10 @@ export class ThunkDispatcher {
         }
 
         const sehHead = view.getUint32(tebAddr, true);
+        if (this.vectoredExceptions.size) {
+            return this._setupSehDispatchStub(cpu, faultAddr, faultingEip, isWrite, esp,
+                savedEax, savedEdx, view, tebAddr, sehHead, exceptionCode);
+        }
 
         Logger.warn(LogCategory.SYSTEM,
             `SEH AV dispatch: TEB=0x${tebAddr.toString(16)} sehHead=0x${(sehHead >>> 0).toString(16)} ` +
@@ -7889,7 +7974,7 @@ export class ThunkDispatcher {
         // Use the GAME's stack for dispatch (512 bytes below fault point), not the safe
         // THUNK_DATA stack. On real Windows, SEH dispatch runs on the faulting thread's stack.
         view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.FAULT_EIP, faultingEip, true);
-        const dispatchEsp = (preFaultEsp - 0x200) >>> 0;
+        const dispatchEsp = (isNested ? scratchAddr - 0x10 : preFaultEsp - 0x200) >>> 0;
         view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.SAFE_ESP, dispatchEsp, true);
         view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.DISPATCH_RESULT, 1, true);
         view.setUint32(scratchAddr + SEH_SCRATCH_LAYOUT.LAST_HANDLER_RESULT, 0, true);
@@ -7946,6 +8031,7 @@ export class ThunkDispatcher {
         };
         this.sehDispatchStack.push(dispatchCtx);
         this._enterSehCriticalRuntime(this.sehDispatchGeneration);
+        this._startVectoredHandlers(dispatchCtx, cpu, view, esp + 12);
 
         Logger.warn(LogCategory.SYSTEM,
             `SEH dispatch: static stub at 0x${this.sehDispatchStubAddress.toString(16)}, ` +
@@ -8058,9 +8144,9 @@ export class ThunkDispatcher {
         view.setUint32(excRec + 4, exceptionFlags, true);   // ExceptionFlags (NONCONTINUABLE=1)
         view.setUint32(excRec + 8, 0, true);                // ExceptionRecord* (chained)
         view.setUint32(excRec + 12, eip, true);              // ExceptionAddress = EIP
-        view.setUint32(excRec + 16, nArgs, true);            // NumberParameters
+        view.setUint32(excRec + 16, Math.min(nArgs, 15), true);            // NumberParameters
         // Copy ExceptionInformation from lpArguments
-        for (let i = 0; i < Math.min(nArgs, 4); i++) {
+        for (let i = 0; i < Math.min(nArgs, 15); i++) {
             const param = accessFault
                 ? (i === 0 ? (accessFault.write ? 1 : 0) : accessFault.address)
                 : (lpArguments ? view.getUint32(lpArguments + i * 4, true) : 0);
@@ -8124,7 +8210,7 @@ export class ThunkDispatcher {
         }
         view.setUint32(frameListOff, 0xFFFFFFFF, true);
 
-        if (frameCount === 0 && !accessFault) {
+        if (frameCount === 0 && !accessFault && !this.vectoredExceptions.size && !this.unhandledExceptionFilterAddr) {
             Logger.error(LogCategory.SYSTEM, `CxxException x86 dispatch: empty SEH chain`);
             return null;
         }
@@ -8150,8 +8236,8 @@ export class ThunkDispatcher {
             kind: accessFault ? 'hle-access' : 'cxx',
             access: accessFault ? { thunkEsp: thunkEsp >>> 0, returnAddr: raiseReturnAddr } : undefined,
             cxx: accessFault ? undefined : {
-                pObj: lpArguments ? view.getUint32(lpArguments + 4, true) >>> 0 : 0,
-                pThrow: lpArguments ? view.getUint32(lpArguments + 8, true) >>> 0 : 0,
+                pObj: exceptionCode === 0xe06d7363 && nArgs >= 3 && lpArguments ? view.getUint32(lpArguments + 4, true) >>> 0 : 0,
+                pThrow: exceptionCode === 0xe06d7363 && nArgs >= 3 && lpArguments ? view.getUint32(lpArguments + 8, true) >>> 0 : 0,
                 cleanupBytes: thunkCleanupBytes,
                 throwEsp: thunkEsp >>> 0,
                 returnAddr: raiseReturnAddr,
@@ -8159,6 +8245,7 @@ export class ThunkDispatcher {
         };
         this.sehDispatchStack.push(dispatchCtx);
         this._enterSehCriticalRuntime(this.sehDispatchGeneration);
+        this._startVectoredHandlers(dispatchCtx, cpu, view, thunkEsp);
 
         Logger.warn(LogCategory.SYSTEM,
             `CxxException x86 dispatch: stub at 0x${this.sehDispatchStubAddress.toString(16)}, ` +
@@ -9435,5 +9522,6 @@ export class ThunkDispatcher {
         } catch { }
         this.sehDispatchStack = [];
         this.sehDispatchGeneration = 0;
+        this.vectoredExceptions.reset();
     }
 }

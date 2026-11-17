@@ -1,3 +1,6 @@
+// Static VEH stdcall stub at spinLoop+0x100 (SEH starts at spinLoop+4).
+export const VEH_STUB_OFFSET = 0xfc;
+
 export const SEH_SCRATCH_TOTAL_SIZE = 0x4000;
 export const SEH_FRAME_LIST_MAX = 64;
 export const SEH_SCRATCH_STACK_SIZE = 0x1000;

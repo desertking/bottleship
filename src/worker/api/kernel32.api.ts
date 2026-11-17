@@ -186,6 +186,8 @@ export const kernel32Module: ModuleDescriptor = {
         makeFunc("InterlockedPushEntrySList", 2),
         makeFunc("QueryDepthSList", 1),
         makeFunc("RtlCaptureContext", 1),
+        makeFunc("AddVectoredExceptionHandler", 2),
+        makeFunc("RemoveVectoredExceptionHandler", 1),
         makeFunc("SetUnhandledExceptionFilter", 1),
         makeFunc("UnhandledExceptionFilter", 1),
         makeFunc("GetEnvironmentStrings", 0),

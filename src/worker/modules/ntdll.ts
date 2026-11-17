@@ -1,3 +1,4 @@
+import { exports as exceptionExports } from "./kernel32/exception";
 import { queryThreadBasicInformation } from "./ntdll/thread-information";
 import { currentProcessId } from '../core/process-identity';
 import { IModule } from "../core/module";
@@ -18,6 +19,8 @@ export class Ntdll implements IModule {
 
     initialize(process: Process): void {
         const system = System.getInstance();
+        this.exports["RtlAddVectoredExceptionHandler"] = exceptionExports["AddVectoredExceptionHandler"];
+        this.exports["RtlRemoveVectoredExceptionHandler"] = exceptionExports["RemoveVectoredExceptionHandler"];
         this.exports["NtQueryInformationThread"] = queryThreadBasicInformation;
         this.exports["ZwQueryInformationThread"] = queryThreadBasicInformation;
 

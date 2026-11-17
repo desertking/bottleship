@@ -268,6 +268,7 @@ export class ThunkMemoryManager {
         // letting x86 execute the filter functions.
         const sehStubAddr = spinLoopAddress + 4;
         this.writeSehDispatchStub(mem, sehStubAddr);
+        this.writeVectoredDispatchStub(mem, spinLoopAddress + 0x100);
         this.writeEh3FilterStub(mem, this.regions.sehFilterStubAddress);
 
         // Catch-completion gadget at spinLoop+0xE00. On NORMAL catch-funclet completion the
@@ -422,6 +423,24 @@ export class ThunkMemoryManager {
      *   +0x32C  safe_esp (4 bytes, always in THUNK_DATA)
      *   +0x330  frame_list (up to 64 entries + sentinel)
      */
+    /** One stdcall VEH invocation; stable code, per-dispatch data, no JIT invalidation. */
+    private writeVectoredDispatchStub(mem: Uint8Array, addr: number): void {
+        const dv = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
+        let off = addr;
+        const bytes = (...values: number[]) => { for (const value of values) mem[off++] = value; };
+        const dword = (value: number) => { dv.setUint32(off, value, true); off += 4; };
+        bytes(0x8b, 0xa7); dword(SEH_SCRATCH_LAYOUT.SAFE_ESP); // mov esp,[edi+safe_esp]
+        bytes(0x57);                                        // preserve scratch base
+        bytes(0x8d, 0x87); dword(SEH_SCRATCH_LAYOUT.EXCEPTION_POINTERS);
+        bytes(0x50);                                        // push EXCEPTION_POINTERS*
+        bytes(0xff, 0x97); dword(SEH_SCRATCH_LAYOUT.LAST_HANDLER_ADDR); // call [edi+handler]
+        bytes(0x5f);                                        // stdcall already popped arg
+        bytes(0x89, 0x87); dword(SEH_SCRATCH_LAYOUT.LAST_HANDLER_RESULT);
+        bytes(0xb8); dword(0x7fff0002);
+        bytes(0xba); dword(0xb077);
+        bytes(0xef, 0xc3);                                   // OUT; RET to JS-selected target
+    }
+
     private writeSehDispatchStub(mem: Uint8Array, addr: number): void {
         const dv = new DataView(mem.buffer, mem.byteOffset, mem.byteLength);
         let off = addr;

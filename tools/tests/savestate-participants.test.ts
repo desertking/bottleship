@@ -358,7 +358,7 @@ describe("schema pin and mutation", () => {
             "hypercall-page": { version: 2, schemaHash: "89ee00cc9204cc00" },
             "scheduler": { version: 4, schemaHash: "fdd4fb1af912be88" },
             "timer-wheel": { version: 1, schemaHash: "3e2f3b81b4d37775" },
-            "dispatcher": { version: 1, schemaHash: "88687a30dd0036f2" },
+            "dispatcher": { version: 2, schemaHash: "60ed80f21cfdf1fa" },
             "loaded-modules": { version: 1, schemaHash: "1294dbb9b5a4d85f" },
             "cpu": { version: 1, schemaHash: "4aad346ee75f6054" },
             "window-manager": { version: 1, schemaHash: "0a7d493b700e7f53" },

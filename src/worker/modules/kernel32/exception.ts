@@ -218,6 +218,11 @@ export const exports: Record<string, ThunkImplementation> = (() => {
         );
     };
 
+    exports['AddVectoredExceptionHandler'] = (_ctx, _mem, args) =>
+        System.getInstance().process?.dispatcher.vectoredExceptions.add(args[0], args[1]) ?? 0;
+    exports['RemoveVectoredExceptionHandler'] = (_ctx, _mem, args) =>
+        System.getInstance().process?.dispatcher.vectoredExceptions.remove(args[0]) ?? 0;
+
     exports['SetUnhandledExceptionFilter'] = (ctx, mem, args) => {
         const lpTopLevelExceptionFilter = args[0];
 
