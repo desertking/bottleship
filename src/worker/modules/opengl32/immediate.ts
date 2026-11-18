@@ -465,6 +465,13 @@ export function emitDrawCommandFlat(
     const expected = assembledVertCount(mode, srcCount);
     if (expected === 0) return;
 
+    // Strips/fans reuse source vertices. One-sided lighting is vertex-local, so
+    // evaluate it once on the owned gather/immediate buffer before duplicating
+    // vertices. Two-sided lighting still needs each assembled triangle's facing.
+    const sourceLit = expected > srcCount && !preTransformed
+        && ctx.enableFlags.has(GL_LIGHTING) && !ctx.hints.get(0x0b52 /* GL_LIGHT_MODEL_TWO_SIDE */);
+    if (sourceLit) applyLightingFlat(ctx, src, 0, srcCount, mode, ctx.immediateFlatCount > 0);
+
     if (transformSource && !preTransformed && !ctx.enableFlags.has(GL_LIGHTING)) {
         applyTexGenFlat(ctx, src, 0, srcCount);
         transformFlatVerts(ctx, src, 0, srcCount);
@@ -476,7 +483,7 @@ export function emitDrawCommandFlat(
     const base = arena.used;
     const asmCount = assembleFlatVerts(src, srcCount, mode, arena.data, base);
     if (asmCount === 0) return;
-    emitArenaDraw(ctx, mode, base, asmCount, preTransformed);
+    emitArenaDraw(ctx, mode, base, asmCount, preTransformed, 0, sourceLit);
 }
 
 /** Reserve room for `vertCount` vertices in the frame arena and return the float offset
@@ -492,6 +499,7 @@ export function arenaReserve(ctx: OpenGLContext, vertCount: number): number {
  *  texgen is off — the caller only takes that path when nothing needs object space. */
 export function emitArenaDraw(
     ctx: OpenGLContext, mode: number, base: number, count: number, preTransformed = false, extraFlags = 0,
+    preLit = false,
 ): void {
     if (count === 0) return;
     if (ctx.renderMode === GL_SELECT) { selectDraw(ctx, mode, ctx.vertArena.data, base, count); return; }
@@ -504,7 +512,7 @@ export function emitArenaDraw(
             applyTexGenFlat(ctx, arena.data, base, count);
         }
     }
-    applyLightingFlat(ctx, arena.data, base, count, mode, ctx.immediateFlatCount > 0);
+    if (!preLit) applyLightingFlat(ctx, arena.data, base, count, mode, ctx.immediateFlatCount > 0);
     if (!preTransformed) transformFlatVerts(ctx, arena.data, base, count);
 
     pushGLDrawCommand(ctx, mode, base, count, extraFlags, capture);
