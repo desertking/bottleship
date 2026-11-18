@@ -1,0 +1,47 @@
+name: One-off selection test build
+on:
+  push:
+    branches: [fix/opengl-selection-build-20261118]
+    paths: ['.github/workflows/op2d-selection-build.yml', 'tools/op2d-ci-*.py']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: driver
+      - uses: actions/checkout@v7
+        with:
+          ref: 234f264d730a28585498af8b31b6d8367254ad2e
+          path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+      - name: Guarded targeted checks and test build
+        working-directory: source
+        env:
+          NODE_OPTIONS: --max-old-space-size=2048
+          RAYON_NUM_THREADS: '1'
+        run: |
+          mkdir -p "$HOME/tools"
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            bun install --frozen-lockfile
+            bun test tools/tests/opengl*.test.ts tools/tests/glu*.test.ts
+            bun run typecheck
+            python3 ../driver/tools/op2d-ci-package.py
+          '
+      - uses: actions/upload-artifact@v4
+        with:
+          name: selection-234f264d
+          path: artifact/
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
