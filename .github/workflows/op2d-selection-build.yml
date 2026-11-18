@@ -1,7 +1,7 @@
-name: One-off OpenGL lighting vector test build
+name: One-off USER32 ShowWindow test build
 on:
   push:
-    branches: [fix/opengl-vector-build-20261118]
+    branches: [fix/user32-showpos-build-20261118]
     paths: ['.github/workflows/op2d-selection-build.yml', 'tools/op2d-ci-*.py']
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: 8dfafc9005137f24c0a90c05138fb0b77799a278
+          ref: 154beeb767ae66579ba8c6140549b47924ea6f45
           path: source
           submodules: true
           fetch-depth: 0
@@ -34,13 +34,13 @@ jobs:
           mkdir -p "$HOME/tools"
           flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
             bun install --frozen-lockfile
-            bun test tools/tests/opengl*.test.ts tools/tests/glu*.test.ts
+            bun test tools/tests/setwindowpos-showwindow.test.ts tools/tests/user32-*.test.ts tools/tests/dialog-showwindow.test.ts tools/tests/fullscreen-window-showwindow.test.ts
             bun run typecheck
             python3 ../driver/tools/op2d-ci-package.py
           '
       - uses: actions/upload-artifact@v4
         with:
-          name: vector-8dfafc90
+          name: showpos-154beeb7
           path: artifact/
           include-hidden-files: true
           if-no-files-found: error
