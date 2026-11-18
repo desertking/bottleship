@@ -1,7 +1,7 @@
-name: One-off selection test build
+name: One-off lighting test build
 on:
   push:
-    branches: [fix/opengl-selection-build-20261118]
+    branches: [fix/opengl-lighting-build-20261118]
     paths: ['.github/workflows/op2d-selection-build.yml', 'tools/op2d-ci-*.py']
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: 234f264d730a28585498af8b31b6d8367254ad2e
+          ref: 3ed334c94d416d8d823407ba85f6134aad812ab4
           path: source
           submodules: true
           fetch-depth: 0
@@ -40,7 +40,7 @@ jobs:
           '
       - uses: actions/upload-artifact@v4
         with:
-          name: selection-234f264d
+          name: lighting-3ed334c9
           path: artifact/
           include-hidden-files: true
           if-no-files-found: error
