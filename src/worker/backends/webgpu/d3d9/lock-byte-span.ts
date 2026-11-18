@@ -2,8 +2,8 @@ import { LOCK_SPAN_SIMD } from "./lock-byte-span-simd";
 
 const HALF = 512 * 1024;
 type Kernel = { memory: WebAssembly.Memory; prefix(a: number, b: number, n: number): number; suffix(a: number, b: number, n: number): number };
-// @transient(Bounded worker-lifetime scratch only; no guest pointers or prior buffer contents
-// are relied on. Both input spans are overwritten before every scan. No savestate contract.)
+// Both input spans are overwritten before every scan; no guest pointers or earlier contents.
+// @transient(Fixed 1 MiB worker scratch with no session-dependent contents or resource history)
 let scratch: { api: Kernel; bytes: Uint8Array } | false | undefined;
 
 /** Exact unequal byte span, never a hash. The fixed arena bounds retained memory to 1 MiB
