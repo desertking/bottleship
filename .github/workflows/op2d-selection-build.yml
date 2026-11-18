@@ -15,7 +15,7 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: 4ab863f10f9b9c3886b1c40eb9ea932b9f3e7d30
+          ref: 0df5795410edf451c83724309ed411bdb60c0c75
           path: source
           submodules: true
           fetch-depth: 0
@@ -42,7 +42,7 @@ jobs:
           '
       - uses: actions/upload-artifact@v4
         with:
-          name: showpos-4ab863f1
+          name: showpos-0df57954
           path: artifact/
           include-hidden-files: true
           if-no-files-found: error
