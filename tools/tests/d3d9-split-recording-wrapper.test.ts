@@ -84,7 +84,7 @@ describe("d3d9 split: recording wrapper", () => {
             captureLockedVertexDelta(ptr: number, bytes: Uint8Array) {
                 return D3D9Device.prototype.captureLockedVertexDelta.call(this as never, ptr, bytes);
             }
-            unlockVertexBuffer() { shadow.unlockFromBytes(index, guest); return 0; }
+            unlockVertexBuffer(_ptr: number) { shadow.unlockFromBytes(index, guest); return 0; }
         }
         resetD3D9SplitStreamForTests();
         const front = new Front();
@@ -92,7 +92,7 @@ describe("d3d9 split: recording wrapper", () => {
         guest[65] = 17; guest[89] = 66;
         for (let n = 0; n < 2; n++) {
             shadow.lock(index, 0, size); twin.lock(other, 0, size);
-            front.unlockVertexBuffer();
+            front.unlockVertexBuffer(17);
             const [ptr, offset, bytes] = records[n]!.args as [number, number, Uint8Array];
             expect(ptr).toBe(17); expect(offset).toBe(n ? size : 65);
             expect(bytes.length).toBe(n ? 0 : 25);
