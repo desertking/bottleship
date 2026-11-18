@@ -852,7 +852,7 @@ export default function App() {
     });
   };
 
-  // Exclusive DI / ShowCursor(hide) often arrives OUTSIDE a user gesture, so the
+  // Exclusive DI / confinement often arrives OUTSIDE a user gesture, so the
   // opportunistic requestPointerLock in updatePointerLockIntent fails silently and
   // the title keeps absolute edge-clamped mouse until the next canvas click. Arm a
   // capture-phase window listener so the next trusted activation anywhere on the game
@@ -1837,7 +1837,7 @@ export default function App() {
       if (event.data?.type === "clip_cursor") {
         // Guest ClipCursor(rect) confines the cursor; ClipCursor(NULL) releases it. It says
         // nothing about visibility — confining a VISIBLE pointer to a window's client area
-        // is its commonest use — so it feeds the same intent as ShowCursor and Pointer Lock
+        // is its commonest use — so it feeds relative intent and Pointer Lock
         // is the transport either way (the canvas draws no host pointer of its own).
         // The rect also arms the host's own confinement, which is what the guest sees while
         // the lock is not held; the worker only sends one when it actually confines.
@@ -2267,7 +2267,7 @@ export default function App() {
       // window (Right Ctrl / ESC release), where the request is silently rejected. Armed,
       // the next gesture retries instead of the click being lost.
       armPointerLockGesture();
-      // If cursor is hidden by guest, request pointer lock (user click = valid gesture)
+      // A stronger relative-input claim requests pointer lock on the user gesture.
       if (relativeIntent.get() && !pointerLockedRef.current) {
         requestPointerLockSafe(canvas);
         // Still forward this click — before pointer lock is acquired, absolute coords

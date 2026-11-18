@@ -20,6 +20,7 @@ function listen(): { seen: boolean[]; stop: () => void } {
 describe("relativeIntent host hold", () => {
     test("a hold turns an active claim off and the release turns it back on", () => {
         relativeIntent.set("cursorHidden", true);
+        relativeIntent.set("captured", true);
         const l = listen();
         relativeIntent.setHostHold(true);
         expect(relativeIntent.get()).toBe(false);
@@ -67,5 +68,36 @@ describe("relativeIntent host hold", () => {
         expect(relativeIntent.get()).toBe(false);
         expect(l.seen).toEqual([true, false]);
         l.stop();
+    });
+});
+
+describe("USER32 visibility is independent of relative input", () => {
+    test("a hidden custom cursor alone never claims the host pointer, including after a dialog", () => {
+        const l = listen();
+        relativeIntent.set("cursorHidden", true);
+        expect(relativeIntent.get()).toBe(false);
+        expect(relativeIntent.reasons()).toEqual(["cursorHidden"]);
+        relativeIntent.setHostHold(true);
+        relativeIntent.setHostHold(false);
+        expect(relativeIntent.get()).toBe(false);
+        expect(l.seen).toEqual([]);
+        l.stop();
+    });
+
+    test("each stronger claim survives visibility changes and releases even while hidden", () => {
+        for (const signal of ["clipped", "captured", "warping"] as const) {
+            relativeIntent.reset();
+            const l = listen();
+            relativeIntent.set("cursorHidden", true);
+            relativeIntent.set(signal, true);
+            expect(relativeIntent.get()).toBe(true);
+            relativeIntent.set("cursorHidden", false);
+            relativeIntent.set("cursorHidden", true);
+            expect(l.seen).toEqual([true]);
+            relativeIntent.set(signal, false);
+            expect(relativeIntent.get()).toBe(false);
+            expect(l.seen).toEqual([true, false]);
+            l.stop();
+        }
     });
 });

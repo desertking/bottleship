@@ -1,10 +1,10 @@
 // "The guest wants a relative mouse" — the faithful signal, kept separate from how
 // the host delivers it.
 //
-// Four guest behaviours mean the same thing on real Windows: the cursor is hidden
-// (ShowCursor), confined (ClipCursor), owned by an exclusive-mode DirectInput mouse,
-// or being re-centred every frame with SetCursorPos. Any of them means the title
-// steers by motion rather than position.
+// Confinement, an exclusive-mode DirectInput mouse, or repeated re-centring claim
+// the relative transport. USER32 cursor visibility is kept as diagnostic state:
+// ShowCursor/SetCursor(NULL) also serve absolute-input applications drawing their
+// own cursor, so hiding alone must not grab the host pointer.
 //
 // The transport is a separate decision: Pointer Lock for a real mouse, finger deltas
 // for a touch screen — which has no Pointer Lock at all.
@@ -26,7 +26,7 @@ class RelativeIntent {
     private readonly listeners = new Set<Listener>();
 
     private update(): void {
-        const next = !this.held && (this.signals.cursorHidden || this.signals.clipped
+        const next = !this.held && (this.signals.clipped
             || this.signals.captured || this.signals.warping);
         if (next === this.active) return;
         this.active = next;
