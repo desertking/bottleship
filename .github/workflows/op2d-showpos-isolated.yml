@@ -1,0 +1,48 @@
+name: USER32 gate residual isolation
+on:
+  push:
+    branches: [fix/user32-showpos-gate-20261118]
+    paths: ['.github/workflows/op2d-showpos-isolated.yml']
+permissions:
+  contents: read
+jobs:
+  isolate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: driver
+      - uses: actions/checkout@v7
+        with:
+          ref: a197ed9c515d8165b79f4e09ff4ea6c1ed6a7649
+          path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - name: Isolate unchanged residual test on both revisions
+        working-directory: source
+        run: |
+          mkdir -p "$HOME/tools"
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -c '
+            bun install --frozen-lockfile || exit
+            failed=0
+            for ref in a197ed9c515d8165b79f4e09ff4ea6c1ed6a7649 28602d29ec0528e09229aed69781e4911c7fbd6d; do
+              git checkout --detach "$ref" || exit
+              git rev-parse HEAD
+              for repetition in 1 2 3; do
+                bun test tools/tests/granny-deform-wasm-kernel.test.ts || failed=1
+              done
+              bun test tools/tests/windowed-device-placement.test.ts || failed=1
+            done
+            exit "$failed"
+          ' 2>&1 | tee ../showpos-residual.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: showpos-full-gate-residual
+          path: showpos-residual.log
+          retention-days: 3
