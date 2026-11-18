@@ -1,7 +1,7 @@
-name: One-off pointer intent test build
+name: One-off OpenGL lighting vector test build
 on:
   push:
-    branches: [fix/user32-pointer-build-20261118]
+    branches: [fix/opengl-vector-build-20261118]
     paths: ['.github/workflows/op2d-selection-build.yml', 'tools/op2d-ci-*.py']
 permissions:
   contents: read
@@ -15,7 +15,7 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: 692872f9ade737a5bcdbf0d562aee733aeff320b
+          ref: 8dfafc9005137f24c0a90c05138fb0b77799a278
           path: source
           submodules: true
           fetch-depth: 0
@@ -34,13 +34,13 @@ jobs:
           mkdir -p "$HOME/tools"
           flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
             bun install --frozen-lockfile
-            bun test tools/tests/relative-intent*.test.ts tools/tests/cursor*.test.ts tools/tests/pointer*.test.ts tools/tests/guest-cursor*.test.ts
+            bun test tools/tests/opengl*.test.ts tools/tests/glu*.test.ts
             bun run typecheck
             python3 ../driver/tools/op2d-ci-package.py
           '
       - uses: actions/upload-artifact@v4
         with:
-          name: pointer-692872f9
+          name: vector-8dfafc90
           path: artifact/
           include-hidden-files: true
           if-no-files-found: error
