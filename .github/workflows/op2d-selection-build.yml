@@ -34,7 +34,9 @@ jobs:
           mkdir -p "$HOME/tools"
           flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
             bun install --frozen-lockfile
-            bun test tools/tests/setwindowpos-showwindow.test.ts tools/tests/user32-*.test.ts tools/tests/dialog-showwindow.test.ts tools/tests/fullscreen-window-showwindow.test.ts
+            for test_file in tools/tests/setwindowpos-showwindow.test.ts tools/tests/user32-*.test.ts tools/tests/dialog-showwindow.test.ts tools/tests/fullscreen-window-showwindow.test.ts; do
+              bun test "$test_file"
+            done
             bun run typecheck
             python3 ../driver/tools/op2d-ci-package.py
           '
