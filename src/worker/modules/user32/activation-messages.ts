@@ -296,7 +296,9 @@ export function resolveForegroundTargets(hwnd: number): { topLevel: number; focu
     if (!cur) return { topLevel: hwnd, focusHwnd: hwnd };
     if ((cur.style & WS_CHILD) === 0) return { topLevel: hwnd, focusHwnd: hwnd };
     let top = hwnd;
-    while (cur?.parent) {
+    // For a top-level window, parent is its OWNER, not another child ancestor.
+    // Focusing a control must activate its form, never the form's owner.
+    while (cur && (cur.style & WS_CHILD) !== 0 && cur.parent) {
         top = cur.parent;
         cur = wm.getWindow(top);
     }
