@@ -2047,7 +2047,7 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
         let windowPosPtr = 0;
         let positionGeometryChanged = false;
         const finishPosition = (): number | null => {
-            if (windowPosPtr) {
+            if (windowPosPtr && process) {
                 const ptr = windowPosPtr;
                 windowPosPtr = 0;
                 process.memory.free(ptr);
