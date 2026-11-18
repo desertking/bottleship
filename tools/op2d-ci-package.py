@@ -1,7 +1,7 @@
 """Package the pinned source using the same paths as the local test builder."""
 import hashlib,json,os,re,shutil,subprocess,time
 from pathlib import Path
-SOURCE='ef91873662e043d7eea0cae6965f9eae91dccd9a'
+SOURCE='5b81cd26a434353797361323e72afdc4865e6cd9'
 assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==SOURCE
 ref=SOURCE[:8];prefix='/spieltests/_engine/'+ref+'/'
 root=Path.cwd();out=root.parent/'artifact'/'_engine'/ref
