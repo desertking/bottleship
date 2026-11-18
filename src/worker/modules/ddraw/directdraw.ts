@@ -188,12 +188,13 @@ function applyDisplayModeChange(system: System, ddrawCtx: DDrawContext, width: n
     system.requestHostResize(width, height, {
         modeSet: true, bpp: ddrawCtx.display.bpp, refreshRate: ddrawCtx.display.refresh,
     });
-    // In exclusive/fullscreen, normalize the coop window to borderless-fullscreen at the
-    // new mode and bring it to top; otherwise just track the size (resizeFullscreenWindow).
+    // The resize helper must see the previous client extent to deliver WM_SIZE.
+    // Normalizing first overwrites both window maps and hides a real size transition,
+    // leaving guest child layout and cached drawing extents at their old dimensions.
+    resizeFullscreenWindow(system, width, height);
     if (ddrawCtx.cooperative.exclusive) {
         normalizeExclusiveCoopWindow(system, ddrawCtx, width, height);
     }
-    resizeFullscreenWindow(system, width, height);
     const coopHwnd = ddrawCtx.cooperative.hwnd;
     const isDialogOverlayWindow = (win: WindowInfo): boolean => {
         return !!win.guestCustomPaint

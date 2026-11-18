@@ -189,13 +189,13 @@ test("a send from inside a callback runs on the outer frame and leaves it in pla
 
 describe('DirectDraw mode sets', () => {
     let dd: Record<string, (ctx: never, mem: Uint8Array, args: number[]) => unknown>;
-    let ddCtx: { display: { width: number; height: number; bpp: number; refresh: number }; cooperative: { exclusive: boolean } };
+    let ddCtx: { display: { width: number; height: number; bpp: number; refresh: number }; cooperative: { exclusive: boolean; hwnd?: number; flags?: number } };
     let restore: () => void;
 
     beforeEach(async () => {
         const { createDirectDrawExports } = await import('../../src/worker/modules/ddraw/directdraw');
         const system = System.getInstance() as unknown as Record<string, unknown>;
-        const saved = { requestHostResize: system.requestHostResize, gdiContext: system.gdiContext };
+        const saved = { requestHostResize: system.requestHostResize, gdiContext: system.gdiContext, ddrawContext: system.ddrawContext };
         system.requestHostResize = () => {};
         system.gdiContext = { clearOverlay: () => {} };
         restore = () => Object.assign(system, saved);
@@ -207,6 +207,7 @@ describe('DirectDraw mode sets', () => {
             process: { memory: {}, dispatcher: {} },
             resourceProvider: { getComObjectByAddress: () => null, getAllComObjects: () => [] },
         } as never;
+        system.ddrawContext = ddCtx;
         dd = createDirectDrawExports(ddCtx as never) as never;
     });
     afterEach(() => restore());
@@ -233,6 +234,52 @@ describe('DirectDraw mode sets', () => {
             expect(invoked).toEqual([]);
         });
     }
+
+    for (const [name, args] of [
+        ['IDirectDraw_SetDisplayMode', [0x100, 800, 600, 16]],
+        ['IDirectDraw2_SetDisplayMode', [0x100, 800, 600, 16, 0, 0]],
+        ['IDirectDraw4_SetDisplayMode', [0x100, 800, 600, 16, 0, 0]],
+        ['IDirectDraw7_SetDisplayMode', [0x100, 800, 600, 16, 0, 0]],
+    ] as const) {
+        test(`${name} notifies an exclusive window of its real size transition exactly once`, () => {
+            const own = mkWindow();
+            ddCtx.cooperative = { hwnd: own, exclusive: true, flags: 0x11 };
+            thunk(name, [...args]);
+            returnFromAll();
+            expect(windows.get(own)).toMatchObject({ width: 800, height: 600 });
+            expect(wm().getWindow(own)!.rect).toMatchObject({ x: 0, y: 0, w: 800, h: 600 });
+            expect(posted.filter(m => m.msg === 5)).toEqual([
+                { hwnd: own, msg: 5, wParam: 0, lParam: ((600 << 16) | 800) >>> 0 },
+            ]);
+            posted = [];
+            invoked = [];
+            expect(thunk(name, [...args])).toBe(DD_OK);
+            expect(posted.filter(m => m.msg === 5)).toEqual([]);
+        });
+    }
+
+    test('an exclusive mode change with an already matching window size does not invent WM_SIZE', () => {
+        const own = mkWindow();
+        windows.get(own)!.width = 800;
+        windows.get(own)!.height = 600;
+        wm().getWindow(own)!.rect.w = 800;
+        wm().getWindow(own)!.rect.h = 600;
+        ddCtx.cooperative = { hwnd: own, exclusive: true, flags: 0x11 };
+        thunk('IDirectDraw7_SetDisplayMode', [0x100, 800, 600, 16, 0, 0]);
+        returnFromAll();
+        expect(posted.filter(m => m.msg === 5)).toEqual([]);
+    });
+
+    test('a repeated display mode still announces a changed exclusive client extent', () => {
+        const own = mkWindow();
+        ddCtx.cooperative = { hwnd: own, exclusive: true, flags: 0x11 };
+        ddCtx.display.width = 800;
+        ddCtx.display.height = 600;
+        expect(thunk('IDirectDraw7_SetDisplayMode', [0x100, 800, 600, 16, 0, 0])).toBe(DD_OK);
+        expect(posted.filter(m => m.msg === 5)).toEqual([
+            { hwnd: own, msg: 5, wParam: 0, lParam: ((600 << 16) | 800) >>> 0 },
+        ]);
+    });
 
     for (const name of ['IDirectDraw_RestoreDisplayMode', 'IDirectDraw7_RestoreDisplayMode']) {
         test(`${name} sends with a 4-byte cleanup only when the mode changes`, () => {
