@@ -8,7 +8,7 @@ permissions:
 jobs:
   gate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
     env:
       NAGA_VERSION: '30.0.1'
       CARGO_BUILD_JOBS: '1'
@@ -20,8 +20,14 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: 0df5795410edf451c83724309ed411bdb60c0c75
+          ref: a197ed9c515d8165b79f4e09ff4ea6c1ed6a7649
           path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: actions/checkout@v7
+        with:
+          ref: 28602d29ec0528e09229aed69781e4911c7fbd6d
+          path: baseline
           submodules: true
           fetch-depth: 0
       - uses: oven-sh/setup-bun@v2
@@ -44,7 +50,23 @@ jobs:
         if: steps.naga.outputs.cache-hit != 'true'
         working-directory: source
         run: flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py cargo install naga-cli --locked --version "$NAGA_VERSION"
+      - name: Isolated regressions and neighboring failures
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            for test_file in tools/tests/process-startup-info.test.ts tools/tests/kernel32-set-thread-priority.test.ts tools/tests/savestate-refusal-names.test.ts tools/tests/d3d9-volume-split.test.ts tools/tests/guest-host-tool.test.ts; do
+              bun test "$test_file"
+            done
+          ' 2>&1 | tee ../showpos-isolated.log
+      - name: Baseline gate
+        working-directory: baseline
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec 'bun install --frozen-lockfile; bun run gate' 2>&1 | tee ../baseline-full-gate.log
       - name: Exact product gate
+        if: always()
         working-directory: source
         run: |
           set -o pipefail
@@ -53,9 +75,11 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: showpos-full-gate-0df57954
+          name: showpos-full-gate-a197ed9c
           path: |
             showpos-full-gate.log
             product-head.txt
+            baseline-full-gate.log
+            showpos-isolated.log
           if-no-files-found: warn
           retention-days: 3
