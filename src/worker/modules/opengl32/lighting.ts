@@ -80,6 +80,13 @@ export function prepareNormalMatrix(m:ArrayLike<number>,out:Float64Array):void {
     out[3]=B*inv; out[4]=(a*i-c*g)*inv; out[5]=(c*d-a*f)*inv;
     out[6]=C*inv; out[7]=(b*g-a*h)*inv; out[8]=(a*e-b*d)*inv;
 }
+/** Three-component length without variadic hypot's scaling on ordinary vectors.
+ * Keep hypot for zero, subnormal squared lengths, overflow and non-finite inputs. */
+export function lightingVectorLength(x:number,y:number,z:number):number {
+    const squared=x*x+y*y+z*z;
+    return squared>=2.2250738585072014e-308 && squared<=Number.MAX_VALUE
+        ? Math.sqrt(squared) : Math.hypot(x,y,z);
+}
 function clamp(x:number):number { return Math.min(1,Math.max(0,x)); }
 /** Orientation in homogeneous clip xyw. Unlike NDC area this survives vertices
  * behind the eye: clipping keeps the winding of the surviving polygon. */
@@ -155,16 +162,16 @@ export function applyLightingFlat(ctx:OpenGLContext,buf:Float32Array,offset:numb
         let x=(normalMatrix[0]*nx+normalMatrix[3]*ny+normalMatrix[6]*nz)*sign;
         let y=(normalMatrix[1]*nx+normalMatrix[4]*ny+normalMatrix[7]*nz)*sign;
         let z=(normalMatrix[2]*nx+normalMatrix[5]*ny+normalMatrix[8]*nz)*sign;
-        if(normalize) { const len=Math.hypot(x,y,z);if(len){x/=len;y/=len;z/=len;} }
+        if(normalize) { const len=lightingVectorLength(x,y,z);if(len){x/=len;y/=len;z/=len;} }
         let vx=0,vy=0,vz=1;
-        if(localViewer) {const len=Math.hypot(ex,ey,ez);if(len){vx=-ex/len;vy=-ey/len;vz=-ez/len;}else{vz=0;}}
+        if(localViewer) {const len=lightingVectorLength(ex,ey,ez);if(len){vx=-ex/len;vy=-ey/len;vz=-ez/len;}else{vz=0;}}
         for(let k=0;k<enabledLights.length;k++) {
             const light=enabledLights[k],p=k*7;
             let lx=lightVectors[p],ly=lightVectors[p+1],lz=lightVectors[p+2],atten=1;
             if(light.position[3]!==0) {
                 const iw=1/light.position[3];
                 lx=light.position[0]*iw-ex;ly=light.position[1]*iw-ey;lz=light.position[2]*iw-ez;
-                const dist=Math.hypot(lx,ly,lz),inv=dist?1/dist:0;
+                const dist=lightingVectorLength(lx,ly,lz),inv=dist?1/dist:0;
                 lx*=inv;ly*=inv;lz*=inv;
                 const denom=light.constantAttenuation+light.linearAttenuation*dist+light.quadraticAttenuation*dist*dist;
                 atten=denom>0?1/denom:1;
@@ -178,8 +185,11 @@ export function applyLightingFlat(ctx:OpenGLContext,buf:Float32Array,offset:numb
             r+=atten*(ar*light.ambient[0]+dr*light.diffuse[0]*diff);
             g+=atten*(ag*light.ambient[1]+dg*light.diffuse[1]*diff);
             blue+=atten*(ab*light.ambient[2]+db*light.diffuse[2]*diff);
-            if(dot>0 && (sr!==0||sg!==0||sb!==0)) {
-                const hx=lx+vx,hy=ly+vy,hz=lz+vz,len=Math.hypot(hx,hy,hz);
+            // With normalized normals, a zero-RGB light cannot add a specular highlight.
+            // Keep the unbounded (non-normalized) power calculation on the old path.
+            if(dot>0 && (sr!==0||sg!==0||sb!==0) &&
+                (!normalize || light.specular[0]!==0 || light.specular[1]!==0 || light.specular[2]!==0)) {
+                const hx=lx+vx,hy=ly+vy,hz=lz+vz,len=lightingVectorLength(hx,hy,hz);
                 const nh=len?Math.max(0,(x*hx+y*hy+z*hz)/len):0;
                 const spec=atten*Math.pow(nh,mat.shininess);
                 specR+=sr*light.specular[0]*spec;specG+=sg*light.specular[1]*spec;specB+=sb*light.specular[2]*spec;
