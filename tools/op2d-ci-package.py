@@ -1,7 +1,7 @@
 """Package the pinned source using the same paths as the local test builder."""
 import hashlib,json,os,re,shutil,subprocess,time
 from pathlib import Path
-SOURCE='f3f6cfb7dd609f3fd5042b8d5911a16d0b8551c3'
+SOURCE='ba161547665b3483762c740a9c0692eeedfd4aac'
 assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==SOURCE
 ref=SOURCE[:8];prefix='/spieltests/_engine/'+ref+'/'
 root=Path.cwd();out=root.parent/'artifact'/'_engine'/ref
@@ -26,5 +26,5 @@ assert len(css)==1
 (out/'.htaccess').write_text('Options -Indexes\nAddType application/wasm .wasm\nAddType application/javascript .mjs .js\n<IfModule mod_headers.c>\n Header always set Document-Isolation-Policy "isolate-and-credentialless"\n Header always set Cross-Origin-Embedder-Policy "require-corp"\n Header always set Cross-Origin-Resource-Policy "same-origin"\n Header always set X-Content-Type-Options "nosniff"\n Header always set X-Robots-Tag "noindex, nofollow"\n Header unset Cache-Control\n Header always set Cache-Control "public, max-age=31536000, immutable"\n</IfModule>\n<FilesMatch "\\.(wasm|bin)$">\n SetOutputFilter None\n SetEnv no-brotli 1\n SetEnv no-gzip 1\n</FilesMatch>\n')
 meta={'ref':ref,'commit':ref,'variant':None,'entry':entry,'css':css[0],'v86sha256':hashlib.sha256((out/'v86.wasm').read_bytes()).hexdigest(),'built':time.strftime('%Y-%m-%d %H:%M:%S'),'sourceCommit':SOURCE,'ciRun':os.environ.get('GITHUB_RUN_ID')}
 (out/'engine.json').write_text(json.dumps(meta,indent=1))
-(out.parent.parent/'built-mode.json').write_text(json.dumps(meta,indent=2))
+(out.parent.parent/'built-delta.json').write_text(json.dumps(meta,indent=2))
 print(json.dumps(meta))

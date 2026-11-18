@@ -1,0 +1,96 @@
+name: D3D9 lock delta validation and test build
+on:
+  push:
+    branches: [fix/d3d9-lock-delta-build-20261118]
+    paths: ['.github/workflows/op2d-delta-build.yml', 'tools/op2d-ci-package.py']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NAGA_VERSION: '30.0.1'
+      CARGO_BUILD_JOBS: '1'
+      NODE_OPTIONS: --max-old-space-size=2048
+      RAYON_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: driver
+      - uses: actions/checkout@v7
+        with:
+          ref: ba161547665b3483762c740a9c0692eeedfd4aac
+          path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+      - uses: actions/cache@v6
+        id: naga
+        with:
+          path: ~/.cargo/bin/naga
+          key: naga-cli-${{ env.NAGA_VERSION }}-${{ runner.os }}
+      - name: Guarded dependencies
+        working-directory: source
+        run: |
+          mkdir -p "$HOME/tools"
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun install --frozen-lockfile
+      - name: Guarded validator build
+        if: steps.naga.outputs.cache-hit != 'true'
+        working-directory: source
+        run: flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py cargo install naga-cli --locked --version "$NAGA_VERSION"
+      - name: Regression fails with previous vertex store
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            file=src/worker/backends/webgpu/d3d9/d3d9-resources.ts
+            trap "git restore -- $file" EXIT
+            git show 28602d29:$file > "$file"
+            if bun test tools/tests/d3d9-lock-delta.test.ts > ../delta-before.log 2>&1; then
+              cat ../delta-before.log
+              exit 1
+            fi
+            cat ../delta-before.log
+            grep -Eq "[1-9][0-9]* fail" ../delta-before.log
+          '
+      - name: Targeted checks and typecheck
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            git diff --exit-code
+            python3 tools/generate-lock-span-simd.py
+            git diff --exit-code
+            for test_file in tools/tests/d3d9-*.test.ts tools/tests/split-*.test.ts; do
+              bun test "$test_file"
+            done
+            bun run typecheck
+          ' 2>&1 | tee ../delta-targeted.log
+      - name: Exact product test build
+        working-directory: source
+        run: |
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py python3 ../driver/tools/op2d-ci-package.py
+      - name: Full gate
+        working-directory: source
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun run gate 2>&1 | tee ../delta-full-gate.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: delta-ba161547
+          path: |
+            artifact/
+            delta-before.log
+            delta-targeted.log
+            delta-full-gate.log
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
