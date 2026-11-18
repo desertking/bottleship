@@ -125,6 +125,7 @@ test('incoming handler hiding its target cancels remaining stale steps', () => {
     windows.set(A, win(A)); show(); calls[0]!.complete?.(0); calls[1]!.complete?.(0); // SHOWWINDOW, WINDOWPOSCHANGING
     windows.get(A)!.visible = false; calls[2]!.complete?.(0);
     expect(messages().map(x => x[1])).toEqual([APP]);
+    expect(calls.some(c => c.args[1] === 0x47)).toBe(false); // no stale SHOWWINDOW notification
 });
 test('a KILLFOCUS handler moving focus elsewhere is not overwritten by a stale SETFOCUS', () => {
     const wm = System.getInstance().windowManager as any;

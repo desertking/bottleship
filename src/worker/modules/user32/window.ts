@@ -2055,7 +2055,8 @@ export function createWindowExports(): Record<string, ThunkImplementation> {
             return sendPendingSizeMove();
         };
         const sendPositionMessage = (message: number, complete: () => number | null): number | null => {
-            if (windows.get(hWnd) !== window || window.pendingDestroy) return finishPosition();
+            if (windows.get(hWnd) !== window || window.pendingDestroy
+                || (message === 0x0047 && window.visible !== show)) return finishPosition();
             const sync = trySuspendForSyncWindowMessage(
                 ctx, hWnd, message, 0, windowPosPtr, 'ShowWindow', stackCleanup,
                 complete, chainFrameId || undefined, chainDirect,
