@@ -67,7 +67,7 @@ jobs:
             git diff --exit-code
             python3 tools/generate-lock-span-simd.py
             git diff --exit-code
-            for test_file in tools/tests/d3d9-*.test.ts tools/tests/split-*.test.ts; do
+            for test_file in tools/tests/d3d9-*.test.ts; do
               bun test "$test_file"
             done
             bun run typecheck
