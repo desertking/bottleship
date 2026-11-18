@@ -1,0 +1,84 @@
+name: DDraw mode gate baseline comparison
+on:
+  push:
+    branches: [fix/ddraw-mode-build-20261118]
+    paths: ['.github/workflows/op2d-mode-compare.yml']
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      NAGA_VERSION: '30.0.1'
+      CARGO_BUILD_JOBS: '1'
+      NODE_OPTIONS: --max-old-space-size=2048
+      RAYON_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: driver
+      - uses: actions/checkout@v7
+        with:
+          ref: f3f6cfb7dd609f3fd5042b8d5911a16d0b8551c3
+          path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+      - uses: actions/cache@v6
+        id: naga
+        with:
+          path: ~/.cargo/bin/naga
+          key: naga-cli-${{ env.NAGA_VERSION }}-${{ runner.os }}
+      - name: Guarded dependencies
+        working-directory: source
+        run: |
+          mkdir -p "$HOME/tools"
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun install --frozen-lockfile
+      - name: Guarded validator build
+        if: steps.naga.outputs.cache-hit != 'true'
+        working-directory: source
+        run: flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py cargo install naga-cli --locked --version "$NAGA_VERSION"
+      - name: Isolated residuals on predecessor and candidate
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            for revision in 7b340779 f3f6cfb7; do
+              git checkout --detach "$revision"
+              for test_file in tools/tests/kernel32-set-thread-priority.test.ts tools/tests/guest-host-tool.test.ts tools/tests/d3d9-volume-split.test.ts tools/tests/savestate-refusal-names.test.ts; do
+                bun test "$test_file"
+              done
+            done
+          ' 2>&1 | tee ../mode-residuals.log
+      - name: Predecessor full gate
+        if: always()
+        continue-on-error: true
+        working-directory: source
+        run: |
+          set -o pipefail
+          git checkout --detach 7b340779
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun run gate 2>&1 | tee ../mode-predecessor-gate.log
+      - name: Candidate full gate
+        if: always()
+        continue-on-error: true
+        working-directory: source
+        run: |
+          set -o pipefail
+          git checkout --detach f3f6cfb7
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun run gate 2>&1 | tee ../mode-candidate-gate.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mode-gate-comparison
+          path: |
+            mode-residuals.log
+            mode-predecessor-gate.log
+            mode-candidate-gate.log
+          if-no-files-found: error
+          retention-days: 3
