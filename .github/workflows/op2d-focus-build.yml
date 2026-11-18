@@ -57,7 +57,7 @@ jobs:
               exit 1
             fi
             cat ../focus-before.log
-            rg "5 fail" ../focus-before.log
+            grep -q "5 fail" ../focus-before.log
           '
       - name: Targeted checks and typecheck
         working-directory: source
