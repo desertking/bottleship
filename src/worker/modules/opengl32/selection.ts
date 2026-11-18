@@ -11,6 +11,68 @@ const planeSolve = new Float64Array(20);
 /** @transient(per-plane distances, overwritten before every clipping step) */
 const clipDistances = new Float64Array(16);
 
+/** @transient(selection box scratch, completely overwritten before synchronous use) */
+const boxMagnitude = new Float64Array(4);
+/** @transient(selection box scratch, completely overwritten before synchronous use) */
+const boxError = new Float64Array(4);
+/** @transient(selection box scratch, completely overwritten before synchronous use) */
+const boxEye = new Float64Array(4);
+/** @transient(selection box scratch, completely overwritten before synchronous use) */
+const boxClip = new Float64Array(4);
+
+/** Conservative rejection before gathering attributes that selection never consumes.
+ * The caller must validate the complete client-array range first. Read CURRENT vertex
+ * data: a display-list invocation is not a promise that client memory is immutable.
+ * Return false at boundaries or for unsupported layouts; the exact primitive clipper
+ * remains authoritative for every possible hit and its depth interval.
+ */
+export function selectionArrayOutside(ctx: OpenGLContext, idx: Uint32Array, count: number, f: Float32Array | null): boolean {
+    const a = ctx.vertexArray;
+    const strideBytes = a.stride || 12;
+    if (count < 128 || !f || !a.enabled || !a.pointer || a.type !== GL.GL_FLOAT || a.size !== 3 ||
+        strideBytes < 12 || ((a.pointer | strideBytes) & 3) !== 0) return false;
+    const base = a.pointer / 4, stride = strideBytes / 4;
+    let lx = Infinity, ly = Infinity, lz = Infinity, hx = -Infinity, hy = -Infinity, hz = -Infinity;
+    for (let i = 0; i < count; i++) {
+        const p = base + idx[i]! * stride;
+        if (p < 0 || p + 2 >= f.length) return false;
+        const x = f[p]!, y = f[p + 1]!, z = f[p + 2]!;
+        if (!Number.isFinite(x + y + z)) return false;
+        if (x < lx) lx = x; if (x > hx) hx = x;
+        if (y < ly) ly = y; if (y > hy) hy = y;
+        if (z < lz) lz = z; if (z > hz) hz = z;
+    }
+    const mv = ctx.modelviewStack.stack[ctx.modelviewStack.top]!;
+    const pr = ctx.projectionStack.stack[ctx.projectionStack.top]!;
+    const ax = Math.max(Math.abs(lx), Math.abs(hx)), ay = Math.max(Math.abs(ly), Math.abs(hy)), az = Math.max(Math.abs(lz), Math.abs(hz));
+    for (let r = 0; r < 4; r++) {
+        boxMagnitude[r] = Math.abs(mv[r]!) * ax + Math.abs(mv[4 + r]!) * ay + Math.abs(mv[8 + r]!) * az + Math.abs(mv[12 + r]!);
+    }
+    // Bound roundoff in BOTH matrix products, not just the final clip coordinate.
+    // 256 eps is deliberately loose compared with the two four-term dot products.
+    // The shared bound covers every vertex inside the object box, including strong
+    // cancellation; the tiny floor also keeps underflow/boundary cases on the old path.
+    for (let r = 0; r < 4; r++) {
+        const magnitude = Math.abs(pr[r]!) * boxMagnitude[0]! + Math.abs(pr[4 + r]!) * boxMagnitude[1]! +
+            Math.abs(pr[8 + r]!) * boxMagnitude[2]! + Math.abs(pr[12 + r]!) * boxMagnitude[3]!;
+        if (!Number.isFinite(magnitude)) return false;
+        boxError[r] = 256 * Number.EPSILON * magnitude + 1e-300;
+    }
+    let common = 63;
+    for (let i = 0; i < 8 && common; i++) {
+        const x = i & 1 ? hx : lx, y = i & 2 ? hy : ly, z = i & 4 ? hz : lz;
+        for (let r = 0; r < 4; r++) boxEye[r] = mv[r]! * x + mv[4 + r]! * y + mv[8 + r]! * z + mv[12 + r]!;
+        for (let r = 0; r < 4; r++) boxClip[r] = pr[r]! * boxEye[0]! + pr[4 + r]! * boxEye[1]! + pr[8 + r]! * boxEye[2]! + pr[12 + r]! * boxEye[3]!;
+        let outside = 0;
+        for (let p = 0; p < 6; p++) {
+            const r = p >> 1;
+            if (boxClip[3]! + (p & 1 ? -boxClip[r]! : boxClip[r]!) < -(boxError[3]! + boxError[r]!)) outside |= 1 << p;
+        }
+        common &= outside;
+    }
+    return common !== 0;
+}
+
 export function selectionDepth(ctx: OpenGLContext, z: number): void {
     z = Math.max(0, Math.min(1, z));
     if (!Number.isFinite(z)) return;

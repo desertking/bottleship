@@ -1,6 +1,7 @@
 import { ThunkImplementation } from "../../core/thunking/thunk-dispatcher";
 import { OpenGLContext } from "./context";
 import { immediateMaterialIndex } from "./lighting";
+import { selectionArrayOutside } from "./selection";
 import {
     emitDrawCommandFlat, arenaReserve, emitArenaDraw, immediateReserveVertex,
 } from "./immediate";
@@ -75,6 +76,9 @@ function drawClientArrays(ctx: OpenGLContext, mode: number, idx: Uint32Array, co
         ctx.error = GL_INVALID_OPERATION;
         return;
     }
+
+    if (ctx.renderMode === 0x1c02 /* GL_SELECT */ &&
+        selectionArrayOutside(ctx, idx, count, guestViews(ctx).f32)) return;
 
     const direct = passThroughCount(mode, count);
     if (direct >= 0) {
