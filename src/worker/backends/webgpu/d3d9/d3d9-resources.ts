@@ -227,9 +227,18 @@ export class VertexBufferStore {
         this.commitUnlock(index, bytes.subarray(0, this.lockedSizes[index]));
     }
 
-    private commitUnlock(index: number, src: Uint8Array): void {
-        const size = this.lockedSizes[index];
-        const offset = this.lockedOffsets[index];
+    /** A split update relative to the original lock. Even an empty span must consume one
+     * nested lock. Existing dirty regions (new buffers, loss, rewind, earlier locks) survive. */
+    unlockSpanFromBytes(index: number, relativeOffset: number, bytes: Uint8Array): void {
+        if (this.guestPtrs[index] < 0 || this.lockedPtrs[index] === -1) return;
+        if (!Number.isSafeInteger(relativeOffset) || relativeOffset < 0
+            || relativeOffset + bytes.length > this.lockedSizes[index]) throw new RangeError("Invalid vertex lock span");
+        this.commitUnlock(index, bytes, relativeOffset, bytes.length);
+    }
+
+    private commitUnlock(index: number, src: Uint8Array, relativeOffset = 0, size = this.lockedSizes[index]): void {
+        const lockedSize = this.lockedSizes[index];
+        const offset = this.lockedOffsets[index] + relativeOffset;
         const data = this.data[index];
         if (data) data.set(src, offset);
         const nested = this.nestedLocks.get(index);
@@ -241,7 +250,8 @@ export class VertexBufferStore {
             this.lockedSizes[index] = 0;
             this.lockedOffsets[index] = 0;
         }
-        this.lockedSinceUpload[index] = (this.lockedSinceUpload[index] ?? 0) + size;
+        this.lockedSinceUpload[index] = (this.lockedSinceUpload[index] ?? 0) + lockedSize;
+        if (size === 0) return;
         if (this.dirtyFlags[index] && this.dirtyEnds[index] > this.dirtyStarts[index]) {
             this.dirtyStarts[index] = Math.min(this.dirtyStarts[index], offset);
             this.dirtyEnds[index] = Math.max(this.dirtyEnds[index], offset + size);

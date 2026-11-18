@@ -10,6 +10,8 @@ import { afterEach, describe, expect, test } from "bun:test";
 import fs from "node:fs";
 import { attachD3D9Split, d3d9SplitStats, resetD3D9SplitStreamForTests } from "../../src/worker/modules/d3d9/split";
 import { SplitDecoder } from "../../src/worker/backends/webgpu/d3d9/split-codec";
+import { VertexBufferStore } from "../../src/worker/backends/webgpu/d3d9/d3d9-resources";
+import { D3D9Device } from "../../src/worker/backends/webgpu/d3d9/d3d9-device";
 
 const noRefs = { idOf: () => undefined, twinOf: () => undefined };
 
@@ -71,6 +73,37 @@ function harness() {
 afterEach(() => resetD3D9SplitStreamForTests());
 
 describe("d3d9 split: recording wrapper", () => {
+    test("large NOOVERWRITE delta is encoded before later guest writes and replay preserves empty unlocks", () => {
+        const size = 128 * 1024, guest = new Uint8Array(size), records: Rec[] = [];
+        const shadow = new VertexBufferStore(), twin = new VertexBufferStore();
+        const index = shadow.create(17, size, 0, 1024), other = twin.create(17, size, 0, 2048);
+        class Front extends FakeDevice {
+            vertexBuffers = shadow;
+            vbLastLockFlags = new Map([[index, 0x1000]]);
+            captureLockedVertexBytes() { return guest; }
+            captureLockedVertexDelta(ptr: number, bytes: Uint8Array) {
+                return D3D9Device.prototype.captureLockedVertexDelta.call(this as never, ptr, bytes);
+            }
+            unlockVertexBuffer() { shadow.unlockFromBytes(index, guest); return 0; }
+        }
+        resetD3D9SplitStreamForTests();
+        const front = new Front();
+        attachD3D9Split(front as never, null, dispatcherOf(records), null);
+        guest[65] = 17; guest[89] = 66;
+        for (let n = 0; n < 2; n++) {
+            shadow.lock(index, 0, size); twin.lock(other, 0, size);
+            front.unlockVertexBuffer();
+            const [ptr, offset, bytes] = records[n]!.args as [number, number, Uint8Array];
+            expect(ptr).toBe(17); expect(offset).toBe(n ? size : 65);
+            expect(bytes.length).toBe(n ? 0 : 25);
+            twin.unlockSpanFromBytes(other, offset, bytes);
+            expect(twin.getData(other)).toEqual(guest);
+            expect(twin.lockedRange(other)).toBeNull();
+        }
+        guest.fill(0);
+        expect((records[0]!.args[2] as Uint8Array)[0]).toBe(17);
+        expect(d3d9SplitStats()!.encodeErrors).toEqual({});
+    });
     test("an outside call runs on the front and is recorded with its answer", () => {
         const { front, records } = harness();
         expect(front.setRenderState(7, 3)).toBe(0);

@@ -146,8 +146,13 @@ const TRANSFORMS: Record<string, Transform> = {
             ? null : ["setStreamSource", args],
     setIndices: (front, args) =>
         skipRedundant() && front.indicesUnchanged(args[0] as number) ? null : ["setIndices", args],
-    unlockVertexBuffer: (front, [vbPtr]) =>
-        ["unlockVertexBufferBytes", [vbPtr, front.captureLockedVertexBytes(vbPtr as number)]],
+    unlockVertexBuffer: (front, [vbPtr]) => {
+        const bytes = front.captureLockedVertexBytes(vbPtr as number);
+        const delta = bytes && bytes.length >= 64 * 1024 ? front.captureLockedVertexDelta(vbPtr as number, bytes) : null;
+        // Bytes stay last: the codec appends this view directly to the queue, without staging.
+        return delta ? ["unlockVertexBufferSpan", [vbPtr, delta.offset, delta.bytes]]
+            : ["unlockVertexBufferBytes", [vbPtr, bytes]];
+    },
     unlockIndexBuffer: (front, [ibPtr]) =>
         ["unlockIndexBufferBytes", [ibPtr, front.captureLockedIndexBytes(ibPtr as number)]],
     unlockTexture: (front, [texPtr, level, _mem, options]) =>

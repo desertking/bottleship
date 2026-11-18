@@ -37,6 +37,7 @@ import { SplitQueryHost } from "./split-query-host";
 import type { SplitQueryChannel, SplitQueryResult, RemoteGpuObserver } from "../../../render/d3d9-remote-state";
 import type { DeviceLossSource } from "../../../core/gpu/gpu-device-loss-contract";
 import { VertexBufferStore, IndexBufferStore, TextureStore } from "./d3d9-resources";
+import { changedLockByteSpan } from "./lock-byte-span";
 import { copyD3D9SurfaceRectCpu, isD3D9CpuCopyDestinationFormat, writeD3D9Pixel } from "./copy-cpu";
 import {
     DxSamplerCache, dxSamplerShaderStatesKey, dxSrgbViewFormat, dxSrgbViewFormats,
@@ -4416,6 +4417,28 @@ export class D3D9Device {
         if (index === null || !range) return null;
         const start = this.indexBuffers.getGuestPtr(index) + range.offset;
         return this.memory.subarray(start, start + range.size);
+    }
+
+    /** Before the front commits its shadow: omit only bytes proven identical to the twin's
+     * previous shadow. DISCARD and plain locks keep the original path. The result is still a
+     * guest-memory view, consumed synchronously by the recorder after the front unlock. */
+    captureLockedVertexDelta(vbPtr: number, bytes: Uint8Array): { offset: number; bytes: Uint8Array } | null {
+        const index = this.vertexBuffers.getIndex(vbPtr);
+        if (index === null) return null;
+        const flags = this.vbLastLockFlags.get(index) ?? 0;
+        if ((flags & (0x1000 | D3DLOCK_DISCARD)) !== 0x1000) return null;
+        const range = this.vertexBuffers.lockedRange(index);
+        const shadow = this.vertexBuffers.getData(index);
+        if (!range || !shadow || range.size !== bytes.length) return null;
+        const span = changedLockByteSpan(bytes, shadow.subarray(range.offset, range.offset + range.size));
+        if (!span) return null;
+        return { offset: span[0], bytes: bytes.subarray(span[0], span[1]) };
+    }
+
+    unlockVertexBufferSpan(vbPtr: number, relativeOffset: number, bytes: Uint8Array): number {
+        const index = this.vertexBuffers.getIndex(vbPtr);
+        if (index !== null) this.vertexBuffers.unlockSpanFromBytes(index, relativeOffset, bytes);
+        return 0;
     }
 
     unlockVertexBufferBytes(vbPtr: number, bytes: Uint8Array | null): number {
