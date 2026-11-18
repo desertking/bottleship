@@ -20,7 +20,7 @@ jobs:
           path: driver
       - uses: actions/checkout@v7
         with:
-          ref: ba161547665b3483762c740a9c0692eeedfd4aac
+          ref: ef91873662e043d7eea0cae6965f9eae91dccd9a
           path: source
           submodules: true
           fetch-depth: 0
@@ -85,7 +85,7 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with:
-          name: delta-ba161547
+          name: delta-ef918736
           path: |
             artifact/
             delta-before.log
