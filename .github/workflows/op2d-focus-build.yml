@@ -1,0 +1,94 @@
+name: One-off USER32 owned focus validation and test build
+on:
+  push:
+    branches: [fix/user32-focus-build-20261118]
+    paths: ['.github/workflows/op2d-focus-build.yml', 'tools/op2d-ci-package.py']
+permissions:
+  contents: read
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      NAGA_VERSION: '30.0.1'
+      CARGO_BUILD_JOBS: '1'
+      NODE_OPTIONS: --max-old-space-size=2048
+      RAYON_NUM_THREADS: '1'
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: driver
+      - uses: actions/checkout@v7
+        with:
+          ref: 7b340779068aa818129d476dc15b7b4c7050e747
+          path: source
+          submodules: true
+          fetch-depth: 0
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.23.3
+      - uses: actions/cache@v6
+        id: naga
+        with:
+          path: ~/.cargo/bin/naga
+          key: naga-cli-${{ env.NAGA_VERSION }}-${{ runner.os }}
+      - name: Guarded dependencies
+        working-directory: source
+        run: |
+          mkdir -p "$HOME/tools"
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun install --frozen-lockfile
+      - name: Guarded validator build
+        if: steps.naga.outputs.cache-hit != 'true'
+        working-directory: source
+        run: flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py cargo install naga-cli --locked --version "$NAGA_VERSION"
+      - name: Regression fails on unchanged b44 resolver
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            file=src/worker/modules/user32/activation-messages.ts
+            trap "git restore -- $file" EXIT
+            git show 28602d29:$file > "$file"
+            if bun test tools/tests/user32-owned-focus-root.test.ts > ../focus-before.log 2>&1; then
+              cat ../focus-before.log
+              exit 1
+            fi
+            cat ../focus-before.log
+            rg "5 fail" ../focus-before.log
+          '
+      - name: Targeted checks and typecheck
+        working-directory: source
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bash -ec '
+            git diff --exit-code
+            for test_file in tools/tests/user32-*.test.ts tools/tests/window-manager.test.ts tools/tests/setwindowpos-showwindow.test.ts tools/tests/process-startup-info.test.ts tools/tests/dialog-showwindow.test.ts tools/tests/fullscreen-window-showwindow.test.ts; do
+              bun test "$test_file"
+            done
+            bun run typecheck
+          ' 2>&1 | tee ../focus-targeted.log
+      - name: Exact product test build
+        working-directory: source
+        run: |
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py python3 ../driver/tools/op2d-ci-package.py
+      - name: Full gate
+        working-directory: source
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          flock "$HOME/tools/schwer.lock" nice -n 19 python3 ../driver/tools/op2d-ci-guard.py bun run gate 2>&1 | tee ../focus-full-gate.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: focus-7b340779
+          path: |
+            artifact/
+            focus-before.log
+            focus-targeted.log
+            focus-full-gate.log
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 3
