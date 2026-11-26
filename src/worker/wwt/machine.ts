@@ -1,7 +1,7 @@
 import type { WwtMachine, WwtModule, WwtPeImageBounds } from "./cpu-provider";
 import { WwtCompiler, WwtTranslationStackOverflow } from "./translator";
-import { getOrBuild } from "./pe-aot-cache";
-import { compileAbi11Pe } from "./pe-aot-compiler";
+import { notePeAotLookup, planPeAot, readPeAot, writePeAot } from "./pe-aot-cache";
+import { compileAbi11Pe, startAbi11PeCompile } from "./pe-aot-compiler";
 import type { PeAotStatus } from "./pe-aot-progress";
 import { WwtWallClock } from "./wall-clock";
 import { trapAddress, WwtTrapMap } from "./traps";
@@ -75,6 +75,13 @@ export class BottleShipMachine implements WwtMachine {
     private readonly entriesByPage = new Map<number, Set<number>>();
     private readonly recycledCpus: number[] = [];
     readonly translationStats = { compiled: 0, compilerMs: 0, installMs: 0, wasmBytes: 0 };
+    private peAotWrites: Promise<unknown>[] = [];
+
+    settlePeAotWrites(): Promise<unknown[]> {
+        const pending = this.peAotWrites;
+        this.peAotWrites = [];
+        return Promise.all(pending);
+    }
     private cursor: number;
     private guestMmio = false;
     private kernelRun!: WasmFn;
@@ -408,28 +415,38 @@ export class BottleShipMachine implements WwtMachine {
         const started = performance.now();
         let translateMs = 0;
         let translated = false;
-        const profileKey = profile.length ? modeKey + "/seeds/" + profile.join(",") : modeKey;
-        const bytes = await getOrBuild(file, profileKey, async () => {
+        const cached = await readPeAot(file, modeKey);
+        const background = !!this.wallClock && typeof Worker !== "undefined";
+        const plan = planPeAot(cached?.seeds ?? null, profile, background);
+        notePeAotLookup(plan === "rebuild" ? null : cached!.bytes);
+        let bytes: Uint8Array<ArrayBuffer>;
+        if (plan !== "rebuild") {
+            bytes = cached!.bytes;
+            if (plan === "use-and-refresh") {
+                this.peAotWrites.push(startAbi11PeCompile({ module: this.compiler.module, cacheId: this.compiler.cacheId, file, profile, guestLimit: this.guestLimit })
+                    .result.then(wasm => writePeAot(file, modeKey, wasm, profile), () => undefined));
+            }
+        } else {
             const start = performance.now();
-            let wasm: Uint8Array<ArrayBuffer>;
             if (this.wallClock && typeof Worker !== "undefined") {
                 onStatus?.({ phase: "starting" });
-                wasm = await compileAbi11Pe({
+                bytes = await compileAbi11Pe({
                     module: this.compiler.module,
                     cacheId: this.compiler.cacheId,
                     file,
                     profile,
                     guestLimit: this.guestLimit,
-                }, ({ startedAt, work }) => onStatus?.({ phase: "compiling", startedAt, work }));
+                }, ({ startedAt, work }) => onStatus?.({ phase: "compiling", startedAt, work }),
+                wasm => { this.peAotWrites.push(writePeAot(file, modeKey, wasm, profile)); });
             } else {
                 onStatus?.({ phase: "compiling", startedAt: performance.timeOrigin + performance.now() });
-                wasm = this.compiler.translatePe(file, profile, this.guestLimit, guestMmio, !fullImage);
+                bytes = this.compiler.translatePe(file, profile, this.guestLimit, guestMmio, !fullImage);
             }
             translateMs = performance.now() - start;
             translated = true;
             onStatus?.({ phase: "output" });
-            return wasm;
-        });
+            await writePeAot(file, modeKey, bytes, profile);
+        }
         const source = translated ? "compiler" : "cache";
         onStatus?.({ phase: "finalizing", source });
         const compiling = performance.now();

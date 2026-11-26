@@ -43,43 +43,90 @@ async function makeRoom(dir: Directory, except: string, required: number): Promi
     for (const file of files) {
         if (total <= DISK_BUDGET) break;
         await dir.removeEntry(file.name);
+        await dir.removeEntry(file.name + ".seeds").catch(() => {});
         total -= file.size;
     }
 }
 
-/** A translation is specific to the mapped image and the compiler/backend configuration. */
+export interface PeAotCacheEntry {
+    bytes: Uint8Array<ArrayBuffer>;
+    seeds: number[];
+}
+
+async function entryKey(image: Uint8Array<ArrayBuffer>, modeKey: string): Promise<string> {
+    const digest = await sha256Hex(image);
+    return await sha256Hex(new TextEncoder().encode(modeKey + "/" + digest)) + ".wasm";
+}
+
+async function readSeeds(dir: Directory, key: string): Promise<number[]> {
+    try {
+        const file = await (await dir.getFileHandle(key + ".seeds")).getFile();
+        if (file.size % 4) return [];
+        return Array.from(new Uint32Array(await file.slice(0, file.size).arrayBuffer()));
+    } catch {
+        return [];
+    }
+}
+
+async function writeFile(dir: Directory, name: string, parts: BufferSource[]): Promise<void> {
+    const handle = await dir.getFileHandle(name, {create: true});
+    const writer = await handle.createWritable();
+    try {
+        for (const part of parts) await writer.write(part);
+        await writer.close();
+    } catch (error) {
+        await writer.abort().catch(() => {});
+        throw error;
+    }
+}
+
+export async function readPeAot(image: Uint8Array<ArrayBuffer>, modeKey: string): Promise<PeAotCacheEntry | null> {
+    const dir = await cacheDirectory();
+    if (!dir) return null;
+    const key = await entryKey(image, modeKey);
+    const cached = await readEntry(dir, key);
+    if (!cached) return null;
+    return { bytes: cached, seeds: await readSeeds(dir, key) };
+}
+
+export function notePeAotLookup(hit: Uint8Array<ArrayBuffer> | null): void {
+    if (!hit) { stats.misses++; return; }
+    stats.hits++;
+    stats.bytesRead += hit.byteLength;
+}
+
+export type PeAotPlan = "use" | "use-and-refresh" | "rebuild";
+
+export function planPeAot(cachedSeeds: readonly number[] | null, profile: readonly number[], refreshInBackground: boolean): PeAotPlan {
+    if (!cachedSeeds) return "rebuild";
+    const known = new Set(cachedSeeds);
+    if (profile.every(address => known.has(address))) return "use";
+    return refreshInBackground ? "use-and-refresh" : "rebuild";
+}
+
+export async function writePeAot(image: Uint8Array<ArrayBuffer>, modeKey: string,
+    bytes: Uint8Array<ArrayBuffer>, seeds: readonly number[] = []): Promise<void> {
+    const dir = await cacheDirectory();
+    if (!dir || !bytes.length || bytes.length + HEADER_BYTES > DISK_BUDGET) return;
+    try {
+        const key = await entryKey(image, modeKey);
+        await makeRoom(dir, key, bytes.length + HEADER_BYTES);
+        const hash = await crypto.subtle.digest("SHA-256", bytes);
+        await writeFile(dir, key, [hash, bytes]);
+        await writeFile(dir, key + ".seeds", [new Uint8Array(Uint32Array.from(seeds).buffer)]);
+        stats.writes++;
+        stats.bytesWritten += bytes.byteLength;
+    } catch { stats.writeErrors++; }
+}
+
 export async function getOrBuild(
     image: Uint8Array<ArrayBuffer>, modeKey: string,
     build: () => Uint8Array<ArrayBuffer> | Promise<Uint8Array<ArrayBuffer>>,
 ): Promise<Uint8Array<ArrayBuffer>> {
-    const dir = await cacheDirectory();
-    if (!dir) { stats.misses++; return build(); }
-    const digest = await sha256Hex(image);
-    const key = await sha256Hex(new TextEncoder().encode(modeKey + "/" + digest)) + ".wasm";
-    const cached = await readEntry(dir, key);
-    if (cached) {
-        stats.hits++;
-        stats.bytesRead += cached.byteLength;
-        return cached;
-    }
-    stats.misses++;
+    const cached = await readPeAot(image, modeKey);
+    notePeAotLookup(cached?.bytes ?? null);
+    if (cached) return cached.bytes;
     const bytes = await build();
-    if (!bytes.length || bytes.length + HEADER_BYTES > DISK_BUDGET) return bytes;
-    try {
-        await makeRoom(dir, key, bytes.length + HEADER_BYTES);
-        const hash = await crypto.subtle.digest("SHA-256", bytes);
-        const handle = await dir.getFileHandle(key, {create: true});
-        const writer = await handle.createWritable();
-        try {
-            await writer.write(hash);
-            await writer.write(bytes);
-            await writer.close();
-        } catch (error) {
-            await writer.abort().catch(() => {});
-            throw error;
-        }
-        stats.writes++;
-        stats.bytesWritten += bytes.byteLength;
-    } catch { stats.writeErrors++; }
+    await writePeAot(image, modeKey, bytes);
     return bytes;
 }
