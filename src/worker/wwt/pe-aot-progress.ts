@@ -1,4 +1,4 @@
-export type PeAotSource = "cache" | "compiler";
+export type PeAotSource = "cache" | "compiler" | "server";
 
 export interface PeAotWork {
     stage: "discover" | "lift" | "optimize" | "emit";

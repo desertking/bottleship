@@ -53,9 +53,9 @@ export interface PeAotCacheEntry {
     seeds: number[];
 }
 
-async function entryKey(image: Uint8Array<ArrayBuffer>, modeKey: string): Promise<string> {
+export async function peAotKey(image: Uint8Array<ArrayBuffer>, modeKey: string): Promise<string> {
     const digest = await sha256Hex(image);
-    return await sha256Hex(new TextEncoder().encode(modeKey + "/" + digest)) + ".wasm";
+    return await sha256Hex(new TextEncoder().encode(modeKey + "/" + digest));
 }
 
 async function readSeeds(dir: Directory, key: string): Promise<number[]> {
@@ -80,13 +80,13 @@ async function writeFile(dir: Directory, name: string, parts: BufferSource[]): P
     }
 }
 
-export async function readPeAot(image: Uint8Array<ArrayBuffer>, modeKey: string): Promise<PeAotCacheEntry | null> {
+export async function readPeAot(image: Uint8Array<ArrayBuffer>, modeKey: string, key?: string): Promise<PeAotCacheEntry | null> {
     const dir = await cacheDirectory();
     if (!dir) return null;
-    const key = await entryKey(image, modeKey);
-    const cached = await readEntry(dir, key);
+    const name = (key ?? await peAotKey(image, modeKey)) + ".wasm";
+    const cached = await readEntry(dir, name);
     if (!cached) return null;
-    return { bytes: cached, seeds: await readSeeds(dir, key) };
+    return { bytes: cached, seeds: await readSeeds(dir, name) };
 }
 
 export function notePeAotLookup(hit: Uint8Array<ArrayBuffer> | null): void {
@@ -109,7 +109,7 @@ export async function writePeAot(image: Uint8Array<ArrayBuffer>, modeKey: string
     const dir = await cacheDirectory();
     if (!dir || !bytes.length || bytes.length + HEADER_BYTES > DISK_BUDGET) return;
     try {
-        const key = await entryKey(image, modeKey);
+        const key = (await peAotKey(image, modeKey)) + ".wasm";
         await makeRoom(dir, key, bytes.length + HEADER_BYTES);
         const hash = await crypto.subtle.digest("SHA-256", bytes);
         await writeFile(dir, key, [hash, bytes]);

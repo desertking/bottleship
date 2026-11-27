@@ -1300,6 +1300,7 @@ export function registerPerfCommands(svc: HarnessService): void {
      * Flow: frameReport({reset:true, budgetMs:33.34}) -> play/tickFrames -> frameReport().
      */
     svc.register("wwtJitStats", () => cpu()?.getTranslationStats?.() ?? null);
+    svc.register("wwtWarmFinish", async () => await cpu()?.closeWarmRecording?.() ?? null);
 
     svc.register("frameReport", (args) => {
         const opts = (args[0] ?? {}) as FrameWindowOptions & { reset?: boolean };

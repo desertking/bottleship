@@ -1,8 +1,9 @@
 import type { WwtMachine, WwtModule, WwtPeImageBounds } from "./cpu-provider";
 import { WwtCompiler, WwtTranslationStackOverflow } from "./translator";
-import { notePeAotLookup, planPeAot, readPeAot, writePeAot } from "./pe-aot-cache";
+import { notePeAotLookup, peAotKey, planPeAot, readPeAot, writePeAot } from "./pe-aot-cache";
 import { compileAbi11Pe, startAbi11PeCompile } from "./pe-aot-compiler";
-import type { PeAotStatus } from "./pe-aot-progress";
+import type { PeAotSource, PeAotStatus } from "./pe-aot-progress";
+import { WwtWarmPackage, WwtWarmRecorder } from "./warm-package";
 import { WwtWallClock } from "./wall-clock";
 import { trapAddress, WwtTrapMap } from "./traps";
 
@@ -76,6 +77,20 @@ export class BottleShipMachine implements WwtMachine {
     private readonly recycledCpus: number[] = [];
     readonly translationStats = { compiled: 0, compilerMs: 0, installMs: 0, wasmBytes: 0 };
     private peAotWrites: Promise<unknown>[] = [];
+    private warmPackage?: WwtWarmPackage;
+    private warmRecorder?: WwtWarmRecorder;
+
+    async prepareWarmPackage(url?: string, recording?: unknown): Promise<void> {
+        this.warmPackage?.close();
+        this.warmRecorder?.close();
+        this.warmPackage = url ? new WwtWarmPackage(url, this.compiler.cacheId) : undefined;
+        this.warmRecorder = await WwtWarmRecorder.open(recording);
+        await this.warmPackage?.ready;
+    }
+
+    warmProfile(digest: string): readonly number[] { return this.warmPackage?.profile(digest) ?? []; }
+    warmStats() { return this.warmPackage && { ...this.warmPackage.stats }; }
+    closeWarmRecording() { return this.warmRecorder?.close(); }
 
     settlePeAotWrites(): Promise<unknown[]> {
         const pending = this.peAotWrites;
@@ -159,6 +174,8 @@ export class BottleShipMachine implements WwtMachine {
     }
 
     dispose(): void {
+        this.warmPackage?.close();
+        this.warmRecorder?.close();
         this.wallClock?.dispose();
         this.refreshWallTimers = undefined;
         this.parkExit = undefined;
@@ -367,12 +384,26 @@ export class BottleShipMachine implements WwtMachine {
             }
         }
         const start = performance.now();
-        let wasm: Uint8Array<ArrayBuffer>;
+        const flags = this.warmPackage || this.warmRecorder
+            ? this.compiler.flags(this.guestLimit, this.guestMmio) >>> 0 : 0;
+        let wasm: Uint8Array<ArrayBuffer> | undefined;
+        let built: number;
         for (;;) {
+            const code = this.bytes.subarray(address, end);
+            const cached = this.warmPackage?.lookupDemand(address, code, known, flags, this.regionOpt);
+            if (cached) {
+                try {
+                    built = performance.now();
+                    this.installCompiledModule(cached, address.toString(16),
+                        pc => pc >= address && pc < end && (this.canExecute?.(pc) ?? true), undefined, this.wallClock !== undefined, address);
+                    this.warmPackage!.stats.demandHits++;
+                    break;
+                } catch {
+                    this.warmPackage!.stats.errors++;
+                }
+            }
             try {
-                wasm = this.compiler.translate(this.bytes.subarray(address, end), address, known,
-                    this.guestLimit, this.guestMmio, this.regionOpt);
-                break;
+                wasm = this.compiler.translate(code, address, known, this.guestLimit, this.guestMmio, this.regionOpt);
             } catch (error) {
                 if (!(error instanceof WwtTranslationStackOverflow)) throw error;
                 // Bound the compiler's recursive CFG walk. The shortest retry
@@ -381,11 +412,13 @@ export class BottleShipMachine implements WwtMachine {
                 if (shorterEnd >= end) throw error;
                 end = shorterEnd;
                 known = known.filter(pc => pc < end);
+                continue;
             }
+            built = performance.now();
+            this.installCompiledModule(new WebAssembly.Module(wasm), address.toString(16), undefined, undefined, this.wallClock !== undefined);
+            this.warmRecorder?.demand(address, code, known, flags, this.regionOpt, built - start, wasm);
+            break;
         }
-        const built = performance.now();
-        this.installCompiledModule(new WebAssembly.Module(wasm), address.toString(16),
-            undefined, undefined, this.wallClock !== undefined);
         // ABI 11 publishes CODE when an entry first installs an L2 for its page.
         // A demand window contains potential input, including unused writable pages.
         if (this.abi.fault.SMC_RESUME !== undefined) {
@@ -393,10 +426,12 @@ export class BottleShipMachine implements WwtMachine {
                 this.markCodePage(page);
             }
         }
-        this.translationStats.compiled++;
-        this.translationStats.compilerMs += built - start;
+        if (wasm) {
+            this.translationStats.compiled++;
+            this.translationStats.compilerMs += built - start;
+            this.translationStats.wasmBytes += wasm.byteLength;
+        }
         this.translationStats.installMs += performance.now() - built;
-        this.translationStats.wasmBytes += wasm.byteLength;
         const slot = this.lookup(address);
         if (!slot) throw new Error(`Missing translated entry at 0x${address.toString(16)}`);
         return slot;
@@ -415,16 +450,30 @@ export class BottleShipMachine implements WwtMachine {
         const started = performance.now();
         let translateMs = 0;
         let translated = false;
-        const cached = await readPeAot(file, modeKey);
+        const warm = this.warmPackage;
+        const recorder = this.warmRecorder;
+        const key = warm || recorder ? await peAotKey(file, modeKey) : undefined;
+        const portable = key === undefined ? null : await warm?.pe(key);
+        let portableModule: WebAssembly.Module | undefined;
+        if (portable) {
+            try { portableModule = await WebAssembly.compile(portable.bytes); }
+            catch { warm!.stats.errors++; }
+        }
+        const cached = portableModule ? portable! : await readPeAot(file, modeKey, key);
+        const save = (bytes: Uint8Array<ArrayBuffer>, seeds: number[]) => {
+            if (key) recorder?.pe(key, seeds, bytes);
+            return writePeAot(file, modeKey, bytes, seeds);
+        };
         const background = !!this.wallClock && typeof Worker !== "undefined";
-        const plan = planPeAot(cached?.seeds ?? null, profile, background);
+        const plan = portableModule ? "use" : planPeAot(cached?.seeds ?? null, profile, background);
         notePeAotLookup(plan === "rebuild" ? null : cached!.bytes);
         let bytes: Uint8Array<ArrayBuffer>;
         if (plan !== "rebuild") {
             bytes = cached!.bytes;
+            if (key) recorder?.pe(key, cached!.seeds, bytes);
             if (plan === "use-and-refresh") {
                 this.peAotWrites.push(startAbi11PeCompile({ module: this.compiler.module, cacheId: this.compiler.cacheId, file, profile, guestLimit: this.guestLimit })
-                    .result.then(wasm => writePeAot(file, modeKey, wasm, profile), () => undefined));
+                    .result.then(wasm => save(wasm, profile), () => undefined));
             }
         } else {
             const start = performance.now();
@@ -437,7 +486,7 @@ export class BottleShipMachine implements WwtMachine {
                     profile,
                     guestLimit: this.guestLimit,
                 }, ({ startedAt, work }) => onStatus?.({ phase: "compiling", startedAt, work }),
-                wasm => { this.peAotWrites.push(writePeAot(file, modeKey, wasm, profile)); });
+                wasm => { this.peAotWrites.push(save(wasm, profile)); });
             } else {
                 onStatus?.({ phase: "compiling", startedAt: performance.timeOrigin + performance.now() });
                 bytes = this.compiler.translatePe(file, profile, this.guestLimit, guestMmio, !fullImage);
@@ -445,12 +494,12 @@ export class BottleShipMachine implements WwtMachine {
             translateMs = performance.now() - start;
             translated = true;
             onStatus?.({ phase: "output" });
-            await writePeAot(file, modeKey, bytes, profile);
+            await save(bytes, profile);
         }
-        const source = translated ? "compiler" : "cache";
+        const source: PeAotSource = portableModule ? "server" : translated ? "compiler" : "cache";
         onStatus?.({ phase: "finalizing", source });
         const compiling = performance.now();
-        const compiled = await WebAssembly.compile(bytes);
+        const compiled = portableModule ?? await WebAssembly.compile(bytes);
         if (this.guestMmio !== guestMmio || !verifyCurrent()) {
             onStatus?.({ phase: "fallback", reason: "image-changed" });
             return;
@@ -461,7 +510,8 @@ export class BottleShipMachine implements WwtMachine {
         }
         const installing = performance.now();
         const module = this.installCompiledModule(compiled, name, executable, fullImage);
-        const report = { name, policy, seeds: profile.length, source, translateMs,
+        if (portableModule) warm!.stats.peHits++;
+        const report = { name, policy, seeds: (translated ? profile : cached!.seeds).length, source, translateMs,
             lookupAndStoreMs: compiling - started - translateMs, compileModuleMs: installing - compiling,
             installMs: performance.now() - installing,
             wasmBytes: bytes.length, entries: module.entries };
@@ -475,11 +525,14 @@ export class BottleShipMachine implements WwtMachine {
     }
 
     private installCompiledModule(module: WebAssembly.Module, name: string, canInstall?: (address: number) => boolean,
-        fullImage?: WwtPeImageBounds, keepExisting = false): WwtModule & { entries: number } {
+        fullImage?: WwtPeImageBounds, keepExisting = false, requiredEntry?: number): WwtModule & { entries: number } {
         const [section] = WebAssembly.Module.customSections(module, this.abi.funcs_section);
         if (!section) throw new Error(`Missing i386 function map in ${name}`);
         const map = new Uint32Array(section);
         if (map[0] !== map.length - 1) throw new Error(`Invalid i386 function map in ${name}`);
+        if (requiredEntry !== undefined && !map.subarray(1).includes(requiredEntry)) {
+            throw new Error(`Missing WWT demand entry in ${name}`);
+        }
         if (canInstall && map.subarray(1).some(pc => !canInstall(pc))) {
             throw new Error(`AOT address outside executable sections in ${name}`);
         }

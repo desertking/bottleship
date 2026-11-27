@@ -54,6 +54,10 @@ export interface WwtMachine {
     onFault?: (cpu: number, code: number, eip: number, info: number) => number | undefined;
     onPreempt?: (cpu: number, eip: number) => boolean;
     onMmio?: (cpu: number, address: number, size: number, write: boolean) => number;
+    prepareWarmPackage?(url?: string, recording?: unknown): Promise<void>;
+    warmProfile?(digest: string): readonly number[];
+    warmStats?(): { peHits: number; demandHits: number; demandPrepared: number; demandBytes: number; errors: number } | undefined;
+    closeWarmRecording?(): number | undefined;
     init(): Promise<void>;
     enableMmio(): boolean;
     newCpu(): number;

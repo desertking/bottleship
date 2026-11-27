@@ -446,7 +446,18 @@ export class WwtCpu {
         return this.readFpuSlot((this.fpu_stack_ptr[0] + index) & 7);
     }
 
-    getTranslationStats() { return { ...this.machine.translationStats, peAotCache: peAotCacheStats() }; }
+    getTranslationStats() {
+        return { ...this.machine.translationStats, peAotCache: peAotCacheStats(), warmPackage: this.machine.warmStats?.() };
+    }
+
+    prepareWarmPackage(url?: string, recording?: unknown) {
+        if (this.machine.wallClock) return this.machine.prepareWarmPackage?.(url, recording);
+    }
+
+    async closeWarmRecording() {
+        await this.flushPeProfile();
+        return this.machine.closeWarmRecording?.();
+    }
 
     requestYield(): void {
         this.yieldRequested = true;
@@ -514,7 +525,7 @@ export class WwtCpu {
         try {
             const digest = await sha256Hex(file);
             const executable = (pc: number) => ranges.some(range => range.start <= pc && pc < range.end);
-            const saved = selector === "learn" ? [] : await peProfileEntries(digest, base, size);
+            const saved = selector === "learn" ? [] : await peProfileEntries(digest, base, size, this.machine.warmProfile?.(digest));
             // Keep the canonical RVA order and leave obsolete, non-executable entries
             // out of the cache key for the current image.
             const profile = defaultFast ? saved.filter(executable) : saved;

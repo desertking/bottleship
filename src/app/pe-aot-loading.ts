@@ -29,8 +29,8 @@ export function peAotStageLabel(event: PeAotProgress): string {
             emit: "Generating WebAssembly",
         }[event.work.stage] : "Translating to WebAssembly";
         case "output": return "Preparing compiled output";
-        case "finalizing": return event.source === "cache" ? "Cache hit, installing" : "Installing compiled module";
-        case "ready": return event.source === "cache" ? "Ready from cache" : "Compilation ready";
+        case "finalizing": return event.source === "server" ? "Installing server module" : event.source === "cache" ? "Cache hit, installing" : "Installing compiled module";
+        case "ready": return event.source === "server" ? "Ready from server" : event.source === "cache" ? "Ready from cache" : "Compilation ready";
         case "fallback": {
             if (event.reason === "timeout") return `Timed out after ${event.budgetMs / 1000}s, using demand translation`;
             const reason = {

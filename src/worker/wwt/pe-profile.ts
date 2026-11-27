@@ -21,13 +21,14 @@ async function readRvas(dir: FileSystemDirectoryHandle, name: string): Promise<n
     }
 }
 
-export async function peProfileEntries(digest: string, base: number, size: number): Promise<number[]> {
+export async function peProfileEntries(digest: string, base: number, size: number, portable: readonly number[] = []): Promise<number[]> {
     const profiles = (globalThis as { __wwtPeProfile?: Record<string, unknown> }).__wwtPeProfile;
     const dir = profiles ? undefined : await openDirectory(false);
     const hints = profiles?.[digest] ?? (dir ? await readRvas(dir, digest) : []);
-    if (!Array.isArray(hints) || hints.length > PE_PROFILE_MAX_ENTRIES) return [];
-    return [...new Set<number>(hints.filter(rva => Number.isSafeInteger(rva) && rva >= 0 && rva < size))]
-        .sort((a, b) => a - b).map(rva => base + rva);
+    const local = Array.isArray(hints) && hints.length <= PE_PROFILE_MAX_ENTRIES ? hints : [];
+    const valid = (rva: unknown): rva is number => typeof rva === "number" && Number.isSafeInteger(rva) && rva >= 0 && rva < size;
+    return [...new Set([...portable.filter(valid), ...local.filter(valid)])]
+        .slice(0, PE_PROFILE_MAX_ENTRIES).sort((a, b) => a - b).map(rva => base + rva);
 }
 
 /** Record demand translations while the game runs. Disk operations stay outside the miss handler. */

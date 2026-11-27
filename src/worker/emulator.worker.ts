@@ -387,7 +387,7 @@ const resetHleReady = (): void => {
 };
 
 type BundleLoadPayload = {
-  data?: Uint8Array; url?: string; blob?: Blob; blobs?: File[]; preload?: boolean; io?: WgbIoPolicy; launchId?: number;
+  data?: Uint8Array; url?: string; blob?: Blob; blobs?: File[]; preload?: boolean; io?: WgbIoPolicy; launchId?: number; wwtWarm?: string;
 };
 let pendingPeData: { bytes: Uint8Array; launchId: number } | null = null;
 let pendingBundle: BundleLoadPayload | null = null;
@@ -1955,6 +1955,10 @@ const loadBundleImpl = async (payload: BundleLoadPayload) => {
     // overlay (bottleship/games/<containerDir>/overlay/). On a game switch the previous overlay is
     // closed and re-rooted so game B never sees game A's files (#5 isolation). Registry persistence
     // (below) keys by this same gameId.
+    const active = system.process?.v86;
+    const warm = active instanceof WwtEmulator
+      ? active.cpu.prepareWarmPackage(payload.wwtWarm, (globalThis as { __wwtWarmRecording?: string }).__wwtWarmRecording)
+      : undefined;
     const gameId = resolveGameId(bundle.manifest);
     Logger.log(LogCategory.SYSTEM, `WGB: gameId="${gameId}" container="${gameIdToContainerDir(gameId)}"`);
     // Host overlay/title: surface the manifest display name as soon as we know it
@@ -2324,6 +2328,7 @@ const loadBundleImpl = async (payload: BundleLoadPayload) => {
     // A failed load has already torn the process down and told the host (crash dialog).
     // Everything below announces a SUCCESSFUL boot — the "done" progress post alone would
     // put the launch overlay back over that dialog and read as a hang.
+    await warm;
     if (await loadPeData(bundle.entrypointBytes, true) === "failed") return;
     bootMark("pe-loaded");
     if (savestatesEnabled()) {
@@ -4060,7 +4065,8 @@ const handleWorkerMessage = (event: MessageEvent): void => {
     // this only replaces the manifest's boot args, and only for this load.
     bootArgsOverride = typeof message.args === "string" ? message.args : null;
     loadBundle({ data: message.data, url: message.url, blob: message.blob, blobs: message.blobs,
-      preload: message.preload, io: message.io, launchId: message.launchId });
+      preload: message.preload, io: message.io, launchId: message.launchId,
+      wwtWarm: typeof message.wwtWarm === "string" ? message.wwtWarm : undefined });
   }
 
   // --- WGB wizard build service (Stage 1) — additive, separate from the boot path above. -----

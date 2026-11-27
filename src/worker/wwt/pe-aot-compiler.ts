@@ -32,16 +32,19 @@ export class PeAotCompileTimeoutError extends Error {
 export interface PeAotCompileJob {
     result: Promise<Uint8Array<ArrayBuffer>>;
     timedOut: Promise<PeAotCompileTimeoutError>;
+    cancel(): void;
 }
 
 export function startAbi11PeCompile(request: PeAotCompileRequest,
     onProgress?: (update: PeAotCompileUpdate) => void, budgetMs = COLD_COMPILE_BUDGET_MS): PeAotCompileJob {
     const worker = new Worker(new URL("./pe-aot-compiler.worker.ts", import.meta.url), { type: "module" });
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let rejectJob!: (error: Error) => void;
     const timedOut = new Promise<PeAotCompileTimeoutError>(resolve => {
         timer = setTimeout(() => resolve(new PeAotCompileTimeoutError(budgetMs)), budgetMs);
     });
     const result = new Promise<Uint8Array<ArrayBuffer>>((resolve, reject) => {
+        rejectJob = reject;
         worker.onmessage = (event: MessageEvent<PeAotCompileMessage>) => {
             const message = event.data;
             switch (message.type) {
@@ -54,9 +57,14 @@ export function startAbi11PeCompile(request: PeAotCompileRequest,
         worker.onmessageerror = () => reject(new Error("Could not read PE translation worker result"));
         worker.postMessage(request);
     });
-    const finish = () => { clearTimeout(timer); worker.terminate(); };
+    const finish = () => {
+        if (timer === undefined) return;
+        clearTimeout(timer);
+        timer = undefined;
+        worker.terminate();
+    };
     result.then(finish, finish);
-    return { result, timedOut };
+    return { result, timedOut, cancel: () => { finish(); rejectJob(new Error("WWT PE translation cancelled")); } };
 }
 
 export async function compileAbi11Pe(request: PeAotCompileRequest,
@@ -65,7 +73,8 @@ export async function compileAbi11Pe(request: PeAotCompileRequest,
     const job = startAbi11PeCompile(request, onProgress, budgetMs);
     const first = await Promise.race([job.result, job.timedOut]);
     if (first instanceof PeAotCompileTimeoutError) {
-        job.result.then(wasm => onLateResult?.(wasm), () => undefined);
+        if (onLateResult) job.result.then(onLateResult, () => undefined);
+        else job.cancel();
         throw first;
     }
     return first;

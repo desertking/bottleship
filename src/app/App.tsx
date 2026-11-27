@@ -2560,7 +2560,7 @@ export default function App() {
 
     // opts.preload: download the whole bundle to OPFS before starting instead of
     // streaming it on demand (catalog entry `preload`) — see the worker's URL path.
-    (window as any).loadApp = async (path: string, opts?: { preload?: boolean; args?: string; io?: import("@bottleship/formats/wgb/io-profile").WgbIoPolicy }) => {
+    (window as any).loadApp = async (path: string, opts?: { preload?: boolean; args?: string; wwtWarm?: string; io?: import("@bottleship/formats/wgb/io-profile").WgbIoPolicy }) => {
       console.log(`BottleShip: Loading App from ${path}`);
       rotateLogFile(bundleLogName(path));
       ensurePersistentStorageRequested();
@@ -2586,7 +2586,8 @@ export default function App() {
       const lower = path.toLowerCase();
       if (lower.endsWith(".wgb")) {
         setLoadingProgress({ phase: "loading", percent: 0, label: "" });
-        globalWorker.postMessage({ type: "load_bundle", url: path, preload: opts?.preload === true, io: opts?.io, args: opts?.args });
+        const wwtWarm = opts?.wwtWarm ? new URL(opts.wwtWarm, document.baseURI).href : undefined;
+        globalWorker.postMessage({ type: "load_bundle", url: path, preload: opts?.preload === true, io: opts?.io, args: opts?.args, wwtWarm });
         return;
       }
       try {
