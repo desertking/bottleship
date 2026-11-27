@@ -31,11 +31,13 @@ type DemandRecord = DemandInput & {
 type PeRecord = { kind: "pe"; key: string; seeds: number[] };
 type RecordHeader = DemandRecord | PeRecord;
 
+type WarmFile = { sha256: string; size: number; gzipSize?: number };
+
 interface WarmManifest {
     version: 1;
     compiler: string;
-    pe: Record<string, { sha256: string; size: number; seeds: number[] }>;
-    demand?: { sha256: string; size: number };
+    pe: Record<string, WarmFile & { seeds: number[] }>;
+    demand?: WarmFile;
     profile?: Record<string, number[]>;
 }
 
@@ -51,8 +53,9 @@ function hash(s: unknown): s is string {
     return typeof s === "string" && HASH.test(s);
 }
 
-function fileDescriptor(value: { sha256?: unknown; size?: unknown }, max: number): boolean {
-    return !!value && hash(value.sha256) && uint32(value.size) && value.size > 0 && value.size <= max;
+function fileDescriptor(value: WarmFile, max: number): boolean {
+    return !!value && hash(value.sha256) && uint32(value.size) && value.size > 0 && value.size <= max
+        && (value.gzipSize === undefined || (uint32(value.gzipSize) && value.gzipSize > 0 && value.gzipSize <= max));
 }
 
 function validateManifest(value: WarmManifest, compilerHash: string): boolean {
@@ -101,15 +104,17 @@ class PackageReader {
     }
 }
 
-async function openFile(url: URL, signal: AbortSignal, size?: number): Promise<PackageReader> {
+async function openFile(url: URL, signal: AbortSignal, spec: WarmFile): Promise<PackageReader> {
     const response = await fetch(url, { signal, redirect: "error", mode: "same-origin" });
     if (!response.ok || !response.body) throw new Error(`WWT package HTTP ${response.status}`);
     const length = response.headers.get("content-length");
-    if (size !== undefined && length !== null && !response.headers.has("content-encoding") && +length !== size) {
+    const size = spec.gzipSize ?? spec.size;
+    if (length !== null && !response.headers.has("content-encoding") && +length !== size) {
         await response.body.cancel();
         throw new Error("Unexpected WWT package size");
     }
-    return new PackageReader(response.body.getReader());
+    const body = spec.gzipSize ? response.body.pipeThrough(new DecompressionStream("gzip")) : response.body;
+    return new PackageReader(body.getReader());
 }
 
 type DemandEntries = Map<string, Map<string, WebAssembly.Module>>;
@@ -174,7 +179,8 @@ export class WwtWarmPackage {
         if (!spec || !this.root) return null;
         try {
             const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(15000)]);
-            const reader = await openFile(new URL(`${key}-${spec.sha256}.wasm`, this.root), signal, spec.size);
+            const extension = spec.gzipSize ? "-gzip.bin" : ".wasm";
+            const reader = await openFile(new URL(key + "-" + spec.sha256 + extension, this.root), signal, spec);
             try {
                 const bytes = await reader.exact(spec.size);
                 if (!(await reader.end()) || await sha256Hex(bytes) !== spec.sha256) {
@@ -194,7 +200,8 @@ export class WwtWarmPackage {
         let reader: PackageReader | undefined;
         try {
             const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(180000)]);
-            reader = await openFile(new URL(`demand-${spec.sha256}.bin`, root), signal, spec.size);
+            const extension = spec.gzipSize ? "-gzip.bin" : ".bin";
+            reader = await openFile(new URL("demand-" + spec.sha256 + extension, root), signal, spec);
             let remaining = spec.size;
             let records = 0;
             while (remaining) {

@@ -27,6 +27,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
     const demandPack = frame({ kind: "demand", address, length: code.length, known: [], flags, opt: 0,
         code: await sha256Hex(code), sha256: await sha256Hex(demand) }, demand);
     const demandSha = await sha256Hex(demandPack);
+    const gzip = Bun.gzipSync(demandPack);
     const peInput = Uint8Array.of(42);
     const peKey = await peAotKey(peInput, "mode");
     const peSha = await sha256Hex(demand);
@@ -35,7 +36,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
         version: 1,
         compiler: compiler.cacheId,
         pe: { [peKey]: { size: demand.length, sha256: peSha, seeds: [address] } },
-        demand: { size: demandPack.length, sha256: demandSha },
+        demand: { size: demandPack.length, sha256: demandSha, gzipSize: gzip.length },
         profile: { [originalImageHash]: [123] },
     };
     const location = Object.getOwnPropertyDescriptor(globalThis, "location");
@@ -47,7 +48,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
         const path = input.pathname;
         fetched.push(path);
         if (path.endsWith("/index.json")) return Response.json(manifest);
-        if (path === expected + `demand-${demandSha}.bin`) return new Response(demandPack);
+        if (path === expected + `demand-${demandSha}-gzip.bin`) return new Response(gzip);
         if (path === expected + `${peKey}-${peSha}.wasm`) return new Response(demand);
         return new Response(null, { status: 404 });
     }) as typeof fetch;

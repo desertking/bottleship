@@ -1,4 +1,5 @@
 import argparse
+import gzip
 import hashlib
 import json
 import re
@@ -76,19 +77,27 @@ def build(compiler, output, traces, profile):
                 raise ValueError(f"Unexpected record kind {header['kind']}")
 
     remaining = MAX_PACKAGE
+    wire_bytes = 0
     for key, rec in pe.items():
         data = module(rec)
         sha = digest(data)
         if len(data) > remaining:
             raise ValueError("PE records exceed package budget")
-        (root / f"{key}-{sha}.wasm").write_bytes(data)
-        manifest["pe"][key] = {"sha256": sha, "size": len(data), "seeds": rec[0]["seeds"]}
+        spec = {"sha256": sha, "size": len(data), "seeds": rec[0]["seeds"]}
+        packed = gzip.compress(data, compresslevel=3, mtime=0)
+        if len(packed) < len(data):
+            (root / f"{key}-{sha}-gzip.bin").write_bytes(packed)
+            spec["gzipSize"] = len(packed)
+        else:
+            (root / f"{key}-{sha}.wasm").write_bytes(data)
+        manifest["pe"][key] = spec
+        wire_bytes += spec.get("gzipSize", len(data))
         remaining -= len(data)
 
     temp = root / "demand.tmp"
     checksum = hashlib.sha256()
     size = count = 0
-    with temp.open("wb") as stream:
+    with temp.open("wb") as target, gzip.GzipFile(filename="", mode="wb", fileobj=target, compresslevel=3, mtime=0) as stream:
         for rec in demand.values():
             data = module(rec)
             frame = encode({**rec[0], "sha256": digest(data)}, data)
@@ -103,8 +112,10 @@ def build(compiler, output, traces, profile):
             remaining -= cost
     if size:
         sha = checksum.hexdigest()
-        temp.replace(root / f"demand-{sha}.bin")
-        manifest["demand"] = {"sha256": sha, "size": size}
+        gzip_size = temp.stat().st_size
+        temp.replace(root / f"demand-{sha}-gzip.bin")
+        manifest["demand"] = {"sha256": sha, "size": size, "gzipSize": gzip_size}
+        wire_bytes += gzip_size
     else:
         temp.unlink()
 
@@ -115,7 +126,7 @@ def build(compiler, output, traces, profile):
     temp.write_bytes(data)
     temp.replace(root / "index.json")
     print(json.dumps({"root": str(root), "pe": len(pe), "demand": count, "omitted": len(demand) - count,
-                      "bytes": MAX_PACKAGE - remaining + len(data)}))
+                      "wasmAndMetadataBytes": MAX_PACKAGE - remaining + len(data), "transferBytes": wire_bytes + len(data)}))
 
 
 def main():
