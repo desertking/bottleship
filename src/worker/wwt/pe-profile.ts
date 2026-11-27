@@ -1,4 +1,4 @@
-const MAX_ENTRIES = 65536;
+export const PE_PROFILE_MAX_ENTRIES = 65536;
 type CodeRange = { start: number; end: number };
 
 async function openDirectory(create: boolean): Promise<FileSystemDirectoryHandle | undefined> {
@@ -14,7 +14,7 @@ async function openDirectory(create: boolean): Promise<FileSystemDirectoryHandle
 async function readRvas(dir: FileSystemDirectoryHandle, name: string): Promise<number[]> {
     try {
         const file = await (await dir.getFileHandle(name)).getFile();
-        if (file.size > MAX_ENTRIES * 4 || file.size % 4) return [];
+        if (file.size > PE_PROFILE_MAX_ENTRIES * 4 || file.size % 4) return [];
         return Array.from(new Uint32Array(await file.arrayBuffer()));
     } catch {
         return [];
@@ -25,7 +25,7 @@ export async function peProfileEntries(digest: string, base: number, size: numbe
     const profiles = (globalThis as { __wwtPeProfile?: Record<string, unknown> }).__wwtPeProfile;
     const dir = profiles ? undefined : await openDirectory(false);
     const hints = profiles?.[digest] ?? (dir ? await readRvas(dir, digest) : []);
-    if (!Array.isArray(hints) || hints.length > MAX_ENTRIES) return [];
+    if (!Array.isArray(hints) || hints.length > PE_PROFILE_MAX_ENTRIES) return [];
     return [...new Set<number>(hints.filter(rva => Number.isSafeInteger(rva) && rva >= 0 && rva < size))]
         .sort((a, b) => a - b).map(rva => base + rva);
 }
@@ -49,7 +49,7 @@ export class PeProfileRecorder {
             if (pc < range.start || pc >= range.end) continue;
             const rva = pc - range.base;
             const values = this.seen.get(range.hash)!;
-            if (values.size >= MAX_ENTRIES || values.has(rva)) return;
+            if (values.size >= PE_PROFILE_MAX_ENTRIES || values.has(rva)) return;
             values.add(rva);
             this.dirty.add(range.hash);
             this.timer ??= setTimeout(() => { void this.flush(); }, 2500);
@@ -70,7 +70,7 @@ export class PeProfileRecorder {
                 const merge = async () => {
                     const merged = new Set(await readRvas(dir, hash));
                     for (const rva of samples) {
-                        if (merged.size >= MAX_ENTRIES) break;
+                        if (merged.size >= PE_PROFILE_MAX_ENTRIES) break;
                         merged.add(rva);
                     }
                     const handle = await dir.getFileHandle(hash, {create:true});
