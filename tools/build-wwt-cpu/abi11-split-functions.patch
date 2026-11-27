@@ -1,0 +1,578 @@
+--- a/crates/wwt/src/codegen.rs
++++ b/crates/wwt/src/codegen.rs
+@@ -30,6 +30,7 @@
+ #[derive(Debug, Clone)]
+ pub struct CodegenConfig {
+     pub mem_checks: bool,
++    pub split_function_weight: Option<usize>,
+     /// Fast mode: plain guest loads and stores have no explicit check and
+     /// rely on the engine's bounds trap instead (see `Fun::trap_access`).
+     /// The runtime turns the trap into an access violation at the right
+@@ -60,6 +61,7 @@
+     fn default() -> Self {
+         CodegenConfig {
+             mem_checks: true,
++            split_function_weight: None,
+             mem_traps: false,
+             smc_checks: true,
+             mem64: false,
+@@ -341,8 +343,6 @@
+             };
+             native_type_idx.push(T_FIRST_HELPER + idx as u32);
+         }
+-        module.section(&types);
+-
+         // Imports.
+         let mut imp = ImportSection::new();
+         imp.import(
+@@ -418,8 +418,6 @@
+                 },
+             );
+         }
+-        module.section(&imp);
+-
+         // Functions.
+         let mut fsec = FunctionSection::new();
+         for &t in &helper_type_idx {
+@@ -428,8 +426,6 @@
+         for _ in funcs {
+             fsec.function(T_FN);
+         }
+-        module.section(&fsec);
+-
+         // Element segment placing translated functions at table_base.
+         let mut elems = ElementSection::new();
+         let idxs: Vec<u32> = (0..funcs.len() as u32)
+@@ -449,10 +445,6 @@
+             ExportKind::Func,
+             self.helper_func_index(Helper::Eflags),
+         );
+-        module.section(&exports);
+-
+-        module.section(&elems);
+-
+         // Code.
+         let mut code = CodeSection::new();
+         let eflags = self.helper_func_index(Helper::Eflags);
+@@ -467,8 +459,23 @@
+         // Trapping accesses, at first by their offset in the code section's
+         // entries.
+         let mut traps = Vec::new();
++        let mut parts = Vec::new();
++        let mut part_types = HashMap::new();
+         for (index, f) in funcs.iter().enumerate() {
+-            let (body, r, t) = self.gen_function_full(f);
++            let first_part = self.translated_func_index((funcs.len() + parts.len()) as u32);
++            let mut split_parts = None;
++            let (body, r, t) = self.gen_function_parts(f, Some(first_part), &mut split_parts);
++            if let Some(SplitParts { params, bodies }) = split_parts {
++                let type_index = *part_types.entry(params.clone()).or_insert_with(|| {
++                    let index = types.len();
++                    types.ty().function(params, [ct]);
++                    index
++                });
++                for (part, (body, traps)) in bodies.into_iter().enumerate() {
++                    fsec.function(type_index);
++                    parts.push((body, traps, format!("x86_{:x}_part_{part}", f.entry)));
++                }
++            }
+             let start = code.byte_len() + leb_len(body.byte_len());
+             traps.extend(t.into_iter().map(|t| TrapSite {
+                 at: start as u32 + t.at,
+@@ -482,8 +489,22 @@
+                 }
+             }
+         }
++        for (body, sites, _) in &parts {
++            let start = code.byte_len() + leb_len(body.byte_len());
++            traps.extend(sites.iter().map(|t| TrapSite {
++                at: start as u32 + t.at,
++                eip: t.eip,
++                write: t.write,
++            }));
++            code.function(body);
++        }
++        module.section(&types);
++        module.section(&imp);
++        module.section(&fsec);
++        module.section(&exports);
++        module.section(&elems);
+         // The entries start after the section's id, size and count.
+-        let count = (self.helpers.len() + funcs.len()) as u32;
++        let count = fsec.len();
+         let entries = module.len()
+             + 1
+             + leb_len(leb_len(count as usize) + code.byte_len())
+@@ -502,6 +523,9 @@
+                 None => format!("x86_{:x}", f.entry),
+             };
+             fnames.append(self.translated_func_index(i as u32), &name);
++        }
++        for (i, (_, _, name)) in parts.iter().enumerate() {
++            fnames.append(self.translated_func_index((funcs.len() + i) as u32), name);
+         }
+         let mut names = NameSection::new();
+         names.functions(&fnames);
+@@ -568,6 +592,15 @@
+ 
+     /// The function, the emulation left in it and its trapping accesses.
+     fn gen_function_full(&self, f: &Function) -> (wasm_encoder::Function, Residue, Vec<TrapSite>) {
++        self.gen_function_parts(f, None, &mut None)
++    }
++
++    fn gen_function_parts(
++        &self,
++        f: &Function,
++        first_part: Option<u32>,
++        split_parts: &mut Option<SplitParts>,
++    ) -> (wasm_encoder::Function, Residue, Vec<TrapSite>) {
+         let fixed;
+         let mut osr_reentry = None;
+         // Blocks from here on are made by the passes below, not lifted.
+@@ -590,14 +623,29 @@
+             &fixed
+         };
+         let a = opt::analyze(f);
+-        let mut g = FnGen::new(self, f, &a);
++        let plan = self
++            .cfg
++            .split_function_weight
++            .zip(first_part)
++            .filter(|_| f.mode == Mode::X86 && !self.cfg.mem64)
++            .and_then(|(limit, first_part)| SplitPlan::new(f, &a, limit, first_part));
++        let mut g = FnGen::new(self, f, &a, plan.as_ref());
+         g.lifted = lifted;
+         g.preempt = preempt;
+         g.osr_reentry = osr_reentry;
+         g.irreducible = irreducible;
+-        g.run();
++        let (body, traps) = if let Some(plan) = &plan {
++            let entry = g.gen_split_entry(plan);
++            *split_parts = Some(SplitParts {
++                params: g.split_params(plan),
++                bodies: plan.parts.iter().map(|order| g.gen_part(order)).collect(),
++            });
++            (entry, Vec::new())
++        } else {
++            g.run();
++            g.finish()
++        };
+         let r = g.residue;
+-        let (body, traps) = g.finish();
+         (body, r, traps)
+     }
+ }
+@@ -684,7 +732,90 @@
+     *n == 0
+ }
+ 
++struct SplitParts {
++    params: Vec<ValType>,
++    bodies: Vec<(wasm_encoder::Function, Vec<TrapSite>)>,
++}
++
++struct SplitPlan {
++    parts: Vec<Vec<BlockId>>,
++    destination: Vec<(usize, u32)>,
++    payload: Vec<V>,
++    first_part: u32,
++}
++
++impl SplitPlan {
++    fn new(f: &Function, analysis: &Analysis, limit: usize, first_part: u32) -> Option<Self> {
++        let mut parts = Vec::new();
++        let mut current = Vec::new();
++        let mut weight = 0;
++        let mut destination = vec![(0, 0); f.blocks.len()];
++        for id in f.rpo() {
++            let block = &f.blocks[id as usize];
++            let block_weight = block.insts.len()
++                + 1
++                + match &block.term {
++                    Term::Switch { targets, .. } => targets.len(),
++                    _ => 0,
++                };
++            if !current.is_empty() && weight + block_weight > limit {
++                parts.push(std::mem::take(&mut current));
++                weight = 0;
++            }
++            destination[id as usize] = (parts.len(), current.len() as u32);
++            current.push(id);
++            weight += block_weight;
++        }
++        if parts.is_empty() {
++            return None;
++        }
++        parts.push(current);
++        let mut carried = vec![false; f.vtypes.len()];
++        for part in &parts {
++            for &id in part {
++                let block = &f.blocks[id as usize];
++                for inst in &block.insts {
++                    if let Some(v) = inst.dst.filter(|&v| v < NUM_STATE) {
++                        carried[v as usize] = true;
++                    }
++                    for v in inst.op.uses().into_iter().filter(|&v| v < NUM_STATE) {
++                        carried[v as usize] = true;
++                    }
++                }
++                for v in block.term.uses().into_iter().filter(|&v| v < NUM_STATE) {
++                    carried[v as usize] = true;
++                }
++                for target in block.term.successors() {
++                    if destination[id as usize].0 == destination[target as usize].0 {
++                        continue;
++                    }
++                    for &v in &analysis.global[NUM_STATE as usize..] {
++                        carried[v as usize] |= analysis.is_live_in(target, v);
++                    }
++                }
++            }
++        }
++        let payload: Vec<V> = carried
++            .iter()
++            .enumerate()
++            .filter_map(|(v, &carry)| (carry && v != CPU as usize).then_some(v as V))
++            .collect();
++        if payload.len() > 96 {
++            return None;
++        }
++        Some(Self {
++            parts,
++            destination,
++            payload,
++            first_part,
++        })
++    }
++}
++
+ struct FnGen<'g, 'a> {
++    split: Option<&'g SplitPlan>,
++    param_count: u32,
++    switch_preempt: bool,
+     m: &'g ModuleGen<'a>,
+     residue: Residue,
+     /// Trapping accesses (fast mode): the index in `out` of the load or
+@@ -765,9 +896,17 @@
+ const UNASSIGNED: u32 = u32::MAX;
+ 
+ impl<'g, 'a> FnGen<'g, 'a> {
+-    fn new(m: &'g ModuleGen<'a>, f: &'g Function, a: &'g Analysis) -> Self {
++    fn new(
++        m: &'g ModuleGen<'a>,
++        f: &'g Function,
++        a: &'g Analysis,
++        split: Option<&'g SplitPlan>,
++    ) -> Self {
+         let n = f.blocks.len();
+         let mut g = FnGen {
++            split,
++            param_count: split.map_or(1, |plan| 2 + plan.payload.len() as u32),
++            switch_preempt: false,
+             m,
+             residue: Residue::default(),
+             trap_sites: Vec::new(),
+@@ -812,6 +951,18 @@
+             max_of: vec![],
+         };
+         g.local_of[CPU as usize] = 0;
++        if let Some(plan) = split {
++            for (i, &v) in plan.payload.iter().enumerate() {
++                g.local_of[v as usize] = 2 + i as u32;
++            }
++            let order = f.rpo();
++            for (i, &b) in order.iter().enumerate() {
++                g.rpo_num[b as usize] = i as u32;
++            }
++            g.switch_preempt = !reducible::is_reducible(f);
++            g.structured = false;
++            g.prepare_values(&order);
++        }
+         g.assign_locals();
+         g.tmp_i32 = g.new_local(ValType::I32);
+         if f.blocks.iter().any(|b| b.term.clobbers_state()) {
+@@ -829,7 +980,11 @@
+         } else {
+             UNASSIGNED
+         };
+-        g.label_local = g.new_local(ValType::I32);
++        g.label_local = if split.is_some() {
++            1
++        } else {
++            g.new_local(ValType::I32)
++        };
+         g.tmp_ma = if wide {
+             g.new_local(m.addr_type())
+         } else {
+@@ -840,7 +995,7 @@
+ 
+     fn new_local(&mut self, t: ValType) -> u32 {
+         self.local_types.push(t);
+-        self.local_types.len() as u32 // param 0 is cpu
++        self.param_count + self.local_types.len() as u32 - 1
+     }
+ 
+     /// Gives every vreg a local. Temporaries that live within one block share
+@@ -872,7 +1027,7 @@
+             }
+         }
+         for v in 0..f.vtypes.len() {
+-            if v as V == CPU || block_of[v] == u32::MAX {
++            if self.local_of[v] != UNASSIGNED || block_of[v] == u32::MAX {
+                 continue;
+             }
+             let global = (v as V) < NUM_STATE || multi[v] || self.a.dense[v] != u32::MAX;
+@@ -924,17 +1079,72 @@
+         }
+     }
+ 
+-    fn finish(self) -> (wasm_encoder::Function, Vec<TrapSite>) {
++    fn split_params(&self, plan: &SplitPlan) -> Vec<ValType> {
++        [self.m.addr_type(), ValType::I32]
++            .into_iter()
++            .chain(
++                plan.payload
++                    .iter()
++                    .map(|&v| val_type(self.f.vtypes[v as usize])),
++            )
++            .collect()
++    }
++
++    fn gen_split_entry(&mut self, plan: &SplitPlan) -> wasm_encoder::Function {
++        self.reload(self.a.state_live_in(0) & ALL_STATE);
++        self.split_jump(0, 0);
++        let mut body = wasm_encoder::Function::new_with_locals_types(
++            self.split_params(plan).into_iter().skip(1),
++        );
++        for inst in self.out.drain(..) {
++            body.instruction(&inst);
++        }
++        body.instruction(&W::End);
++        body
++    }
++
++    fn gen_part(&mut self, order: &[BlockId]) -> (wasm_encoder::Function, Vec<TrapSite>) {
++        self.emit(W::Loop(BlockType::Empty));
++        self.ctx.push(Ctx::Dispatch);
++        for _ in order {
++            self.emit(W::Block(BlockType::Empty));
++            self.ctx.push(Ctx::If);
++        }
++        self.emit(W::LocalGet(self.label_local));
++        self.emit(W::BrTable(Cow::Owned((0..order.len() as u32).collect()), 0));
++        for &block in order {
++            self.ctx.pop();
++            self.emit(W::End);
++            self.block_body(block);
++            self.terminator(block);
++        }
++        self.ctx.pop();
++        self.emit(W::End);
++        self.wrap_faults();
++        self.finish()
++    }
++
++    fn split_jump(&mut self, part: usize, label: u32) {
++        let plan = self.split.unwrap();
++        self.emit(W::LocalGet(0));
++        self.emit(W::I32Const(label as i32));
++        for &v in &plan.payload {
++            self.emit(W::LocalGet(self.local_of[v as usize]));
++        }
++        self.emit(W::ReturnCall(plan.first_part + part as u32));
++    }
++
++    fn finish(&mut self) -> (wasm_encoder::Function, Vec<TrapSite>) {
+         let mut func =
+             wasm_encoder::Function::new_with_locals_types(self.local_types.iter().copied());
+         let mut traps = Vec::with_capacity(self.trap_sites.len());
+-        let mut sites = self.trap_sites.iter().peekable();
+-        for (k, i) in self.out.iter().enumerate() {
+-            while let Some(&(_, eip, write)) = sites.next_if(|s| s.0 == k) {
++        let mut sites = self.trap_sites.drain(..).peekable();
++        for (k, i) in self.out.drain(..).enumerate() {
++            while let Some((_, eip, write)) = sites.next_if(|s| s.0 == k) {
+                 let at = func.byte_len() as u32;
+                 traps.push(TrapSite { at, eip, write });
+             }
+-            func.instruction(i);
++            func.instruction(&i);
+         }
+         func.instruction(&W::End);
+         (func, traps)
+@@ -1320,7 +1530,20 @@
+                 self.children[d as usize].push(b);
+             }
+         }
+-        // Temporaries with a single definition (state vregs have many).
++        self.prepare_values(&order);
++        let live = self.a.state_live_in(0) & ALL_STATE;
++        self.reload(live);
++        if reducible {
++            self.do_tree(0);
++        } else {
++            self.structured = false;
++            self.dispatch_loop(&order);
++        }
++        self.wrap_faults();
++    }
++
++    fn prepare_values(&mut self, order: &[BlockId]) {
++        let f = self.f;
+         let mut defs = vec![0u32; f.vtypes.len()];
+         self.def_block = vec![u32::MAX; f.vtypes.len()];
+         for (bi, b) in f.blocks.iter().enumerate() {
+@@ -1357,19 +1580,14 @@
+                 }
+             }
+         }
+-        self.compute_max_of(&order);
+-        // Entry: load live state.
+-        let live = self.a.state_live_in(0) & ALL_STATE;
+-        self.reload(live);
+-        if reducible {
+-            self.do_tree(0);
+-        } else {
+-            self.structured = false;
+-            self.dispatch_loop(&order);
+-        }
++        self.compute_max_of(order);
++    }
++
++    fn wrap_faults(&mut self) {
+         self.emit(W::Unreachable);
+-        // Wrap the body in one block per fault block, innermost first, with
+-        // each fault block's code after its block's end.
++        if self.fault_blocks.is_empty() {
++            return;
++        }
+         let body = std::mem::take(&mut self.out);
+         let n = self.fault_blocks.len();
+         for s in &mut self.trap_sites {
+@@ -1384,6 +1602,8 @@
+             self.out.push(W::End);
+             self.fault_block(mask, code);
+         }
++        self.fault_blocks.clear();
++        self.in_fault = false;
+     }
+ 
+     fn compute_dominators(&mut self, order: &[BlockId], preds: &[Vec<BlockId>]) {
+@@ -1549,7 +1769,11 @@
+         if src == 0 && moved_entry.is_some() {
+             return None;
+         }
+-        let lifted_src = if Some(src) == moved_entry { 0 } else { src as usize };
++        let lifted_src = if Some(src) == moved_entry {
++            0
++        } else {
++            src as usize
++        };
+         if lifted_src < self.lifted {
+             if !self.preempt.get(lifted_src).copied().unwrap_or(false)
+                 || (tgt as usize >= self.lifted && Some(tgt) != moved_entry)
+@@ -1576,10 +1800,7 @@
+             if self.rpo_num[tgt as usize] <= self.rpo_num[src as usize] {
+                 self.preempt_check(src, tgt);
+             }
+-            self.emit(W::I32Const(tgt as i32));
+-            self.emit(W::LocalSet(self.label_local));
+-            let l = self.label(Ctx::Dispatch);
+-            self.emit(W::Br(l));
++            self.dispatch_to(src, tgt);
+             return;
+         }
+         if self.rpo_num[tgt as usize] <= self.rpo_num[src as usize] {
+@@ -1594,6 +1815,50 @@
+         }
+     }
+ 
++    fn dispatch_to(&mut self, src: BlockId, tgt: BlockId) {
++        let mut label = tgt;
++        if let Some(plan) = self.split {
++            let (part, index) = plan.destination[tgt as usize];
++            if part != plan.destination[src as usize].0 {
++                self.split_jump(part, index);
++                return;
++            }
++            label = index;
++        }
++        self.emit(W::I32Const(label as i32));
++        self.emit(W::LocalSet(self.label_local));
++        self.emit(W::Br(self.label(Ctx::Dispatch)));
++    }
++
++    fn split_switch(&mut self, src: BlockId, index: V, targets: &[BlockId]) {
++        let mut unique = Vec::new();
++        let mut cases = HashMap::new();
++        let labels = targets
++            .iter()
++            .map(|&target| {
++                *cases.entry(target).or_insert_with(|| {
++                    let label = unique.len() as u32;
++                    unique.push(target);
++                    label
++                })
++            })
++            .collect();
++        for _ in &unique {
++            self.emit(W::Block(BlockType::Empty));
++            self.ctx.push(Ctx::If);
++        }
++        self.get(index);
++        self.emit(W::BrTable(Cow::Owned(labels), 0));
++        for target in unique {
++            self.ctx.pop();
++            self.emit(W::End);
++            if self.switch_preempt && self.rpo_num[target as usize] <= self.rpo_num[src as usize] {
++                self.preempt_check(src, target);
++            }
++            self.dispatch_to(src, target);
++        }
++    }
++
+     /// A non-merge successor whose code always leaves the function.
+     fn is_dead_end(&self, src: BlockId, b: BlockId) -> bool {
+         !self.ctx.contains(&Ctx::Dispatch)
+@@ -1606,7 +1871,11 @@
+     fn terminator(&mut self, x: BlockId) {
+         let blk = &self.f.blocks[x as usize];
+         let dirty = self.a.dirty_end[x as usize] & opt::term_sync(self.f, x);
+-        if self.osr_reentry.as_ref().is_some_and(|reentry| reentry.latches.contains(&x)) {
++        if self
++            .osr_reentry
++            .as_ref()
++            .is_some_and(|reentry| reentry.latches.contains(&x))
++        {
+             // The synthetic latch replaced a checked x86 back edge. At this
+             // point RESUME is still clear and blk.addr is the x86 loop header.
+             self.preempt_at(blk.addr, self.a.dirty_end[x as usize]);
+@@ -1653,7 +1922,9 @@
+                 self.emit(W::I32LtU);
+                 self.emit(W::If(BlockType::Empty));
+                 self.ctx.push(Ctx::If);
+-                if self.ctx.contains(&Ctx::Dispatch) {
++                if self.split.is_some() && !targets.is_empty() {
++                    self.split_switch(x, index, &targets);
++                } else if self.ctx.contains(&Ctx::Dispatch) {
+                     // Irreducible fallback: set the label from a table.
+                     for (k, &t) in targets.iter().enumerate() {
+                         self.get(index);
+--- a/crates/wwt-wasm/src/lib.rs
++++ b/crates/wwt-wasm/src/lib.rs
+@@ -26,6 +26,7 @@
+ const FLAG_X64: u32 = 4;
+ const FLAG_MEM64: u32 = 8;
+ const FLAG_MEM_TRAPS: u32 = 16;
++const FLAG_SPLIT_FUNCTIONS: u32 = 32;
+ 
+ fn apply_flags(cfg: wwt::Config, flags: u32) -> wwt::Config {
+     let mut cfg = cfg;
+@@ -36,6 +37,7 @@
+     cfg.codegen.mem_traps = flags & FLAG_MEM_TRAPS != 0;
+     cfg.lift.smc_checks = sc;
+     cfg.codegen.smc_checks = sc;
++    cfg.codegen.split_function_weight = (flags & FLAG_SPLIT_FUNCTIONS != 0).then_some(8192);
+     let mode = if flags & FLAG_X64 != 0 {
+         wwt::ir::Mode::X64
+     } else {

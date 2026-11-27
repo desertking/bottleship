@@ -26,6 +26,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("archive", type=Path, help=f"GitHub source archive at {REVISION}")
     parser.add_argument("output", type=Path, help="directory to write wwt_abi11.wasm")
+    parser.add_argument("--split-functions", action="store_true")
     parser.add_argument("--offline", action="store_true", help="use the local Cargo cache")
     parser.add_argument("--vendor", type=Path, help="use an existing cargo-vendor directory")
     args = parser.parse_args()
@@ -67,7 +68,8 @@ def main():
         if original != WINE_PROVIDER_SHA256:
             parser.error(f"clean compiler differs from the Wine reference ({WINE_PROVIDER_SHA256})")
 
-        for patch in PATCHES:
+        patches = [*PATCHES, ROOT / "abi11-split-functions.patch"] if args.split_functions else PATCHES
+        for patch in patches:
             subprocess.run(["git", "apply", "--whitespace=nowarn", str(patch)], cwd=workspace, check=True)
         subprocess.run(command, cwd=workspace, env=env, check=True)
 

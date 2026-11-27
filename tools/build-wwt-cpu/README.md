@@ -32,6 +32,18 @@ bun run build
 
 `--offline` uses the Cargo cache. `--vendor DIRECTORY` accepts an existing cargo-vendor tree. Set `BS_WWT_PROVIDER_DIR` to package a protected compiler from a separate output directory. The production build takes ABI 11 from the pinned file in the repository. The editable Rust sources for the graphics and hypercall Wasm modules are in `tools/build-wwt-hypercall`.
 
+## Experimental function splitting
+
+Add `--split-functions` to the fast compiler build and choose a separate output directory. In that compiler, ABI flag `0x20` enables partitioning of x86 functions targeting 32-bit Wasm memory. The threshold is 8,192 IR weight units. Each instruction and terminator contributes one unit, plus one per switch target. An individual basic block can exceed the threshold. The original guest entry points are preserved. Each partition uses a local dispatcher and tail calls to other partitions with the destination label and live values. The option is available to offline callers of the compiler exports.
+
+```sh
+node --experimental-wasm-return-call tools/build-wwt-cpu/test-split-functions.mjs "$reference" "$prototype"
+node --experimental-wasm-return-call tools/build-wwt-cpu/measure-functions.mjs "$prototype" "$dll" region 0x100cc8cd 262144 0x02000010
+node --experimental-wasm-return-call tools/build-wwt-cpu/measure-functions.mjs "$prototype" "$dll" region 0x100cc8cd 262144 0x02000030
+```
+
+Use the shipped fast compiler for `reference` and the compiler built with the extra option for `prototype`. The example addresses a PE32 virtual address at the preferred base. The harness also accepts raw windows and whole PE files. For PE mode, use `pe 0 0` in place of the region, entry and window arguments to measure without profile seeds. The example flags set a 512 MiB guest limit and use Wasm memory traps. The Node flag enables Wasm tail calls in Node 18. Omit it on engines with tail calls enabled by default.
+
 ## Translating a game ahead of execution
 
 Pass `?wwtAot=on` on the game URL to compile its linked PE32 images as they load. To select modules, use filenames separated by commas, for example `wwtAot=core.dll,engine.dll`. Compiled modules live in local OPFS. Their keys cover the actual relocated image, patched imports and native hooks, compiler binary, translation options and guest RAM configuration. Missing addresses use demand translation. The first run includes compilation and browser module installation. The next run reads the matching modules from disk.
