@@ -105,7 +105,7 @@ export function convertPagesToPeProfile(input: unknown, files: Iterable<Uint8Arr
         let location: PageLocation | null | undefined;
         if (page.kind === "pe" && isHash(page.imageHash) && isIntIn(page.rva, 0xfffff000) && page.rva % PAGE_SIZE === 0) {
             const match = modules.get(page.imageHash)?.get(page.rva);
-            if (match?.sha === page.sha) location = match.location;
+            if (match && match.sha === page.sha) location = match.location;
         } else if (page.kind === "phys" && isIntIn(page.physPage, 0xfffff)) {
             location = bySha.get(page.sha);
         } else {
