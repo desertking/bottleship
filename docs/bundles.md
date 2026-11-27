@@ -118,6 +118,19 @@ bun tools/wgb-compress.ts game.wgb game.packed.wgb --block-kib 64
 - The packer holds one member and its compressed blocks in RAM at a time; members of
   2 GiB or more are not supported.
 
+### Indexed Vorbis audio
+
+WGBs can contain 16-bit PCM WAV members stored as Vorbis using ZIP method
+`0x5741` (22337). The version 1 `wgb-audio.idx` entry identifies these members
+and their independently decodable chunks, including the packets required for
+Vorbis preroll. The manifest references the index with
+`"audioIndex": { "member": "wgb-audio.idx", "version": 1 }`.
+
+Range reads expose the original WAV header and trailing bytes with the decoded
+PCM in between. Encoding is lossy, so sample values can differ from the
+original WAV. Indexed audio bypasses eager ROM prefetch and shares the decoded
+block cache with indexed DEFLATE.
+
 `wgb.ts` edits store-only bundles; edit the store-only source and compress again.
 
 ## Inspecting & patching: `wgb.ts`
