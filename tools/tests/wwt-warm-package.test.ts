@@ -33,6 +33,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
     const originalImageHash = "c".repeat(64);
     const manifest = {
         version: 1,
+        compiler: compiler.cacheId,
         pe: { [peKey]: { size: demand.length, sha256: peSha, seeds: [address] } },
         demand: { size: demandPack.length, sha256: demandSha },
         profile: { [originalImageHash]: [123] },
@@ -45,7 +46,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
     globalThis.fetch = (async (input: URL) => {
         const path = input.pathname;
         fetched.push(path);
-        if (path === expected + "index.json") return Response.json(manifest);
+        if (path.endsWith("/index.json")) return Response.json(manifest);
         if (path === expected + `demand-${demandSha}.bin`) return new Response(demandPack);
         if (path === expected + `${peKey}-${peSha}.wasm`) return new Response(demand);
         return new Response(null, { status: 404 });
@@ -66,6 +67,7 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
         const otherCompiler = new WwtWarmPackage("/game/wwt/", "1".repeat(64));
         await otherCompiler.ready;
         expect(await otherCompiler.pe(peKey)).toBeNull();
+        expect(otherCompiler.stats.errors).toBe(1);
         expect(fetched).toContain("/game/wwt/" + "1".repeat(64) + "/index.json");
         otherCompiler.close();
 

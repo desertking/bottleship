@@ -84,7 +84,7 @@ export class BottleShipMachine implements WwtMachine {
         this.warmPackage?.close();
         this.warmRecorder?.close();
         this.warmPackage = url ? new WwtWarmPackage(url, this.compiler.cacheId) : undefined;
-        this.warmRecorder = await WwtWarmRecorder.open(recording);
+        this.warmRecorder = await WwtWarmRecorder.open(recording, this.compiler.cacheId);
         await this.warmPackage?.ready;
     }
 

@@ -15,8 +15,12 @@ def digest(data):
     return hashlib.sha256(data).hexdigest()
 
 
-def read_records(path):
+def read_records(path, compiler_hash):
     with path.open("rb") as stream:
+        expected = f"WWTWARM1 {compiler_hash}\n".encode()
+        if stream.read(len(expected)) != expected:
+            raise ValueError(f"Wrong recording version or compiler in {path}")
+        path_size = path.stat().st_size
         while sizes := stream.read(8):
             if len(sizes) != 8:
                 raise ValueError(f"Truncated frame in {path}")
@@ -25,7 +29,7 @@ def read_records(path):
                 raise ValueError(f"Invalid frame in {path}")
             header = json.loads(stream.read(header_size))
             offset = stream.tell()
-            if offset + size > path.stat().st_size:
+            if offset + size > path_size:
                 raise ValueError(f"Truncated module in {path}")
             yield header, path, offset, size
             stream.seek(size, 1)
@@ -47,15 +51,16 @@ def encode(header, payload):
 
 
 def build(compiler, output, traces, profile):
-    root = output / digest(compiler.read_bytes())
+    compiler_hash = digest(compiler.read_bytes())
+    root = output / compiler_hash
     root.mkdir(parents=True, exist_ok=True)
-    manifest = {"version": 1, "pe": {}}
+    manifest = {"version": 1, "compiler": compiler_hash, "pe": {}}
     if profile:
         manifest["profile"] = json.loads(profile.read_bytes())
     pe = {}
     demand = {}
     for path in traces:
-        for rec in read_records(path):
+        for rec in read_records(path, compiler_hash):
             header = rec[0]
             if header["kind"] == "pe":
                 key = header["key"]
@@ -117,7 +122,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("compiler", type=Path)
     parser.add_argument("output", type=Path)
-    parser.add_argument("traces", type=Path, nargs="+")
+    parser.add_argument("traces", type=Path, nargs="*")
     parser.add_argument("--profile", type=Path)
     args = parser.parse_args()
     build(args.compiler, args.output, args.traces, args.profile)

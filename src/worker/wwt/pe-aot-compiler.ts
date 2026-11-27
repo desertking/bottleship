@@ -70,8 +70,12 @@ export function startAbi11PeCompile(request: PeAotCompileRequest,
 export async function compileAbi11Pe(request: PeAotCompileRequest,
     onProgress?: (update: PeAotCompileUpdate) => void,
     onLateResult?: (wasm: Uint8Array<ArrayBuffer>) => void, budgetMs = COLD_COMPILE_BUDGET_MS): Promise<Uint8Array<ArrayBuffer>> {
-    const job = startAbi11PeCompile(request, onProgress, budgetMs);
+    let foreground = true;
+    const job = startAbi11PeCompile(request, update => {
+        if (foreground) onProgress?.(update);
+    }, budgetMs);
     const first = await Promise.race([job.result, job.timedOut]);
+    foreground = false;
     if (first instanceof PeAotCompileTimeoutError) {
         if (onLateResult) job.result.then(onLateResult, () => undefined);
         else job.cancel();

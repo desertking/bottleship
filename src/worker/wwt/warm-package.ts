@@ -33,6 +33,7 @@ type RecordHeader = DemandRecord | PeRecord;
 
 interface WarmManifest {
     version: 1;
+    compiler: string;
     pe: Record<string, { sha256: string; size: number; seeds: number[] }>;
     demand?: { sha256: string; size: number };
     profile?: Record<string, number[]>;
@@ -54,8 +55,8 @@ function fileDescriptor(value: { sha256?: unknown; size?: unknown }, max: number
     return !!value && hash(value.sha256) && uint32(value.size) && value.size > 0 && value.size <= max;
 }
 
-function validateManifest(value: WarmManifest): boolean {
-    if (value?.version !== 1 || !value.pe || typeof value.pe !== "object"
+function validateManifest(value: WarmManifest, compilerHash: string): boolean {
+    if (value?.version !== 1 || value.compiler !== compilerHash || !value.pe || typeof value.pe !== "object"
         || (value.demand !== undefined && !fileDescriptor(value.demand, MAX_PACKAGE))) return false;
     let bytes = value.demand?.size ?? 0;
     for (const [key, entry] of Object.entries(value.pe)) {
@@ -132,10 +133,10 @@ export class WwtWarmPackage {
         if (base.origin !== globalThis.location.origin || base.username || base.password || !HASH.test(compilerHash)) return;
         base.pathname = base.pathname.replace(/\/?$/, "/");
         this.root = new URL(compilerHash + "/", base);
-        this.ready = this.loadManifest(this.root);
+        this.ready = this.loadManifest(this.root, compilerHash);
     }
 
-    private async loadManifest(root: URL): Promise<void> {
+    private async loadManifest(root: URL, compilerHash: string): Promise<void> {
         try {
             const signal = AbortSignal.any([this.controller.signal, AbortSignal.timeout(2000)]);
             const response = await fetch(new URL("index.json", root), { signal, redirect: "error", mode: "same-origin", cache: "no-cache" });
@@ -152,7 +153,7 @@ export class WwtWarmPackage {
                     json += utf8.decode(value, { stream: true });
                 }
                 const manifest = JSON.parse(json + utf8.decode()) as WarmManifest;
-                if (!validateManifest(manifest)) throw new Error("Invalid WWT warm manifest");
+                if (!validateManifest(manifest, compilerHash)) throw new Error("Invalid WWT warm manifest");
                 if (this.controller.signal.aborted) return;
                 this.manifest = manifest;
                 if (manifest.demand) void this.loadDemand(root, manifest.demand);
@@ -248,13 +249,17 @@ export class WwtWarmPackage {
 }
 
 export class WwtWarmRecorder {
-    private at = 0;
+    private at: number;
     private readonly seen = new Set<string>();
     private closed = false;
 
-    private constructor(private readonly file: SyncAccessHandleLike) {}
+    private constructor(private readonly file: SyncAccessHandleLike, compilerHash: string) {
+        const header = encoder.encode(`WWTWARM1 ${compilerHash}\n`);
+        this.at = file.write(header, { at: 0 });
+        if (this.at !== header.length) throw new Error("Short WWT recording header");
+    }
 
-    static async open(id: unknown): Promise<WwtWarmRecorder | undefined> {
+    static async open(id: unknown, compilerHash: string): Promise<WwtWarmRecorder | undefined> {
         if (typeof id !== "string" || !/^[a-z0-9][a-z0-9-]{0,63}$/.test(id)) return;
         try {
             const root = await navigator.storage.getDirectory();
@@ -263,7 +268,7 @@ export class WwtWarmRecorder {
             const handle = await access.createSyncAccessHandle();
             try {
                 handle.truncate(0);
-                return new WwtWarmRecorder(handle);
+                return new WwtWarmRecorder(handle, compilerHash);
             } catch {
                 handle.close();
                 return;
