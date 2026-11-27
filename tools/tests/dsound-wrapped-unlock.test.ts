@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { DSound } from "../../src/worker/modules/dsound/dsound";
+import { decodeValue, encodeValue, type SaveValue } from "../../src/worker/savestate/value-codec";
 import { Mem } from "../../src/worker/core/memory/mem-accessor";
 import { CTRL_BLOCK_BYTES, createAudioRingBuffer } from "../../src/audio/audio-ring-buffer";
 
@@ -10,8 +11,7 @@ const PTR = 0x4000;
 const OBJECT = 0x2000;
 const OUT = 0x1000;
 
-function setup(laps: number) {
-    const mem = new Uint8Array(1 << 20);
+function setup(laps: number, mem = new Uint8Array(1 << 20)) {
     Mem.bind(() => mem);
     let next = 0x20000;
     const alloc = (n: number) => { const p = next; next += n + 16; return p; };
@@ -45,10 +45,10 @@ function setup(laps: number) {
     const buffer = {
         id: 1, ptr: PTR, bytes: SIZE, ringBytes: SIZE * laps, sab,
         format: { channels: 2, sampleRate: 22050, bitsPerSample: 16, blockAlign: 4 },
-        isPlaying: false, isLooping: true, currentPosition: 0,
+        isPlaying: false, isLooping: true, currentPosition: 0, frequency: 22050,
         lastUnlockCursor: undefined as number | undefined,
     };
-    (ds as any).objects.set(OBJECT, { type: "IDirectSoundBuffer8", buffer });
+    (ds as any).objects.set(OBJECT, { type: "IDirectSoundBuffer8", refCount: 1, buffer });
     const call = (name: string, ...args: number[]) => (ds.exports[name] as any)({}, mem, args);
     const lock = (offset: number, count: number) => {
         expect(call("idirectsoundbuffer8_lock", OBJECT, offset, count, OUT, OUT + 4, OUT + 8, OUT + 12, 0)).toBe(0);
@@ -130,4 +130,80 @@ for (const laps of [1, 2]) describe(`DirectSound Unlock with ${laps} host lap(s)
         }
         expect(t.ds.dbgAudioCalls.bytesUnlocked).toBe(384);
     });
+});
+
+test("a wrapped lock survives saving before Unlock and keeps pending samples out of the host ring", () => {
+    const original = setup(2);
+    const span = original.lock(SIZE - 512, 2048);
+    original.mem.fill(0xa1, span[0], span[0] + span[1]);
+    original.mem.fill(0xb2, span[2], span[2] + span[3]);
+    const saved = encodeValue(original.ds.captureSavestate() as unknown as SaveValue);
+    const guestRam = original.mem.slice();
+    original.unlock(span);
+
+    const restored = setup(2, guestRam);
+    const posted: Array<{ type: string; payload: { sab: SharedArrayBuffer } }> = [];
+    const oldPost = globalThis.postMessage;
+    globalThis.postMessage = (msg) => posted.push(msg);
+    try {
+        restored.ds.restoreSavestate(decodeValue(saved) as unknown as ReturnType<DSound["captureSavestate"]>);
+        const ring = new Uint8Array(posted.find(m => m.type === "audio_register")!.payload.sab, CTRL_BLOCK_BYTES);
+        expect(new Set(ring)).toEqual(new Set([0x11]));
+        expect(restored.mem[span[0]]).toBe(0xa1);
+        expect(restored.mem[span[2]]).toBe(0xb2);
+        expect(encodeValue(restored.ds.captureSavestate() as unknown as SaveValue)).toEqual(saved);
+        restored.unlock(span);
+        expect(ring).toEqual(original.pcm);
+        expect(restored.ds.captureSavestate()).toEqual(original.ds.captureSavestate());
+    } finally {
+        globalThis.postMessage = oldPost;
+    }
+});
+
+test("a lock at the end of the buffer retains the Unlock fallback range", () => {
+    const original = setup(1);
+    const span = original.lock(SIZE, 16);
+    expect(span).toEqual([PTR + SIZE, 0, PTR, 16]);
+    original.mem.fill(0x78, PTR, PTR + 16);
+    const saved = structuredClone(original.ds.captureSavestate());
+    const restored = setup(1, original.mem.slice());
+    const oldPost = globalThis.postMessage;
+    globalThis.postMessage = () => {};
+    try {
+        restored.ds.restoreSavestate(saved);
+        restored.unlock(span);
+        expect(restored.ds.dbgAudioCalls.bytesUnlocked).toBe(16);
+        expect(restored.ds.captureSavestate().objects[0]?.buffer?.lastUnlockCursor).toBe(16);
+    } finally {
+        globalThis.postMessage = oldPost;
+    }
+});
+
+test("saving after an interleaved Unlock preserves the other lock's pending samples", () => {
+    const original = setup(1);
+    const pending = original.lock(SIZE - 512, 1024);
+    const committed = original.lock(4096, 256);
+    original.mem.fill(0x56, pending[0], pending[0] + pending[1]);
+    original.mem.fill(0x78, pending[2], pending[2] + pending[3]);
+    original.mem.fill(0x34, committed[0], committed[0] + committed[1]);
+    original.unlock(committed);
+    const saved = original.ds.captureSavestate();
+    const restored = setup(1, original.mem.slice());
+    const oldPost = globalThis.postMessage;
+    let ring: Uint8Array | undefined;
+    globalThis.postMessage = (msg) => {
+        if (msg.type === "audio_register") ring = new Uint8Array(msg.payload.sab, CTRL_BLOCK_BYTES);
+    };
+    try {
+        restored.ds.restoreSavestate(saved);
+        expect(ring).toEqual(original.pcm);
+        expect(ring![0]).toBe(0x11);
+        expect(ring![4096]).toBe(0x34);
+        original.unlock(pending);
+        restored.unlock(pending);
+        expect(ring).toEqual(original.pcm);
+        expect(restored.ds.captureSavestate().objects[0]?.lockedRing).toBeUndefined();
+    } finally {
+        globalThis.postMessage = oldPost;
+    }
 });
