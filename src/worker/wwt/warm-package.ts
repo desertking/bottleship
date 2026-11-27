@@ -18,12 +18,12 @@ type DemandInput = {
     length: number;
     flags: number;
     opt: number;
-    known: number[];
 };
 
 type DemandRecord = DemandInput & {
     kind: "demand";
     code: string;
+    knownHash: string;
     compilerMs: number;
     sha256?: string;
 };
@@ -119,8 +119,12 @@ async function openFile(url: URL, signal: AbortSignal, spec: WarmFile): Promise<
 
 type DemandEntries = Map<string, Map<string, WebAssembly.Module>>;
 
-function demandContext(input: DemandInput): string {
-    return `${input.length}/${input.flags}/${input.opt}/${input.known.join(",")}`;
+function knownHash(known: readonly number[]): string {
+    return sha256HexSync(encoder.encode(known.join(",")));
+}
+
+function demandContext(input: DemandInput, known: string): string {
+    return `${input.length}/${input.flags}/${input.opt}/${known}`;
 }
 
 export class WwtWarmPackage {
@@ -213,22 +217,31 @@ export class WwtWarmPackage {
                 if (!headerSize || headerSize > MAX_HEADER || !wasmSize || wasmSize > MAX_MODULE || remaining < 0) {
                     throw new Error("Invalid WWT demand record size");
                 }
-                const record = JSON.parse(decoder.decode(await reader.exact(headerSize))) as DemandRecord;
+                const record = JSON.parse(decoder.decode(await reader.exact(headerSize))) as DemandRecord & {
+                    known?: unknown;
+                    knownAliases?: unknown;
+                };
                 const wasm = await reader.exact(wasmSize);
                 if (record?.kind !== "demand" || !uint32(record.address) || !uint32(record.length)
                     || record.length === 0 || record.length > 0x40000 || !uint32(record.flags)
-                    || (record.opt !== 0 && record.opt !== 1) || !seeds(record.known)
+                    || (record.opt !== 0 && record.opt !== 1)
                     || !hash(record.code) || !hash(record.sha256)) throw new Error("Invalid WWT demand record");
+                const known = hash(record.knownHash) ? record.knownHash : seeds(record.known) ? knownHash(record.known) : undefined;
+                if (known === undefined) throw new Error("Invalid WWT demand entries");
+                const aliases = record.knownAliases ?? [];
+                if (!Array.isArray(aliases) || !aliases.every(hash)) throw new Error("Invalid WWT demand aliases");
                 try {
                     if (await sha256Hex(wasm) !== record.sha256) throw new Error("Invalid WWT demand artifact");
                     const module = await WebAssembly.compile(wasm);
                     if (this.controller.signal.aborted) return;
                     let contexts = this.demand.get(record.address);
                     if (!contexts) this.demand.set(record.address, contexts = new Map());
-                    const context = demandContext(record);
-                    let codes = contexts.get(context);
-                    if (!codes) contexts.set(context, codes = new Map());
-                    codes.set(record.code, module);
+                    for (const entries of [known, ...aliases]) {
+                        const context = demandContext(record, entries);
+                        let codes = contexts.get(context);
+                        if (!codes) contexts.set(context, codes = new Map());
+                        codes.set(record.code, module);
+                    }
                     this.stats.demandPrepared++;
                     this.stats.demandBytes += wasmSize;
                 } catch {
@@ -245,7 +258,7 @@ export class WwtWarmPackage {
 
     lookupDemand(address: number, code: Uint8Array, known: number[], flags: number, opt: number): WebAssembly.Module | undefined {
         const contexts = this.demand.get(address);
-        const candidates = contexts?.get(demandContext({ address, length: code.length, known, flags, opt }));
+        const candidates = contexts?.get(demandContext({ address, length: code.length, flags, opt }, knownHash(known)));
         return candidates?.get(sha256HexSync(code));
     }
 
@@ -309,9 +322,9 @@ export class WwtWarmRecorder {
     demand(address: number, code: Uint8Array, known: number[], flags: number, opt: number,
         compilerMs: number, wasm: Uint8Array<ArrayBuffer>): void {
         if (this.closed) return;
-        const record: DemandRecord = { kind: "demand", address, length: code.length, known, flags, opt,
+        const record: DemandRecord = { kind: "demand", address, length: code.length, knownHash: knownHash(known), flags, opt,
             code: sha256HexSync(code), compilerMs };
-        this.append(`${address}/${demandContext(record)}/${record.code}`, record, wasm);
+        this.append(`${address}/${demandContext(record, record.knownHash)}/${record.code}`, record, wasm);
     }
 
     pe(key: string, seeds: number[], wasm: Uint8Array<ArrayBuffer>): void {

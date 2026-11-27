@@ -24,8 +24,16 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
     const code = Uint8Array.of(0xb8, 42, 0, 0, 0, 0xc3);
     const flags = compiler.flags(guestLimit) >>> 0;
     const demand = compiler.translate(code, address, [], guestLimit, false, 0);
-    const demandPack = frame({ kind: "demand", address, length: code.length, known: [], flags, opt: 0,
-        code: await sha256Hex(code), sha256: await sha256Hex(demand) }, demand);
+    const known = [address + code.length - 1];
+    const legacy = compiler.translate(code, address, known, guestLimit, false, 0);
+    const header = { kind: "demand", address, length: code.length, flags, opt: 0, code: await sha256Hex(code) };
+    const aliasedHash = await sha256Hex(new TextEncoder().encode(String(address)));
+    const compactFrame = frame({ ...header, knownHash: await sha256Hex(new Uint8Array()), knownAliases: [aliasedHash],
+        sha256: await sha256Hex(demand) }, demand);
+    const legacyFrame = frame({ ...header, known, sha256: await sha256Hex(legacy) }, legacy);
+    const demandPack = new Uint8Array(compactFrame.length + legacyFrame.length);
+    demandPack.set(compactFrame);
+    demandPack.set(legacyFrame, compactFrame.length);
     const demandSha = await sha256Hex(demandPack);
     const gzip = Bun.gzipSync(demandPack);
     const peInput = Uint8Array.of(42);
@@ -60,6 +68,9 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
         expect(await server.pe(peKey)).toEqual({ bytes: demand, seeds: [address] });
         expect(await server.pe(await peAotKey(Uint8Array.of(43), "mode"))).toBeNull();
         expect(await server.pe(await peAotKey(peInput, "other-flags"))).toBeNull();
+        for (let i = 0; i < 100 && server.stats.demandPrepared < 2; i++) await Bun.sleep(5);
+        expect(server.lookupDemand(address, code, known, flags, 0)).toBeInstanceOf(WebAssembly.Module);
+        expect(server.lookupDemand(address, code, [address], flags, 0)).toBe(server.lookupDemand(address, code, [], flags, 0));
         expect(server.lookupDemand(address, code, [address + 2], flags, 0)).toBeUndefined();
         expect(server.lookupDemand(address, code, [], flags + 1, 0)).toBeUndefined();
         expect(server.lookupDemand(address, code, [], flags, 1)).toBeUndefined();
@@ -74,8 +85,8 @@ test("a first launch reuses exact server Wasm and falls back after a guest code 
 
         await machine.init();
         await machine.prepareWarmPackage("/game/wwt/");
-        for (let i = 0; i < 100 && !machine.warmStats()?.demandPrepared; i++) await Bun.sleep(5);
-        expect(machine.warmStats()?.demandPrepared).toBe(1);
+        for (let i = 0; i < 100 && (machine.warmStats()?.demandPrepared ?? 0) < 2; i++) await Bun.sleep(5);
+        expect(machine.warmStats()?.demandPrepared).toBe(2);
         machine.codeEnd = () => address + code.length;
         const ram = new Uint8Array(machine.memory.buffer);
         const view = new DataView(machine.memory.buffer);

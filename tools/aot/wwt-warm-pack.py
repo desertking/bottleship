@@ -71,8 +71,15 @@ def build(compiler, output, traces, profile):
                 if prior is None or len(header["seeds"]) >= len(prior[0]["seeds"]):
                     pe[key] = rec
             elif header["kind"] == "demand":
+                known_hash = header.get("knownHash")
+                if known_hash is None:
+                    known_hash = digest(",".join(map(str, header["known"])).encode())
+                if not HASH.fullmatch(known_hash):
+                    raise ValueError(f"Invalid known-entry hash in {path}")
+                header.pop("known", None)
+                header["knownHash"] = known_hash
                 key = tuple(header[k] for k in ("address", "length", "flags", "opt", "code"))
-                demand.setdefault((*key, tuple(header["known"])), rec)
+                demand.setdefault((*key, known_hash), rec)
             else:
                 raise ValueError(f"Unexpected record kind {header['kind']}")
 
@@ -97,17 +104,30 @@ def build(compiler, output, traces, profile):
     temp = root / "demand.tmp"
     checksum = hashlib.sha256()
     size = count = 0
+    groups = {}
+    for key, rec in demand.items():
+        sha = digest(module(rec))
+        identity = (*key[:-1], sha)
+        if identity in groups:
+            groups[identity][1].append(key[-1])
+        else:
+            groups[identity] = (rec, [])
     with temp.open("wb") as target, gzip.GzipFile(filename="", mode="wb", fileobj=target, compresslevel=3, mtime=0) as stream:
-        for rec in demand.values():
+        covered = 0
+        for key, (rec, aliases) in groups.items():
             data = module(rec)
-            frame = encode({**rec[0], "sha256": digest(data)}, data)
+            header = {**rec[0], "sha256": key[-1]}
+            if aliases:
+                header["knownAliases"] = aliases
+            frame = encode(header, data)
             cost = sum(map(len, frame))
-            if cost > remaining or count == 65536:
+            if cost > remaining or len(frame[1]) > 256 * 1024 or count == 65536:
                 continue
             for part in frame:
                 stream.write(part)
                 checksum.update(part)
             count += 1
+            covered += 1 + len(aliases)
             size += cost
             remaining -= cost
     if size:
@@ -125,7 +145,7 @@ def build(compiler, output, traces, profile):
     temp = root / "index.tmp"
     temp.write_bytes(data)
     temp.replace(root / "index.json")
-    print(json.dumps({"root": str(root), "pe": len(pe), "demand": count, "omitted": len(demand) - count,
+    print(json.dumps({"root": str(root), "pe": len(pe), "demand": count, "demandKeys": covered, "omitted": len(demand) - covered,
                       "wasmAndMetadataBytes": MAX_PACKAGE - remaining + len(data), "transferBytes": wire_bytes + len(data)}))
 
 
