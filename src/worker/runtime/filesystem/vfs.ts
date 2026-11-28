@@ -1348,6 +1348,19 @@ export class VirtualFileSystem {
         }
     }
 
+    async replaceFile(path: string, bytes: Uint8Array, overwrite = true): Promise<boolean> {
+        const full = this.resolvePath(path);
+        const overlay = this.overlay;
+        if (!overlay || !this.parentDirectoryExists(full)) return false;
+        const existsInRom = this.romIndex.has(this.relRomPath(full).toLowerCase());
+        if (!overwrite && existsInRom && !this.isRomWhiteout(full)) return false;
+        if (!await overlay.replaceFile(full, bytes, overwrite)) return false;
+        this.bumpWindowEpoch(full);
+        this.clearRomWhiteout(full);
+        if (existsInRom) overlay.markShadowed(full);
+        return true;
+    }
+
     async flushFile(path: string): Promise<void> {
         if (!this.overlay) return;
         await this.overlay.flushFile(path);
@@ -2890,6 +2903,49 @@ class OpfsOverlay {
             for (const segment of toOpfsSegments(path)) {
                 dir = (await this.physicalDirectory(dir, segment, true)).dir;
             }
+        });
+    }
+
+    async replaceFile(path: string, bytes: Uint8Array, overwrite: boolean): Promise<boolean> {
+        const key = toKey(path);
+        await this.flushFile(path);
+        return this.inNamespace(async () => {
+            if (!overwrite && this.entries.has(key)) return false;
+            if (this.policy.isEphemeral(path)) {
+                this.ephemeralFiles.set(key, bytes.slice());
+                this.entries.set(key, { size: bytes.length, kind: "file", path: normalizePath(path) });
+                return true;
+            }
+
+            this.invalidateNameLookups(path);
+            const { dirHandle, name, path: physicalPath } = await this.getDirectoryHandle(path, true);
+            let handle: FileSystemFileHandle;
+            let created = false;
+            let writer: FileSystemWritableFileStream | undefined;
+            try {
+                try {
+                    handle = await dirHandle.getFileHandle(name);
+                    if (!overwrite) return false;
+                } catch (error) {
+                    if ((error as { name?: string })?.name !== "NotFoundError") throw error;
+                    handle = await dirHandle.getFileHandle(name, { create: true });
+                    created = true;
+                }
+                this.closeSyncHandle(path);
+                writer = await handle.createWritable({ keepExistingData: false });
+                await writer.write(bytes.slice());
+                await writer.close();
+            } catch (error) {
+                try { await writer?.abort(); } catch {}
+                if (created) {
+                    try { await dirHandle.removeEntry(name); } catch {}
+                }
+                throw error;
+            }
+            this.entries.set(key, { size: bytes.length, kind: "file", path: physicalPath });
+            this.cacheReset(key);
+            this.cacheWrite(key, 0, bytes);
+            return true;
         });
     }
 
