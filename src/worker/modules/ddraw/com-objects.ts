@@ -467,7 +467,7 @@ export function moveRestoredTextureDebt(st: DirectDrawSurfaceState, owed: boolea
 
 export type MipRef = (mip: DirectDrawSurfaceState) => number | null;
 
-export function captureSurfaceState(st: DirectDrawSurfaceState, mipRef: MipRef = () => null): Record<string, unknown> {
+function captureSurfaceFields(st: DirectDrawSurfaceState): Record<string, unknown> {
     if (st.activeLeaseId !== undefined) throw new CaptureRefusal('ddraw: a surface is locked');
     if (gpuHoldsLatest(st)) {
         throw new CaptureRefusal(`ddraw: surface 0x${st.surfacePtr.toString(16)} has pixels only on the GPU and could not be read back`);
@@ -476,29 +476,61 @@ export function captureSurfaceState(st: DirectDrawSurfaceState, mipRef: MipRef =
     const own = isBitmapTexture(st) ? BITMAP_TEXTURE_FIELDS : RENDER_SURFACE_FIELDS;
     for (const table of [SURFACE_FIELDS, own] as Record<string, FieldPolicy>[]) {
         for (const [key, policy] of Object.entries(table)) {
-            if (policy !== 'save') continue;
+            if (policy !== 'save' || key === 'mipSublevels') continue;
             const v = (st as unknown as Record<string, unknown>)[key];
             if (v === undefined) continue;
-            if (key === 'mipSublevels') {
-                out[key] = (v as DirectDrawSurfaceState[]).map(m => {
-                    const id = mipRef(m);
-                    return id === null ? captureSurfaceState(m, mipRef) : { mipRef: id };
-                });
-            }
-            else if (key === 'privateData') out[key] = [...(v as Map<string, PrivateDataEntry>)].map(([k, e]) => [k, copyValue(e)]);
+            if (key === 'privateData') out[key] = [...(v as Map<string, PrivateDataEntry>)].map(([k, e]) => [k, copyValue(e)]);
             else out[key] = copyValue(v);
         }
     }
     return out;
 }
 
-export function restoreSurfaceState(saved: Record<string, unknown>): DirectDrawSurfaceState {
-    const st: Record<string, unknown> = {};
-    for (const [key, v] of Object.entries(saved)) st[key] = copyValue(v);
-    if (Array.isArray(saved.mipSublevels)) {
-        st.mipSublevels = (saved.mipSublevels as Record<string, unknown>[]).map(m => ('mipRef' in m ? { ...m } : restoreSurfaceState(m)));
+export function captureSurfaceState(root: DirectDrawSurfaceState, mipRef: MipRef = () => null): Record<string, unknown> {
+    const out = captureSurfaceFields(root);
+    const stack: Array<{
+        surface: DirectDrawSurfaceState;
+        mips: DirectDrawSurfaceState[];
+        savedMips: Record<string, unknown>[];
+        next: number;
+    }> = [];
+    const ancestors = new Set<DirectDrawSurfaceState>();
+    const push = (surface: DirectDrawSurfaceState, saved: Record<string, unknown>) => {
+        const mips = surface.mipSublevels;
+        if (!mips || (surface.implicitChainMember && mips.includes(surface))) return;
+        const savedMips: Record<string, unknown>[] = [];
+        saved.mipSublevels = savedMips;
+        ancestors.add(surface);
+        stack.push({ surface, mips, savedMips, next: 0 });
+    };
+    push(root, out);
+    while (stack.length) {
+        const entry = stack[stack.length - 1]!;
+        if (entry.next === entry.mips.length) {
+            ancestors.delete(entry.surface);
+            stack.pop();
+            continue;
+        }
+        const mip = entry.mips[entry.next++]!;
+        if (ancestors.has(mip)) throw new CaptureRefusal('ddraw: mipmap list contains a cycle');
+        const id = mipRef(mip);
+        if (id !== null) {
+            entry.savedMips.push({ mipRef: id });
+        } else {
+            const fields = captureSurfaceFields(mip);
+            entry.savedMips.push(fields);
+            push(mip, fields);
+        }
     }
-    if (Array.isArray(saved.privateData)) st.privateData = new Map(saved.privateData as Array<[string, PrivateDataEntry]>);
+    return out;
+}
+
+function restoreSurfaceFields(saved: Record<string, unknown>): DirectDrawSurfaceState {
+    const st: Record<string, unknown> = {};
+    for (const [key, v] of Object.entries(saved)) {
+        if (key !== 'mipSublevels') st[key] = copyValue(v);
+    }
+    if (Array.isArray(st.privateData)) st.privateData = new Map(st.privateData as Array<[string, PrivateDataEntry]>);
     if (st.surfaceType === 'bitmap_texture') {
         st.gpuNeedsUpload = true;
     } else {
@@ -509,6 +541,21 @@ export function restoreSurfaceState(saved: Record<string, unknown>): DirectDrawS
         restoredSurfacesSeen = true;
     }
     return st as unknown as DirectDrawSurfaceState;
+}
+
+export function restoreSurfaceState(saved: Record<string, unknown>): DirectDrawSurfaceState {
+    const root = restoreSurfaceFields(saved);
+    const work = [{ saved, state: root }];
+    for (const entry of work) {
+        if (!Array.isArray(entry.saved.mipSublevels)) continue;
+        entry.state.mipSublevels = entry.saved.mipSublevels.map((mip: Record<string, unknown>) => {
+            if ('mipRef' in mip) return { ...mip } as unknown as DirectDrawSurfaceState;
+            const state = restoreSurfaceFields(mip);
+            work.push({ saved: mip, state });
+            return state;
+        });
+    }
+    return root;
 }
 
 export interface SavedSurfaceObject {
@@ -587,9 +634,16 @@ export class DirectDrawSurfaceObject extends BaseComObject {
     }
 
     static linkObject(o: DirectDrawSurfaceObject, resolve: (ref: number) => unknown): void {
-        const mips = o.state.mipSublevels as Array<DirectDrawSurfaceState | { mipRef: number }> | undefined;
-        if (!mips) return;
-        o.state.mipSublevels = mips.map(m => ('mipRef' in m ? (resolve(m.mipRef) as DirectDrawSurfaceObject).state : m));
+        const work = [o.state];
+        for (const state of work) {
+            const mips = state.mipSublevels as Array<DirectDrawSurfaceState | { mipRef: number }> | undefined;
+            if (!mips) continue;
+            state.mipSublevels = mips.map(mip => {
+                if ('mipRef' in mip) return (resolve(mip.mipRef) as DirectDrawSurfaceObject).state;
+                work.push(mip);
+                return mip;
+            });
+        }
     }
 
     static ownerOf(state: DirectDrawSurfaceState): DirectDrawSurfaceObject | null {

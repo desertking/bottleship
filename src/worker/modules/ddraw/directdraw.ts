@@ -930,6 +930,7 @@ export const createDirectDrawExports = (context: DDrawContext): Record<string, T
                     // reference, and a shared list would detach the root's members with this one.
                     attachedSurfaceAddrs: undefined,
                     zOwnerSurfaces: undefined,
+                    mipSublevels: undefined,
                     mode: surfaceState.mode,
                     version: 0,
                     // Do not mark gpuDirty until guest writes — pre-Load bind must not upload zeros.

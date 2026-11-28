@@ -88,6 +88,19 @@ describe("surface state", () => {
         }
     });
 
+    test("an implicit mip level may have inherited the root's array", () => {
+        const mips: DirectDrawSurfaceState[] = [];
+        const root = renderSurface({ mipSublevels: mips, mipMapCount: 3 });
+        mips.push(
+            renderSurface({ width: 4, mipSublevels: mips, implicitChainMember: true }),
+            renderSurface({ width: 2, mipSublevels: mips, implicitChainMember: true }),
+        );
+        const restored = restoreSurfaceState(captureSurfaceState(root));
+        expect(restored.mipSublevels?.map(mip => [mip.width, mip.mipSublevels])).toEqual([
+            [4, undefined], [2, undefined],
+        ]);
+    });
+
     test("every saved base, render-surface and bitmap-texture field reaches the capture", () => {
         const cases: Array<[DirectDrawSurfaceState, Record<string, string>]> = [
             [renderSurface({
@@ -193,8 +206,9 @@ describe("DirectDraw COM objects", () => {
             registerDDrawCodecs();
             const provider = System.getInstance().resourceProvider;
             const table = (provider as unknown as { comObjects: { create(h: number, o: unknown): void; release(h: number): unknown } }).comObjects;
-            const mipState = renderSurface({ surfacePtr: 0x30000, width: 4, height: 2, surfaceLost: true });
+            const mipState = renderSurface({ surfacePtr: 0x30000, width: 4, height: 2, surfaceLost: true, implicitChainMember: true });
             const root = new DirectDrawSurfaceObject(0x5400, renderSurface({ mipSublevels: [mipState], mipMapCount: 2 }));
+            mipState.mipSublevels = root.getState().mipSublevels;
             const mip = new DirectDrawSurfaceObject(0x5400, mipState);
             const g = newObjectGraph();
             const rootRef = g.ref(root, "root");
