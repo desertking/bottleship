@@ -7,6 +7,7 @@ import { isValidAddress } from "../core/memory/address-guard";
 import { System } from "../core/system";
 import { Logger, LogCategory } from "../core/logger";
 import { createDbgHelpExports } from "./dbghelp";
+import { savestateParticipants, savestatesEnabled } from "../savestate/participant";
 
 const TRUE = 1;
 const FALSE = 0;
@@ -50,8 +51,26 @@ export class ImageHlp implements IModule {
     /** Flat file mappings handed out by MapAndLoad, so UnMapAndLoad can give them back. */
     private readonly fileMappings = new Map<number, number>();
 
+    registerSavestate(): () => void {
+        return savestateParticipants.add({
+            id: 'imagehlp', version: 1, order: 79, covers: ['imagehlp'], schema: ['mappedAddress', 'size'],
+            capture: () => this.fileMappings.size ? [...this.fileMappings] : null,
+            restore: (saved) => {
+                this.fileMappings.clear();
+                for (const [address, size] of (saved as [number, number][] | null) ?? []) {
+                    this.fileMappings.set(address, size);
+                }
+            },
+        });
+    }
+
+    reset(): void {
+        this.fileMappings.clear();
+    }
+
     initialize(process: Process): void {
         const system = System.getInstance();
+        if (savestatesEnabled()) this.registerSavestate();
 
         // imagehlp.dll exports the whole Sym*/StackWalk* surface in its own right (NT builds
         // both DLLs from one source and re-exports them here), and GetProcAddress is scoped

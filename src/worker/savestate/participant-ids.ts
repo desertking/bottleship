@@ -42,6 +42,7 @@ export const PARTICIPANT_IDS = [
     'mscoree',
     'xinput1_3',
     'dbghelp',
+    'imagehlp',
     'dispatcher',
     'loaded-modules',
     'cpu',

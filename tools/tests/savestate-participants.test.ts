@@ -53,6 +53,7 @@ import { XInput1_3 } from "../../src/worker/modules/xinput1_3";
 import { DSound } from "../../src/worker/modules/dsound/dsound";
 import { DInput } from "../../src/worker/modules/dinput/dinput";
 import { DMusic } from "../../src/worker/modules/dmusic";
+import { ImageHlp } from "../../src/worker/modules/imagehlp";
 import { clearTimerHandler } from "../../src/worker/core/scheduler/timer-wheel";
 import { exports as vistaRuntimeExports } from "../../src/worker/modules/kernel32/vista-runtime";
 import { exports as processExports } from "../../src/worker/modules/kernel32/process/process";
@@ -341,6 +342,30 @@ describe("participant schemas", () => {
         expect(schemaHash({ a: "save", b: "host" })).toBe(schemaHash({ b: "host", a: "save" }));
         expect(schemaHash({ a: "save", b: "host" })).not.toBe(schemaHash({ a: "save", b: "save" }));
     });
+});
+
+test("imagehlp restores image mappings and clears them for an empty state", async () => {
+    const module = new ImageHlp();
+    const undo = module.registerSavestate();
+    try {
+        const participant = savestateParticipants.all().find(p => p.id === 'imagehlp')!;
+        const capture = () => participant.capture(newCaptureRun());
+        const context = { object: () => undefined, blob: () => { throw new Error("unexpected blob"); } };
+        expect(savestateParticipants.coveredModules().has('imagehlp')).toBe(true);
+        expect(capture()).toBeNull();
+        const mappings = [[0x4000, 1024], [0x8000, 2048]];
+        await participant.restore(mappings, context);
+        const saved = capture();
+        expect(saved).toEqual(mappings);
+        module.reset();
+        expect(capture()).toBeNull();
+        await participant.restore(saved, context);
+        expect(capture()).toEqual(mappings);
+        await participant.restore(null, context);
+        expect(capture()).toBeNull();
+    } finally {
+        undo();
+    }
 });
 
 describe("schema pin and mutation", () => {
