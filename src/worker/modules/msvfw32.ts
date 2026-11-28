@@ -12,19 +12,48 @@ import { ThunkImplementation } from "../core/thunking/thunk-dispatcher";
 import { Logger, LogCategory } from "../core/logger";
 import { Marshaler } from "../core/memory/marshaler";
 import { Mem } from "../core/memory/mem-accessor";
-import { MCIWND_CLASS_NAME, createMciWnd, ensureMciWndClass, readMciWndFileName, resetMciWndState } from "./msvfw32-mciwnd";
+import { savestateParticipants, savestatesEnabled, stateKeys } from "../savestate/participant";
+import { MCIWND_CLASS_NAME, createMciWnd, ensureMciWndClass, readMciWndFileName, resetMciWndState, type MciWndState } from "./msvfw32-mciwnd";
 
-/** Fake HDRAWDIB handle — just a non-zero sentinel */
-let nextDrawDibHandle = 0xDD000001;
+interface Msvfw32State {
+    nextDrawDibHandle: number;
+    mciWndClassNamePtr: number;
+    windows: Array<[number, MciWndState]>;
+}
 
 export class Msvfw32 implements IModule {
     name = "msvfw32";
     exports: Record<string, ThunkImplementation> = {};
     private process!: Process;
     private mciWndClassNamePtr = 0;
+    private nextDrawDibHandle = 0xDD000001;
+    readonly mciWindows = new Map<number, MciWndState>();
+
+    registerSavestate(): () => void {
+        return savestateParticipants.add({
+            id: 'msvfw32', version: 1, order: 79, covers: ['msvfw32'],
+            schema: {
+                state: stateKeys<Msvfw32State>({ nextDrawDibHandle: true, mciWndClassNamePtr: true, windows: true }),
+                window: stateKeys<MciWndState>({ alias: true, lastError: true }),
+            },
+            capture: () => ({
+                nextDrawDibHandle: this.nextDrawDibHandle,
+                mciWndClassNamePtr: this.mciWndClassNamePtr,
+                windows: [...this.mciWindows].map(([hwnd, state]) => [hwnd, { ...state }]),
+            }),
+            restore: (value) => {
+                const state = value as unknown as Msvfw32State;
+                this.nextDrawDibHandle = state.nextDrawDibHandle;
+                this.mciWndClassNamePtr = state.mciWndClassNamePtr;
+                this.mciWindows.clear();
+                for (const [hwnd, window] of state.windows) this.mciWindows.set(hwnd, { ...window });
+            },
+        });
+    }
 
     initialize(process: Process): void {
         this.process = process;
+        if (savestatesEnabled()) this.registerSavestate();
 
         // No VCM codec is installed, which is a state real Windows can be in: ICLocate
         // and ICOpen answer NULL and ICInfo FALSE, so a caller sees "this format has no
@@ -55,7 +84,7 @@ export class Msvfw32 implements IModule {
             const className = this.mciWndClassName();
             const fresh = Mem.getView();
             return className && fresh
-                ? createMciWnd(ctx, fresh, args[0] >>> 0, args[1] >>> 0, args[2] >>> 0, file, className) : 0;
+                ? createMciWnd(ctx, fresh, args[0] >>> 0, args[1] >>> 0, args[2] >>> 0, file, className, this.mciWindows) : 0;
         };
         this.exports["MCIWndCreate"] = mciWndCreate(false);
         this.exports["MCIWndCreateA"] = mciWndCreate(false);
@@ -67,7 +96,7 @@ export class Msvfw32 implements IModule {
 
         // DrawDibOpen() → HDRAWDIB
         this.exports["DrawDibOpen"] = (_ctx, _mem, _args) => {
-            const handle = nextDrawDibHandle++;
+            const handle = this.nextDrawDibHandle++;
             Logger.log(LogCategory.SYSTEM, `[MSVFW32] DrawDibOpen() → 0x${handle.toString(16)}`);
             return handle;
         };
@@ -132,7 +161,7 @@ export class Msvfw32 implements IModule {
     }
 
     reset(): void {
-        resetMciWndState();
+        resetMciWndState(this.mciWindows);
         if (this.mciWndClassNamePtr) this.process.memory.free(this.mciWndClassNamePtr);
         this.mciWndClassNamePtr = 0;
     }

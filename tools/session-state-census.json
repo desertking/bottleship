@@ -966,12 +966,6 @@
   "src/worker/modules/iphlpapi.ts": [
     "ZERO_BLOCK"
   ],
-  "src/worker/modules/msvfw32-mciwnd.ts": [
-    "states"
-  ],
-  "src/worker/modules/msvfw32.ts": [
-    "nextDrawDibHandle"
-  ],
   "src/worker/modules/openal/openal.ts": [
     "audioIdCounter"
   ],

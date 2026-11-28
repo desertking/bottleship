@@ -15,6 +15,7 @@ import type { ThunkResult, X86Context } from "../core/thunking/thunk-dispatcher"
 import { registerBuiltinClass } from "./user32/class";
 import { windows, type WindowInfo } from "./user32/shared-state";
 import { getWindowFrameMetrics } from "./user32/window-geometry";
+import type { Msvfw32 } from "./msvfw32";
 import type { WinmmMci } from "./winmm-mci";
 
 export const MCIWND_CLASS_NAME = "MCIWndClass";
@@ -49,13 +50,16 @@ const SWP_NOMOVE = 0x0002;
 const SWP_NOZORDER = 0x0004;
 const SWP_NOACTIVATE = 0x0010;
 
-interface MciWndState {
+export interface MciWndState {
     /** Alias of the open device; empty while the window holds none. */
     alias: string;
     lastError: number;
 }
 
-const states = new Map<number, MciWndState>();
+function mciWindows(): Map<number, MciWndState> | undefined {
+    const module = System.getInstance().process?.getModule("msvfw32") as Msvfw32 | undefined;
+    return module?.mciWindows;
+}
 
 export function readMciWndFileName(mem: Uint8Array, ptr: number, wide: boolean): string | null {
     if (!ptr) return "";
@@ -89,8 +93,7 @@ function mci(): WinmmMci | null {
     return winmm?.getMci?.() ?? null;
 }
 
-function closeDevice(hwnd: number): void {
-    const st = states.get(hwnd);
+function closeDevice(st: MciWndState | undefined): void {
     if (!st?.alias) return;
     mci()?.executeString(`close ${st.alias}`);
     st.alias = "";
@@ -120,11 +123,12 @@ function sizeWindowToMovie(
 export function openMciWndFile(ctx: X86Context, mem: Uint8Array, hwnd: number, path: string): number {
     const win = windows.get(hwnd);
     const device = mci();
-    if (!win || !device) return MCIERR_INVALID_DEVICE_ID;
+    const states = mciWindows();
+    if (!win || !device || !states) return MCIERR_INVALID_DEVICE_ID;
 
     const st = states.get(hwnd) ?? { alias: "", lastError: 0 };
     states.set(hwnd, st);
-    closeDevice(hwnd);
+    closeDevice(st);
     if (!path) return 0;   // a NULL name closes the current file
 
     const alias = `mciwnd${hwnd}`;
@@ -164,7 +168,7 @@ export function handleMciWndMessage(
     mem: Uint8Array,
 ): number | null {
     if (!isMciWndWindow(windows.get(hwnd))) return null;
-    const st = states.get(hwnd);
+    const st = mciWindows()?.get(hwnd);
     const device = mci();
 
     const command = (verb: string): number => {
@@ -184,7 +188,7 @@ export function handleMciWndMessage(
         case MCI_PAUSE: return command("pause");
         case MCI_RESUME: return command("resume");
         case MCI_CLOSE:
-            closeDevice(hwnd);
+            closeDevice(st);
             return 0;
         case MCIWNDM_GETDEVICEID:
             return st?.alias && device ? device.deviceIdOf(st.alias) : 0;
@@ -214,13 +218,13 @@ export function handleMciWndMessage(
 }
 
 export function clearMciWndState(hwnd: number): void {
-    if (!states.has(hwnd)) return;
-    closeDevice(hwnd);
-    states.delete(hwnd);
+    const states = mciWindows();
+    closeDevice(states?.get(hwnd));
+    states?.delete(hwnd);
 }
 
-export function resetMciWndState(): void {
-    for (const hwnd of states.keys()) closeDevice(hwnd);
+export function resetMciWndState(states: Map<number, MciWndState>): void {
+    for (const state of states.values()) closeDevice(state);
     states.clear();
 }
 
@@ -237,6 +241,7 @@ export function createMciWnd(
     dwStyle: number,
     file: string,
     classNamePtr: number,
+    states: Map<number, MciWndState>,
 ): number | ThunkResult {
     const WS_VISIBLE = 0x10000000;
     const WS_BORDER = 0x00800000;

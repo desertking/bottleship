@@ -6,6 +6,7 @@
 import { afterAll, beforeEach, describe, expect, test } from "bun:test";
 import { System } from "../../src/worker/core/system";
 import {Mem} from "../../src/worker/core/memory/mem-accessor";
+import { savestateParticipants } from "../../src/worker/savestate/participant";
 import {Msvfw32} from "../../src/worker/modules/msvfw32";
 import { windows, type WindowInfo } from "../../src/worker/modules/user32/shared-state";
 import {
@@ -31,6 +32,7 @@ let commands: string[];
 let mode: string;
 let resized: number[] | null;
 let openError: number;
+let video: Msvfw32;
 
 const system = System.getInstance() as unknown as { process: unknown };
 const realProcess = system.process;
@@ -54,9 +56,11 @@ beforeEach(() => {
         },
         deviceIdOf: () => 7,
     };
+    video = new Msvfw32();
     system.process = {
         getModule: (name: string) => name === "winmm"
             ? { getMci: () => mci }
+            : name === "msvfw32" ? video
             : { exports: { SetWindowPos: (_c: unknown, _m: unknown, args: number[]) => { resized = args; return 1; } } },
     };
     clearMciWndState(HWND);
@@ -90,6 +94,24 @@ describe("MCIWnd", () => {
         expect(module.exports.MCIWndCreate!({} as never, current, [0, 0, 0, 0])).toBe(HWND);
         module.reset(); expect(freed).toBe(1);
     });
+    test("restoring an MCIWnd preserves its open device and last error", () => {
+        makeWindow(WS_CHILD);
+        openMciWndFile(ctx, mem, HWND, "logos.avi");
+        const unregister = video.registerSavestate();
+        try {
+            const participant = savestateParticipants.all().find(row => row.id === "msvfw32")!;
+            const state = participant.capture({} as never);
+            video.mciWindows.get(HWND)!.lastError = 275;
+            video.mciWindows.clear();
+            participant.restore(state, {} as never);
+            expect(handleMciWndMessage(ctx, HWND, 0x0400 + 128, 0, 0, mem)).toBe(0);
+            expect(handleMciWndMessage(ctx, HWND, MCI_PLAY, 0, 0, mem)).toBe(0);
+            expect(commands.at(-1)).toBe(`play mciwnd${HWND}`);
+        } finally {
+            unregister();
+        }
+    });
+
     test("opening a file aims the device at the window, sized around the movie", () => {
         makeWindow(WS_CHILD | WS_BORDER);
         expect(openMciWndFile(ctx, mem, HWND, "logos.avi")).toBe(0);
@@ -173,10 +195,10 @@ describe("MCIWnd", () => {
     test("reset closes devices and removes state before a window handle is reused", () => {
         makeWindow(WS_CHILD);
         openMciWndFile(ctx, mem, HWND, "logos.avi");
-        resetMciWndState();
+        resetMciWndState(video.mciWindows);
         expect(commands.filter((c) => c.startsWith("close"))).toEqual([`close mciwnd${HWND}`]);
         expect(handleMciWndMessage(ctx, HWND, MCIWNDM_GETMODEA, 0, 0, mem)).toBe(MCI_MODE_NOT_READY);
-        resetMciWndState();
+        resetMciWndState(video.mciWindows);
         expect(commands.filter((c) => c.startsWith("close"))).toHaveLength(1);
     });
 });
