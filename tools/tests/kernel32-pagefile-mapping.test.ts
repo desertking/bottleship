@@ -40,7 +40,9 @@ describe("pagefile-backed CreateFileMapping", () => {
         mem.set(new TextEncoder().encode("C4Shared\0"), NAME);
         const first = call("CreateFileMappingA", 0xFFFFFFFF, 0, 4, 0, 0x100, NAME);
         expect(first).not.toBe(0);
-        expect(call("CreateFileMappingA", 0xFFFFFFFF, 0, 4, 0, 0x100, NAME)).toBe(first);
+        const second = call("CreateFileMappingA", 0xFFFFFFFF, 0, 4, 0, 0x100, NAME);
+        expect(second).not.toBe(first);
+        expect(kernelObject(second)).toBe(kernelObject(first));
     });
 
     test("the wide form takes the same sentinel", () => {
