@@ -1,3 +1,4 @@
+import type { TextureHandleEntry } from '../context';
 /**
  * Shared types for D3D module
  */
@@ -150,22 +151,7 @@ export interface TextureResolution {
     textureHandleEntry?: TextureHandleEntry;
 }
 
-export interface TextureHandleEntry {
-    handle: number;
-    width: number;
-    height: number;
-    pitch: number;
-    format: { flags?: number; bpp: number; rMask: number; gMask: number; bMask: number; aMask: number };
-    gpuTexture: GPUTexture | null;
-    gpuTextureView: GPUTextureView | null;
-    gpuTextureFormat?: GPUTextureFormat;
-    /** CPU-First: Surface mode and dirty tracking */
-    mode?: "CPU" | "GPU_ONLY";
-    version?: number;
-    lastUploadVersion?: number;
-    srcColorKey?: { low: number; high: number };
-    surfaceState?: DirectDrawSurfaceState;
-}
+export type { TextureHandleEntry } from '../context';
 
 export interface TextureManager {
     resolve: (ptrOrHandle: number) => TextureResolution;

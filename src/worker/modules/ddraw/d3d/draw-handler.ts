@@ -129,7 +129,8 @@ function getStateFromTexOrSurface(
     return null;
 }
 
-function getOrCreateRegistrySurfaceState(entry: TextureHandleEntry): RenderSurface {
+function getOrCreateRegistrySurfaceState(entry: TextureHandleEntry): DirectDrawSurfaceState {
+    if (entry.restoredSurface) return entry.restoredSurface;
     const format = entry.format;
     const registryTextureFormat =
         entry.gpuTextureFormat ??
@@ -214,8 +215,13 @@ export const createDrawHandler = (context: DDrawContext, textureManager: Texture
         const entry = context.textureHandles.get(texId);
         if (!entry) return undefined;
         const live = resourceProvider.getComObjectByAddress(texId) as DirectDrawSurfaceObject | null;
-        if (live) {
-            const liveGpu = live.getState().gpuTexture;
+        if (live instanceof DirectDrawSurfaceObject) {
+            const liveState = live.getState();
+            if (entry.restoredSurface && entry.restoredSurface !== liveState) {
+                context.textureHandles.delete(texId);
+                return undefined;
+            }
+            const liveGpu = liveState.gpuTexture;
             if (liveGpu && entry.gpuTexture && liveGpu !== entry.gpuTexture) {
                 context.textureHandles.delete(texId);
                 return undefined;

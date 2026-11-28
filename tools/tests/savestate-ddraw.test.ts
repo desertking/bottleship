@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import { encodeValue, type SaveValue } from "../../src/worker/savestate/value-codec";
 import { CaptureRefusal, newObjectGraph, restoreObjectGraph } from "../../src/worker/savestate/object-codecs";
 import {
-    BITMAP_TEXTURE_FIELDS, DirectDrawSurfaceObject, RENDER_SURFACE_FIELDS, SURFACE_FIELDS, awaitsTextureAfterRestore,
+    BITMAP_TEXTURE_FIELDS, Direct3DDevice3Object, Direct3DDevice7Object, Direct3DMaterial3Object, Direct3DTexture2Object, Direct3DViewport3Object, DirectDrawSurfaceObject, RENDER_SURFACE_FIELDS, SURFACE_FIELDS, awaitsTextureAfterRestore,
     captureSurfaceState, restoreSurfaceState, textureCreatedAfterRestore, type DirectDrawSurfaceState,
 } from "../../src/worker/modules/ddraw/com-objects";
 import { DirectDrawClipperObject, DirectDrawObject, DirectDrawPaletteObject } from "../../src/worker/modules/ddraw/com-objects-ddraw";
@@ -79,6 +79,81 @@ function graphRoundTrip<T>(obj: T): { first: string; again: string; restored: T;
 }
 
 const comBase = (o: BaseComObject) => BaseComObject.captureComBase(o);
+
+test("Texture2 restores the COM wrapper with its original surface handle", () => {
+    const texture = new Direct3DTexture2Object(0x2000, 0x4000);
+    try {
+        const { first, again, restored } = graphRoundTrip(texture);
+        expect(again).toBe(first);
+        expect(restored.getSurfaceHandle()).toBe(0x4000);
+        expect(comBase(restored)).toEqual(comBase(texture));
+    } finally {
+        SystemResourceProvider.getInstance().unregisterComObject(comBase(texture).handle);
+    }
+});
+
+test("Immediate Mode devices preserve state blocks and COM identity", () => {
+    for (const device of [new Direct3DDevice3Object(0x2000), new Direct3DDevice7Object(0x2100)]) {
+        try {
+            device.parentInterfaces.set("IDirect3D3", 0x5000);
+            device.setRenderTarget(0x4000);
+            device.setRenderState(14, 1);
+            const block = device.createStateBlock(1);
+            device.setRenderState(14, 0);
+            const { first, again, restored } = graphRoundTrip(device);
+            expect(again).toBe(first);
+            expect(restored.getRenderTarget()).toBe(0x4000);
+            expect(restored.parentInterfaces.get("IDirect3D3")).toBe(0x5000);
+            expect(restored.getAllRenderStates()[14]).toBe(0);
+            expect(restored.applyStateBlock(block)).toBeTruthy();
+            expect(restored.getAllRenderStates()[14]).toBe(1);
+            expect(comBase(restored)).toEqual(comBase(device));
+        } finally {
+            SystemResourceProvider.getInstance().unregisterComObject(device.handle);
+        }
+    }
+});
+
+test("A Direct3D material reconnects to its active device and keeps its aliases", () => {
+    const device = new Direct3DDevice3Object(0x2000);
+    const material = new Direct3DMaterial3Object(0x2100);
+    try {
+        device.setLightStateMaterial(0x4400);
+        material.setMaterialHandle(0x4400);
+        material.setActiveDevice(device);
+        material.interfaceAddresses.set("IDirect3DMaterial", 0x5000);
+        const { first, again, restored } = graphRoundTrip(material);
+        expect(again).toBe(first);
+        expect(restored.getActiveDevice()).not.toBe(device);
+        expect(restored.getActiveDevice()?.handle).toBe(device.handle);
+        expect(restored.interfaceAddresses.get("IDirect3DMaterial")).toBe(0x5000);
+    } finally {
+        SystemResourceProvider.getInstance().unregisterComObject(device.handle);
+        SystemResourceProvider.getInstance().unregisterComObject(material.handle);
+    }
+});
+
+test("Viewport3 restores COM identity, clipping and device state", () => {
+    const viewport = new Direct3DViewport3Object(0x2000);
+    viewport.setViewport(1, 2, 640, 480, 0.1, 0.9);
+    viewport.setClipVolume(-0.5, 0.5, 1, 1);
+    viewport.setClipSpace(1, 2, 3, 4, 5, 6);
+    viewport.setBackground(7);
+    viewport.setBackgroundColor(8);
+    viewport.setDevice(0x3000);
+    viewport.setViewport2Address(0x4000);
+    try {
+        const { first, again, restored } = graphRoundTrip(viewport);
+        expect(again).toBe(first);
+        expect(restored.getViewport()).toEqual(viewport.getViewport());
+        expect(restored.getClipSpace()).toEqual(viewport.getClipSpace());
+        expect(restored.getDevice()).toBe(0x3000);
+        expect(restored.getViewport2Address()).toBe(0x4000);
+        expect(comBase(restored)).toEqual(comBase(viewport));
+    } finally {
+        SystemResourceProvider.getInstance().unregisterComObject(comBase(viewport).handle);
+    }
+});
 
 describe("surface state", () => {
     test("capture → restore → capture is byte-identical for a render surface and a bitmap texture", () => {
@@ -244,7 +319,7 @@ describe("ddraw participant", () => {
             desktopMode: { width: 1024, height: 768, bpp: 32, refresh: 60 },
             cooperative: { hwnd: 0x20001, flags: 0x11, exclusive: true },
             gdiSurfaceVisible: false, surfaces: { primary: 0x8000, backBuffer: 0x8100 }, ddraw7ObjectAddr: 0x9000,
-            usedVidMem: 1234, textureHandles: new Map(), nextTextureHandle: 5, suppressPresent: false,
+            usedVidMem: 1234, textureHandles: new Map(), matrices: new Set(), nextTextureHandle: 5, suppressPresent: false,
             deferredSurfacePtrFrees: [0x100],
             ...extra,
         } as unknown as DDrawContext;
@@ -280,6 +355,8 @@ describe("ddraw participant", () => {
             ddraw7ObjectAddr: 0x9100,
             usedVidMem: 4321,
             nextTextureHandle: 9,
+            matrices: [0x1100, 0x1400],
+            textureHandles: [],
             suppressPresent: true,
             gammaRamp: { red: new Float32Array([0.5]), green: new Float32Array([0.25]), blue: new Float32Array([0.125]), isIdentity: false },
             deferredSurfacePtrFrees: [0x200, 0x300],
@@ -336,7 +413,26 @@ describe("ddraw participant", () => {
         expect(() => captureSurfaceState(stuck)).toThrow("only on the GPU");
     });
 
-    test("refuses Direct3D texture handles", () => {
-        expect(() => captureDDrawState(host({ textureHandles: new Map([[1, {} as never]]) }))).toThrow("texture handles");
+    test("restores a texture handle and its address alias against one surface", () => {
+        const surface = new DirectDrawSurfaceObject(0x2000, renderSurface());
+        const entry = {
+            handle: surface.handle, width: 8, height: 4, pitch: 16, format: surface.getState().format,
+            gpuTexture: null, gpuTextureView: null,
+        };
+        try {
+            const rp = { getComObject: (id: number) => id === surface.handle ? surface : null, getAllComObjects: () => [surface] };
+            const first = captureDDrawState(host({
+                resourceProvider: rp as unknown as SystemResourceProvider,
+                textureHandles: new Map([[surface.handle, entry], [0x5000, entry]]),
+            }));
+            const target = fresh();
+            target.ctx.resourceProvider = rp as unknown as SystemResourceProvider;
+            restoreDDrawState(target, first);
+            expect(target.ctx.textureHandles.get(0x5000)).toBe(target.ctx.textureHandles.get(surface.handle)!);
+            expect(target.ctx.textureHandles.get(0x5000)?.restoredSurface).toBe(surface.getState());
+            expect(bytes(captureDDrawState(target).textureHandles)).toBe(bytes(first.textureHandles));
+        } finally {
+            SystemResourceProvider.getInstance().unregisterComObject(surface.handle);
+        }
     });
 });

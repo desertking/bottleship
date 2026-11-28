@@ -1,3 +1,4 @@
+import type { ParentD3Iface } from "../com-objects";
 /**
  * IDirect3DDevice3 and IDirect3DDevice7 implementations
  */
@@ -452,19 +453,12 @@ export const createDeviceExports = (
         return D3D_OK;
     };
 
-    type ParentD3Iface = "IDirect3D7" | "IDirect3D3" | "IDirect3D2" | "IDirect3D";
     const PARENT_D3_IID: Record<ParentD3Iface, string> = {
         IDirect3D7: IID_IDirect3D7,
         IDirect3D3: IID_IDirect3D3,
         IDirect3D2: IID_IDirect3D2,
         IDirect3D: IID_IDirect3D,
     };
-
-    /** Per device, the parent object handed out for each IDirect3D generation. IDirect3D v1
-     *  and IDirect3D3 are not an inheritance chain (v1 slot 7 is CreateViewport, v3 slot 7 is
-     *  FindDevice), so a device asked for both must return two different objects. */
-    // @transient(keyed by Direct3D device objects, which have no savestate codec, so a capture that holds one is refused by the object graph)
-    const parentD3ByDevice = new WeakMap<object, Map<ParentD3Iface, number>>();
 
     const writeGetDirect3D = (
         deviceObj: Direct3DDevice7Object | Direct3DDevice3Object | null,
@@ -505,15 +499,7 @@ export const createDeviceExports = (
             }
         }
 
-        let cache: Map<ParentD3Iface, number> | undefined;
-        if (deviceObj) {
-            cache = parentD3ByDevice.get(deviceObj);
-            if (!cache) {
-                cache = new Map();
-                parentD3ByDevice.set(deviceObj, cache);
-            }
-        }
-
+        const cache = deviceObj?.parentInterfaces;
         let parentPtr = cache?.get(iface) ?? 0;
         if (parentPtr) {
             const parentObj = resourceProvider.getComObjectByAddress(parentPtr);

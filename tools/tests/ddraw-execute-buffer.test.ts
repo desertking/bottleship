@@ -97,6 +97,7 @@ function harness() {
             getComObjectByAddress: (addr: number) => (addr === BUFFER_OBJ ? buffer : null),
         },
         vtables: {},
+        matrices: new Set(),
     };
 
     const draws: Draw[] = [];

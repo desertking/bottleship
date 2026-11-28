@@ -145,7 +145,8 @@ export const createTextureManager = (context: DDrawContext): TextureManager => {
             const liveComObj = resourceProvider.getComObjectByAddress(ptrOrHandle);
             if (liveComObj instanceof DirectDrawSurfaceObject) {
                 const liveGpu = liveComObj.getState().gpuTexture;
-                if (liveGpu && textureEntry.gpuTexture && liveGpu !== textureEntry.gpuTexture) {
+                if ((textureEntry.restoredSurface && textureEntry.restoredSurface !== liveComObj.getState()) ||
+                    (liveGpu && textureEntry.gpuTexture && liveGpu !== textureEntry.gpuTexture)) {
                     context.textureHandles.delete(ptrOrHandle);
                 } else {
                     return { addr: ptrOrHandle, obj: liveComObj, source: "surface_direct" };

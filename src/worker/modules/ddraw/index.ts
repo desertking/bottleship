@@ -643,6 +643,7 @@ export class DDraw implements IModule {
             ddraw7ObjectAddr: 0,
             usedVidMem: 0,
             textureHandles: new Map(),
+            matrices: new Set(),
             nextTextureHandle: 1,
             defaults: {
                 displayRefreshHz: 60,
@@ -874,6 +875,7 @@ export class DDraw implements IModule {
                 // Note: GPU resources will be cleaned up by deferred destruction in executor
                 this.context.textureHandles.clear();
             }
+            this.context.matrices.clear();
             this.context.nextTextureHandle = this.context.defaults.nextTextureHandleStart;
             
             // Rebuild the GPU executor — pipeline/depth/texture caches are keyed for one

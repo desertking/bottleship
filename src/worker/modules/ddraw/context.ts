@@ -36,6 +36,7 @@ export type TextureHandleEntry = {
     srcColorKey?: { low: number; high: number };
     /** Cached GPU-only draw view for registry-only bindings. */
     surfaceState?: DirectDrawSurfaceState;
+    restoredSurface?: DirectDrawSurfaceState;
 };
 
 export type DDrawContext = {
@@ -97,6 +98,7 @@ export type DDrawContext = {
      */
     textureHandles: Map<number, TextureHandleEntry>;
     nextTextureHandle: number;
+    matrices: Set<number>;
     /**
      * Default values container - "source of truth" for reset() and device recreation.
      * These are canonical defaults that should be applied when resetting state.

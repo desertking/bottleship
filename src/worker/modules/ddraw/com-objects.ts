@@ -1034,9 +1034,34 @@ export class Direct3D3Object extends BaseComObject {
 /**
  * Direct3DDevice3 COM object implementation.
  */
+type SavedStateBlock = Omit<D3DStateBlock, 'lights' | 'lightsEnabled' | 'recorded'> & {
+    lights: Array<[number, D3DLight7Data]>;
+    lightsEnabled: number[];
+    recorded?: Omit<D3DStateBlockMask, 'lightEnable'> & { lightEnable: Array<[number, boolean]> };
+};
+
+function captureStateBlock(block: D3DStateBlock): SavedStateBlock {
+    const { lights, lightsEnabled, recorded, ...values } = block;
+    return {
+        ...values, lights: [...lights], lightsEnabled: [...lightsEnabled],
+        ...(recorded && { recorded: { ...recorded, lightEnable: [...recorded.lightEnable] } }),
+    };
+}
+
+function restoreStateBlock(block: SavedStateBlock): D3DStateBlock {
+    const { lights, lightsEnabled, recorded, ...values } = structuredClone(block);
+    return {
+        ...values, lights: new Map(lights), lightsEnabled: new Set(lightsEnabled),
+        ...(recorded && { recorded: { ...recorded, lightEnable: new Map(recorded.lightEnable) } }),
+    };
+}
+
+export type ParentD3Iface = "IDirect3D7" | "IDirect3D3" | "IDirect3D2" | "IDirect3D";
+
 export class Direct3DDevice3Object extends BaseComObject {
     protected get leakOnZeroRef(): boolean { return true; }
     /** IDirect3D3* that created this device (IDirect3DDevice3::GetDirect3D). */
+    readonly parentInterfaces = new Map<ParentD3Iface, number>();
     private parentD3Addr: number = 0;
     private renderTargetAddr: number = 0;
     private currentViewportAddr: number = 0;
@@ -1089,6 +1114,61 @@ export class Direct3DDevice3Object extends BaseComObject {
     private nextStateBlockId: number = 1;
     private isRecordingStateBlock: boolean = false;
     private recordingStateBlock: D3DStateBlock | null = null;
+
+    static captureObject(o: Direct3DDevice3Object) {
+        return structuredClone({
+            base: BaseComObject.captureComBase(o),
+            parentD3Addr: o.parentD3Addr,
+            renderTargetAddr: o.renderTargetAddr,
+            currentViewportAddr: o.currentViewportAddr,
+            textureAddrs: o.textureAddrs,
+            renderStates: o.renderStates,
+            textureStageStates: o.textureStageStates,
+            worldMatrix: o.worldMatrix,
+            viewMatrix: o.viewMatrix,
+            projMatrix: o.projMatrix,
+            material: o.material,
+            materialSet: o.materialSet,
+            nextStateBlockId: o.nextStateBlockId,
+            isRecordingStateBlock: o.isRecordingStateBlock,
+            textureMatrices: o.textureMatrices,
+            textureMatricesSet: o.textureMatricesSet,
+            lightStateMaterial: o.lightStateMaterial,
+            colorModel: o.colorModel,
+            parentInterfaces: [...o.parentInterfaces],
+            lights: [...o.lights], lightsEnabled: [...o.lightsEnabled],
+            stateBlocks: [...o.stateBlocks].map(([id, block]) => [id, captureStateBlock(block)] as const),
+            recordingStateBlock: o.recordingStateBlock ? captureStateBlock(o.recordingStateBlock) : null,
+        });
+    }
+
+    static restoreObject(saved: ReturnType<typeof Direct3DDevice3Object.captureObject>): Direct3DDevice3Object {
+        const state = structuredClone(saved);
+        const o = BaseComObject.restoreComBase(() => new Direct3DDevice3Object(0), state.base);
+        o.parentD3Addr = state.parentD3Addr;
+        o.renderTargetAddr = state.renderTargetAddr;
+        o.currentViewportAddr = state.currentViewportAddr;
+        o.textureAddrs = state.textureAddrs;
+        o.renderStates = state.renderStates;
+        o.textureStageStates = state.textureStageStates;
+        o.worldMatrix = state.worldMatrix;
+        o.viewMatrix = state.viewMatrix;
+        o.projMatrix = state.projMatrix;
+        o.material = state.material;
+        o.materialSet = state.materialSet;
+        o.nextStateBlockId = state.nextStateBlockId;
+        o.isRecordingStateBlock = state.isRecordingStateBlock;
+        o.textureMatrices = state.textureMatrices;
+        o.textureMatricesSet = state.textureMatricesSet;
+        o.lightStateMaterial = state.lightStateMaterial;
+        o.colorModel = state.colorModel;
+        for (const [name, address] of state.parentInterfaces) o.parentInterfaces.set(name, address);
+        o.lights = new Map(state.lights);
+        o.lightsEnabled = new Set(state.lightsEnabled);
+        o.stateBlocks = new Map(state.stateBlocks.map(([id, block]) => [id, restoreStateBlock(block)]));
+        o.recordingStateBlock = state.recordingStateBlock ? restoreStateBlock(state.recordingStateBlock) : null;
+        return o;
+    }
 
     constructor(vtableAddress: number) {
         super(IID_IDirect3DDevice3V5, vtableAddress);
@@ -1579,6 +1659,31 @@ export class Direct3DViewport3Object extends BaseComObject {
         super(IID_IDirect3DViewport3, vtableAddress);
     }
 
+    static captureObject(o: Direct3DViewport3Object) {
+        return {
+            base: BaseComObject.captureComBase(o),
+            backgroundMaterial: o.backgroundMaterial,
+            backgroundColor: o.backgroundColor,
+            deviceAddr: o.deviceAddr,
+            viewport: { ...o.viewport },
+            clipVolume: { ...o.clipVolume },
+            clipSpace: { ...o.clipSpace },
+            viewport2Address: o.viewport2Address,
+        };
+    }
+
+    static restoreObject(state: ReturnType<typeof Direct3DViewport3Object.captureObject>): Direct3DViewport3Object {
+        const o = BaseComObject.restoreComBase(() => new Direct3DViewport3Object(0), state.base);
+        o.backgroundMaterial = state.backgroundMaterial;
+        o.backgroundColor = state.backgroundColor;
+        o.deviceAddr = state.deviceAddr;
+        o.viewport = { ...state.viewport };
+        o.clipVolume = { ...state.clipVolume };
+        o.clipSpace = { ...state.clipSpace };
+        o.viewport2Address = state.viewport2Address;
+        return o;
+    }
+
     setClipVolume(x: number, y: number, width: number, height: number): void {
         this.clipVolume = { x, y, width, height };
     }
@@ -1746,6 +1851,27 @@ export class Direct3DMaterial3Object extends BaseComObject {
     private materialHandle: number = 0;
     private activeDevice: Direct3DDevice3Object | null = null;
 
+    readonly interfaceAddresses = new Map<string, number>();
+
+    static captureObject(o: Direct3DMaterial3Object, ref: (o: BaseComObject, where: string) => number) {
+        const device = o.getActiveDevice();
+        return {
+            base: BaseComObject.captureComBase(o),
+            material: structuredClone(o.materialData),
+            handle: o.materialHandle,
+            interfaces: [...o.interfaceAddresses],
+            device: device ? ref(device, 'active material device') : null,
+        };
+    }
+
+    static restoreObject(s: ReturnType<typeof Direct3DMaterial3Object.captureObject>): Direct3DMaterial3Object {
+        const o = BaseComObject.restoreComBase(() => new Direct3DMaterial3Object(0), s.base);
+        o.materialData = structuredClone(s.material);
+        o.materialHandle = s.handle;
+        for (const [name, addr] of s.interfaces) o.interfaceAddresses.set(name, addr);
+        return o;
+    }
+
     constructor(vtableAddress: number) {
         super(IID_IDirect3DMaterial3, vtableAddress);
     }
@@ -1797,6 +1923,7 @@ export type Device7Viewport = {
 export class Direct3DDevice7Object extends BaseComObject implements FFPLightingSource {
     protected get leakOnZeroRef(): boolean { return true; }
     /** IDirect3D7* that created this device (IDirect3DDevice7::GetDirect3D). */
+    readonly parentInterfaces = new Map<ParentD3Iface, number>();
     private parentD3Addr: number = 0;
     /**
      * Which enumerated DX7 device GUID the game passed to CreateDevice
@@ -1875,6 +2002,72 @@ export class Direct3DDevice7Object extends BaseComObject implements FFPLightingS
         const refs = this.stateBlockTextureRefs.get(block);
         this.stateBlockTextureRefs.delete(block);
         if (refs) for (const ref of refs) ref?.release();
+    }
+
+    static captureObject(o: Direct3DDevice7Object, ref: (o: BaseComObject, where: string) => number) {
+        const refs = (block: D3DStateBlock) =>
+            (o.stateBlockTextureRefs.get(block) ?? []).map(obj => obj ? ref(obj, 'state block texture') : null);
+
+        return structuredClone({
+            base: BaseComObject.captureComBase(o),
+            parentD3Addr: o.parentD3Addr,
+            renderTargetAddr: o.renderTargetAddr,
+            currentViewportAddr: o.currentViewportAddr,
+            textureAddrs: o.textureAddrs,
+            renderStates: o.renderStates,
+            textureStageStates: o.textureStageStates,
+            worldMatrix: o.worldMatrix,
+            viewMatrix: o.viewMatrix,
+            projMatrix: o.projMatrix,
+            material: o.material,
+            materialSet: o.materialSet,
+            nextStateBlockId: o.nextStateBlockId,
+            isRecordingStateBlock: o.isRecordingStateBlock,
+            d3d7DeviceKind: o.d3d7DeviceKind,
+            viewportData: o.viewportData,
+            parentInterfaces: [...o.parentInterfaces],
+            lights: [...o.lights], lightsEnabled: [...o.lightsEnabled],
+            stateBlocks: [...o.stateBlocks].map(([id, block]) => [id, captureStateBlock(block)] as const),
+            recordingStateBlock: o.recordingStateBlock ? captureStateBlock(o.recordingStateBlock) : null,
+            blockTextureRefs: [...o.stateBlocks].map(([id, block]) => [id, refs(block)] as const),
+            recordingTextureRefs: o.recordingStateBlock ? refs(o.recordingStateBlock) : [],
+
+        });
+    }
+
+    static restoreObject(saved: ReturnType<typeof Direct3DDevice7Object.captureObject>, object: (ref: number) => unknown): Direct3DDevice7Object {
+        const state = structuredClone(saved);
+        const o = BaseComObject.restoreComBase(() => new Direct3DDevice7Object(0), state.base);
+        o.parentD3Addr = state.parentD3Addr;
+        o.renderTargetAddr = state.renderTargetAddr;
+        o.currentViewportAddr = state.currentViewportAddr;
+        o.textureAddrs = state.textureAddrs;
+        o.renderStates = state.renderStates;
+        o.textureStageStates = state.textureStageStates;
+        o.worldMatrix = state.worldMatrix;
+        o.viewMatrix = state.viewMatrix;
+        o.projMatrix = state.projMatrix;
+        o.material = state.material;
+        o.materialSet = state.materialSet;
+        o.nextStateBlockId = state.nextStateBlockId;
+        o.isRecordingStateBlock = state.isRecordingStateBlock;
+        o.d3d7DeviceKind = state.d3d7DeviceKind;
+        o.viewportData = state.viewportData;
+        for (const [name, address] of state.parentInterfaces) o.parentInterfaces.set(name, address);
+        o.lights = new Map(state.lights);
+        o.lightsEnabled = new Set(state.lightsEnabled);
+        o.stateBlocks = new Map(state.stateBlocks.map(([id, block]) => [id, restoreStateBlock(block)]));
+        o.recordingStateBlock = state.recordingStateBlock ? restoreStateBlock(state.recordingStateBlock) : null;
+        for (const [id, refs] of state.blockTextureRefs) {
+            const block = o.stateBlocks.get(id);
+            if (block) o.stateBlockTextureRefs.set(block, refs.map(ref => ref === null ? null : object(ref) as BaseComObject));
+        }
+        if (o.recordingStateBlock && state.recordingTextureRefs.length) {
+            o.stateBlockTextureRefs.set(o.recordingStateBlock,
+                state.recordingTextureRefs.map(ref => ref === null ? null : object(ref) as BaseComObject));
+        }
+
+        return o;
     }
 
     constructor(vtableAddress: number) {

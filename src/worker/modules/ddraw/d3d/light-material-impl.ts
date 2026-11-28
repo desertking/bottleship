@@ -212,8 +212,6 @@ export const createLightMaterialExports = (context: DDrawContext): D3DExports =>
     // Reserve/Unreserve tail (9 slots), v2/v3 are 6. So QI hands back a tear-off over
     // the requested version's table, aliased to the same object — material data and the
     // D3DMATERIALHANDLE must stay shared however the guest reached the material.
-    // @transient(keyed by Direct3D material objects, which have no savestate codec, so a capture that holds one is refused by the object graph)
-    const materialTearOffs = new WeakMap<object, Map<string, number>>();
     const materialVTableByIid: Record<string, string> = {
         [IID_IDirect3DMaterial.toLowerCase()]: "IDirect3DMaterial",
         [IID_IDirect3DMaterial2.toLowerCase()]: "IDirect3DMaterial2",
@@ -224,7 +222,7 @@ export const createLightMaterialExports = (context: DDrawContext): D3DExports =>
         const thisPtr = args[0];
         const ppvObject = args[2];
         const obj = resourceProvider.getComObjectByAddress(thisPtr);
-        if (!obj) return E_NOINTERFACE;
+        if (!(obj instanceof Direct3DMaterial3Object)) return E_NOINTERFACE;
         if (!ppvObject || !isValidAddress(mem, ppvObject, 4, "rw")) return E_POINTER;
         if (!args[1] || !isValidAddress(mem, args[1], 16, "r")) return E_POINTER;
 
@@ -246,11 +244,7 @@ export const createLightMaterialExports = (context: DDrawContext): D3DExports =>
 
         // One address per (material, version): QueryInterface is idempotent in COM and a
         // game may compare the pointers it gets back, so a fresh block per call is wrong.
-        let cache = materialTearOffs.get(obj);
-        if (!cache) {
-            cache = new Map();
-            materialTearOffs.set(obj, cache);
-        }
+        const cache = obj.interfaceAddresses;
         let objAddr = cache.get(vtableKey) ?? 0;
         if (!objAddr) {
             objAddr = allocateComObject(context.process.memory, mem, vtableAddr);
