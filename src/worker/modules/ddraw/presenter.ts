@@ -309,10 +309,6 @@ export class DDrawPresenter implements RenderActive {
      * - Flip draws at once; a Flip superseded while a draw is in flight stays a Flip.
      * - An explicit present (throttle off) draws when the current guest slice returns, so
      *   presents within one slice collapse into one draw.
-     * - An implicit present (Unlock/Blt/palette of the primary) is latched: the latest state
-     *   is drawn at the next refresh, once per refresh. A primary that is locked is held for
-     *   at most LOCK_HOLD_MAX_MS from when it was first seen locked; one that stays locked
-     *   is a continuous scanout writer and is drawn once per refresh after that.
      * - An implicit present from Unlock, Blt or BltFast draws the pixels copied at that call,
      *   so a guest that keeps writing the front outside any lock is not sampled mid-pass.
      */
@@ -335,9 +331,13 @@ export class DDrawPresenter implements RenderActive {
 
     private implicitReady(now: number): boolean {
         const locked = (this.pendingSurface as { activeLeaseId?: number } | null)?.activeLeaseId !== undefined;
-        if (!locked) { this.lockedSince = -1; return true; }
+        if (!locked || this.pendingCommit !== null) { this.lockedSince = -1; return true; }
         if (this.lockedSince < 0) this.lockedSince = this.latchedSince;
         return now - this.lockedSince >= LOCK_HOLD_MAX_MS;
+    }
+
+    hasPendingCommit(surface: DirectDrawSurfaceState): boolean {
+        return this.pendingSurface === surface && this.pendingCommit !== null;
     }
 
     private onRefresh(): void {
@@ -351,7 +351,7 @@ export class DDrawPresenter implements RenderActive {
     }
 
     private armBackstop(): void {
-        this.backstopCancel?.();
+        if (this.backstopCancel) return;
         this.backstopCancel = this.presentClock.setTimer(() => {
             this.backstopCancel = null;
             if (!this.pendingIsImplicit()) return;

@@ -119,6 +119,30 @@ describe("presenter: an implicit present draws the pixels of its commit point", 
         expect(drawn[0]!.shown).toEqual(all(0x33));
     });
 
+    test("the last committed image reaches the next refresh during a subsequent lock", async () => {
+        const { presenter, drawn, clock } = presenterWithDrawLog();
+        const surface = primarySurface() as DirectDrawSurfaceState & { activeLeaseId?: number };
+        fill(0x11);
+        void presenter.present(surface, guest, commit);
+        surface.activeLeaseId = 7;
+        fill(0x22, 0, SIZE / 2);
+        expect(presenter.hasPendingCommit(surface)).toBe(true);
+        await clock.advance(REFRESH, REFRESH);
+        expect(drawn.map(frame => frame.shown)).toEqual([all(0x11)]);
+        expect(presenter.hasPendingCommit(surface)).toBe(false);
+    });
+
+    test("new commits do not postpone the backstop when refresh events stop", async () => {
+        const { presenter, drawn, clock } = presenterWithDrawLog();
+        const surface = primarySurface();
+        for (let frame = 1; frame <= 5; frame++) {
+            fill(frame);
+            void presenter.present(surface, guest, commit);
+            await clock.advance(10);
+        }
+        expect(drawn.map(frame => frame.shown)).toEqual([all(5)]);
+    });
+
     test("a Flip, then one committed update per frame: 30 Flips and 30 updates are drawn, each update as committed", async () => {
         const { presenter, drawn, clock } = presenterWithDrawLog();
         const s = primarySurface();

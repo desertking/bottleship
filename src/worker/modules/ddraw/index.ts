@@ -713,6 +713,7 @@ export class DDraw implements IModule {
             const state = primaryObj.getState();
             if (!isRenderSurface(state)) return;
             const locked = state.activeLeaseId !== undefined;
+            if (locked && ctx.presenter.hasPendingCommit(state)) return;
             const indexedCpu = state.format.bpp === 8 && state.everLocked && state.mode === 'CPU'
                 && state.gpuWrittenVersion !== state.version;
             if (!locked && !indexedCpu) return;
